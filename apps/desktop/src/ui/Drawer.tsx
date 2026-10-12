@@ -1,21 +1,44 @@
-import { useEffect, type ReactNode } from "react";
+import { useEffect, useId, useRef, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
 
-/** A panel over the right of the screen. Escape or the dim closes it. */
+const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), '
+  + 'textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
+/** A panel over the right of the screen. Escape or the dim closes it. Focus
+ * moves in when it opens, stays in while it is open, and goes back after. */
 export function Drawer({ title, sub, onClose, children }: {
   title: string; sub?: ReactNode; onClose: () => void; children: ReactNode;
 }) {
+  const box = useRef<HTMLElement>(null);
+  const heading = useId();
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
+  useEffect(() => {
+    const opener = document.activeElement as HTMLElement | null;
+    const first = box.current?.querySelector(".dbody")?.querySelector<HTMLElement>(FOCUSABLE);
+    (first ?? box.current)?.focus();
+    return () => { if (opener?.isConnected) opener.focus(); };
+  }, []);
+
+  function trap(e: ReactKeyboardEvent) {
+    if (e.key !== "Tab" || !box.current) return;
+    const all = [...box.current.querySelectorAll<HTMLElement>(FOCUSABLE)];
+    if (all.length === 0) { e.preventDefault(); return; }
+    const at = document.activeElement;
+    if (e.shiftKey && (at === all[0] || at === box.current)) { e.preventDefault(); all.at(-1)!.focus(); }
+    else if (!e.shiftKey && at === all.at(-1)) { e.preventDefault(); all[0].focus(); }
+  }
+
   return (
     <>
       <div className="dim" onClick={onClose} />
-      <aside className="drawer" role="dialog" aria-modal="true" aria-label={title}>
+      <aside ref={box} className="drawer" role="dialog" aria-modal="true" aria-labelledby={heading}
+             tabIndex={-1} onKeyDown={trap}>
         <div className="dhead">
           <div className="flex-1 min-w-0">
-            <h2>{title}</h2>
+            <h2 id={heading}>{title}</h2>
             {sub && <div className="small">{sub}</div>}
           </div>
           <button type="button" className="btn" onClick={onClose} aria-label="Close">✕</button>
