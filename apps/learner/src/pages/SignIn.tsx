@@ -67,11 +67,13 @@ export function SignIn() {
         ) : (
           <>
             <label className="label">Your code
-              <input className="input" autoComplete="username" autoCapitalize="characters" autoCorrect="off" spellCheck={false}
+              {/* a shared tablet: nothing about the last person is saved or offered to the next */}
+              <input className="input" autoComplete="off" autoCapitalize="characters" autoCorrect="off" spellCheck={false}
                      placeholder="e.g. LL042" value={who} onChange={(e) => setWho(e.target.value)} required />
             </label>
             <label className="label">PIN
-              <input className="input" type="password" inputMode="numeric" autoComplete="current-password" maxLength={8}
+              {/* browsers ignore "off" on a password field; "one-time-code" keeps the PIN out of saved passwords */}
+              <input className="input" type="password" inputMode="numeric" autoComplete="one-time-code" maxLength={8}
                      value={secret} onChange={(e) => setSecret(e.target.value.replace(/\D/g, ""))} required />
             </label>
           </>

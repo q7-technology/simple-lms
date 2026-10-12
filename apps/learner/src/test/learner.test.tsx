@@ -133,4 +133,45 @@ describe("the learner app", () => {
     await userEvent.click(screen.getByRole("button", { name: "Sign in" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("Wrong code or PIN.");
   });
+
+  it("keeps a code and PIN out of the browser's saved passwords", async () => {
+    stubApi(answers);
+    renderApp();
+    expect(await screen.findByLabelText("Your code")).toHaveAttribute("autocomplete", "off");
+    expect(screen.getByLabelText("PIN")).toHaveAttribute("autocomplete", "one-time-code");
+  });
+
+  it("drops the session at once when another tab signs out", async () => {
+    stubApi(answers);
+    renderApp(KIM);
+    expect(await screen.findByRole("heading", { name: "My training" })).toBeInTheDocument();
+    window.localStorage.removeItem("lms.learner.session");
+    act(() => { window.dispatchEvent(new StorageEvent("storage", { key: "lms.learner.session", newValue: null })); });
+    expect(await screen.findByLabelText("Your code")).toBeInTheDocument();
+    expect(screen.queryByText("First aid")).not.toBeInTheDocument();
+  });
+
+  it("counts a tap in another tab as activity here", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const start = Date.now();
+      stubApi(answers);
+      renderApp(KIM, start);
+      expect(await screen.findByRole("heading", { name: "My training" })).toBeInTheDocument();
+      // ten minutes on, the other tab is tapped; ten more and this tab checks
+      const stored = JSON.parse(window.localStorage.getItem("lms.learner.session")!);
+      window.localStorage.setItem("lms.learner.session", JSON.stringify({ ...stored, active_at: start + 10 * 60_000 }));
+      vi.setSystemTime(start + 20 * 60_000);
+      act(() => { vi.advanceTimersByTime(15_000); });
+      expect(screen.getByRole("heading", { name: "My training" })).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("says plainly when Simple LMS isn't answering", async () => {
+    stubApi((method, url) => url === "/v1/people/LL042/training" ? json(500, {}) : answers(method, url));
+    renderApp(KIM);
+    expect(await screen.findByRole("alert")).toHaveTextContent("Simple LMS isn't answering right now.");
+  });
 });

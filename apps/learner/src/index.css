@@ -50,3 +50,9 @@
   .t-amber { background: var(--color-amber-bg); color: var(--color-amber-ink); }
   .t-green { background: var(--color-green-bg); color: var(--color-green-ink); }
 }
+
+/* read aloud, not shown */
+.sr-only {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
+}

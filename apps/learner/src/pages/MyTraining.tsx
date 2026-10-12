@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { api } from "../api/client";
+import { api, ApiError } from "../api/client";
 import type { Training, TrainingItem } from "../api/types";
 import { useSession } from "../auth/Session";
 import { groupTraining, whenLine } from "../lib/training";
@@ -8,7 +8,7 @@ import { Logo } from "../ui";
 function Group({ title, tone, items, empty }: { title: string; tone: string; items: TrainingItem[]; empty: string }) {
   return (
     <section className="group" aria-label={title}>
-      <h2>{title}<span className={`count ${tone}`}>{items.length}</span></h2>
+      <h2>{title}<span className="sr-only">, </span><span className={`count ${tone}`}>{items.length}</span></h2>
       {items.length === 0 && <div className="small" style={{ color: "var(--color-muted)" }}>{empty}</div>}
       {items.map((i) => (
         <div key={i.key} className="item"><b>{i.name}</b><span>{whenLine(i)}</span></div>
@@ -28,7 +28,10 @@ export function MyTraining() {
     try {
       setTraining(await api.get<Training>(`/v1/people/${encodeURIComponent(person!.code)}/training`));
     } catch (e) {
-      setError((e as Error).message);
+      // plain words, never "Simple LMS answered 500"
+      setError(e instanceof ApiError && e.status >= 500
+        ? "Simple LMS isn't answering right now. Try again in a moment."
+        : (e as Error).message);
     }
   }, [person]);
 
@@ -47,7 +50,7 @@ export function MyTraining() {
           <button type="button" className="big primary" onClick={() => void load()}>Try again</button>
         </>
       )}
-      {!g && !error && <div style={{ color: "var(--color-muted)" }}>Loading…</div>}
+      {!g && !error && <div aria-live="polite" style={{ color: "var(--color-muted)" }}>Loading…</div>}
       {g && training!.items.length === 0 && (
         <div className="item"><b>Nothing to do</b><span>Nothing is asked of you yet. Check with your supervisor.</span></div>
       )}

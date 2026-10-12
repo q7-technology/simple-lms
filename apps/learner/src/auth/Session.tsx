@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { api } from "../api/client";
 import type { Me, SessionOut } from "../api/types";
 
@@ -33,15 +33,19 @@ function logout(token: string) {
   void fetch("/v1/auth/logout", { method: "POST", headers: { Authorization: `Bearer ${token}` } }).catch(() => undefined);
 }
 
+/** What the device holds, as it is. */
+function peek(): Stored | null {
+  try {
+    return JSON.parse(window.localStorage.getItem(KEY) ?? "null") as Stored | null;
+  } catch {
+    return null;
+  }
+}
+
 /** Who is on this device, if they have not left it alone too long. A session
  * left idle is wiped from the device, token and all, not just ignored. */
 function read(): Stored | null {
-  let s: Stored | null;
-  try {
-    s = JSON.parse(window.localStorage.getItem(KEY) ?? "null") as Stored | null;
-  } catch {
-    s = null;
-  }
+  const s = peek();
   if (s && !idleTooLong(s)) return s;
   write(null);
   if (s?.token) logout(s.token);
@@ -70,19 +74,35 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     api.onSignedOut = signOut;
   }, [signOut]);
 
+  // the last tap in any tab on this device: they share one session
+  const activeAt = useRef(session?.active_at ?? 0);
+
   useEffect(() => {
     if (!session) return;
+    activeAt.current = session.active_at;
     const check = () => {
-      if (!idleTooLong(session)) return false;
+      const shared = peek();
+      if (shared?.token === session.token) activeAt.current = Math.max(activeAt.current, shared.active_at);
+      if (!idleTooLong({ ...session, active_at: activeAt.current })) return false;
       signOut();
       return true;
     };
     // a tap after the idle time is the next person: it signs out, never extends
     const touch = () => {
       if (check()) return;
-      const s = { ...session, active_at: Date.now() };
-      write(s);
-      session.active_at = s.active_at;
+      activeAt.current = Date.now();
+      write({ ...session, active_at: activeAt.current });
+    };
+    // another tab signed out, or someone else signed in there: drop this one at once
+    const elsewhere = (e: StorageEvent) => {
+      if (e.key !== KEY && e.key !== null) return;
+      const shared = peek();
+      if (shared?.token === session.token) {
+        activeAt.current = Math.max(activeAt.current, shared.active_at);
+        return;
+      }
+      api.token = shared?.token ?? null;
+      setSession(shared && !idleTooLong(shared) ? shared : null);
     };
     // timers stop while a tablet sleeps, so check again the moment it wakes
     const woke = () => { if (document.visibilityState === "visible") check(); };
@@ -92,7 +112,9 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     window.addEventListener("focus", woke);
     window.addEventListener("pageshow", woke);
     document.addEventListener("visibilitychange", woke);
+    window.addEventListener("storage", elsewhere);
     return () => {
+      window.removeEventListener("storage", elsewhere);
       clearInterval(every);
       window.removeEventListener("pointerdown", touch, true);
       window.removeEventListener("keydown", touch, true);
