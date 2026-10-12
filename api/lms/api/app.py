@@ -5,7 +5,7 @@ from sqlalchemy import text
 
 from lms.api import errors
 from lms.api.deps import DB
-from lms.api.routes import auth, competencies, roles
+from lms.api.routes import auth, competencies, people, roles
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 
@@ -20,6 +20,7 @@ errors.install(app)
 
 v1 = APIRouter(prefix="/v1")
 v1.include_router(auth.router)
+v1.include_router(people.router)
 v1.include_router(roles.router)
 v1.include_router(competencies.router)
 
