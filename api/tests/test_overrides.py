@@ -47,3 +47,10 @@ def test_a_supervisor_cannot_waive(client, supervisor_headers, kim):
 
 def test_an_unknown_competency_is_404(client, manager_headers, kim):
     assert override(client, manager_headers, "extra", competency="nope").status_code == 404
+
+
+@pytest.mark.parametrize("headers, code", [("manager_headers", "MG001"), ("admin_headers", "AD001")])
+def test_nobody_waives_their_own(client, request, kim, headers, code):
+    r = client.post(f"/v1/people/{code}/overrides", headers=request.getfixturevalue(headers),
+                    json={"competency": "first-aid", "kind": "waive", "note": "I'm fine"})
+    assert r.status_code == 403 and r.json()["code"] == "own_override"

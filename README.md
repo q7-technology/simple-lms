@@ -53,7 +53,8 @@ their code and PIN (set when they are added, or reset by a manager under
 Due soon and Done. A PIN session ends after 15 minutes without a tap, and the
 app forgets that person on the device then too, even if nobody touches it, so
 a shared tablet is safe; signing out in one tab signs out the others. The PIN
-form doesn't offer to save a code or PIN in the browser. Five wrong PINs lock
+form asks the browser not to remember a code or PIN (if a browser offers
+anyway, say no on a shared tablet). Five wrong PINs lock
 the PIN until a manager sets a new one; five wrong passwords lock the
 password for 15 minutes.
 

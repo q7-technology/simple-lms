@@ -156,6 +156,8 @@ policies get their own ways in with later build steps.
   person for a competency their roles don't; a waiver lets them off one their
   roles do; a clear puts them back to what their roles say (`409 { "code":
   "nothing_to_clear" }` if there is nothing to clear). The note is required.
+  Nobody adds an extra, waiver or clear for themselves, admins included
+  (`403 { "code": "own_override" }`).
   The answer is the row just added, in the shape above.
 
 ## The training record

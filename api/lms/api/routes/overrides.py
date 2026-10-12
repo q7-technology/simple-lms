@@ -11,7 +11,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 
 from lms.api.deps import DB, Principal, require
-from lms.api.errors import Conflict
+from lms.api.errors import Conflict, Forbidden, NotFound
 from lms.api.routes.competencies import get_competency
 from lms.api.routes.people import get_person, may_manage
 from lms.api.schemas import CompetencyRef, PersonRef, competency_ref, person_ref
@@ -50,6 +50,8 @@ def latest_overrides(db, person_id: int) -> list[PersonOverride]:
 def current_overrides(code: str, db: DB, who: Principal = require("people:read")):
     """The extras and waivers in force now, by competency name."""
     p = get_person(db, code)
+    if not who.sees(p):
+        raise NotFound(f"no person {code}")
     rows = [o for o in latest_overrides(db, p.id) if o.kind != "clear"]
     return [override_out(o) for o in sorted(rows, key=lambda o: o.competency.name)]
 
@@ -57,6 +59,9 @@ def current_overrides(code: str, db: DB, who: Principal = require("people:read")
 @router.post("/people/{code}/overrides", status_code=201, response_model=OverrideOut)
 def add_override(code: str, body: OverrideIn, db: DB, who: Principal = require("people:write")):
     p = get_person(db, code)
+    # a waiver of your own does what a grant of your own would (rule 3), admins included
+    if p.id == who.person.id:
+        raise Forbidden("nobody changes what is asked of them: ask another manager", "own_override")
     may_manage(who, p.permission)
     c = get_competency(db, body.competency)
     if body.kind == "clear":
