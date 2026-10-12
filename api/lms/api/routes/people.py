@@ -189,9 +189,12 @@ def list_people(db: DB, active: bool | None = None,
     if active is not None:
         query = query.where(Person.active.is_(active))
     if q:
-        like = f"%{q.strip()}%"
-        query = query.where(or_(Person.code.ilike(like), Person.name.ilike(like),
-                                Person.email.ilike(like)))
+        # % and _ in what was typed are only themselves
+        typed = q.strip().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        like = f"%{typed}%"
+        query = query.where(or_(Person.code.ilike(like, escape="\\"),
+                                Person.name.ilike(like, escape="\\"),
+                                Person.email.ilike(like, escape="\\")))
     if role:
         query = query.join(PersonRole, PersonRole.person_id == Person.id).join(
             Role, Role.id == PersonRole.role_id).where(Role.key == normal_key(role))

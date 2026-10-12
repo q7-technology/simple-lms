@@ -119,6 +119,18 @@ def test_list_search_and_filter(client, manager_headers, manager, roles):
     assert [p["code"] for p in r["items"]] == ["LL042"]
 
 
+def test_a_search_for_a_wildcard_matches_it_and_nothing_else(client, manager_headers, manager):
+    make(client, manager_headers, KIM)
+    make(client, manager_headers, {"code": "LL043", "name": "Ash_Patel 100%"})
+
+    def codes(q):
+        r = client.get("/v1/people", params={"q": q}, headers=manager_headers).json()
+        return [p["code"] for p in r["items"]]
+
+    assert codes("%") == ["LL043"] and codes("_") == ["LL043"]
+    assert codes("\\") == []
+
+
 def test_deactivated_not_deleted_and_signed_out(client, manager_headers):
     make(client, manager_headers, KIM)
     token = pin_login(client, "LL042")["token"]
