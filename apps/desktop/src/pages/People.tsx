@@ -166,15 +166,18 @@ function PersonDrawer({ code, supervisors, onClose, onChanged }: {
   const p = person.data;
   if (!p) return <Drawer title={code} onClose={onClose}><Problem error={person.error} /></Drawer>;
   const mine = me?.permission === "admin" || !["manager", "admin"].includes(p.permission);
+  const self = me?.code === p.code;
 
   async function change(what: string, fn: () => Promise<unknown>) {
     setSaid(null);
-    if (await action.run(fn)) {
+    const ok = await action.run(fn);
+    if (ok) {
       setSaid(what);
       person.reload();
       overrides.reload();
       onChanged();
     }
+    return ok;
   }
 
   return (
@@ -185,7 +188,7 @@ function PersonDrawer({ code, supervisors, onClose, onChanged }: {
       {mine && (
         <>
           <Details key={`d${p.code}${p.name}${p.email}${p.permission}${p.supervisor?.code}`} person={p}
-                   permissions={permissions} supervisors={supervisors} busy={action.busy}
+                   permissions={permissions} supervisors={supervisors} self={self} busy={action.busy}
                    onSave={(body) => change("Saved.", () => api.patch(path, body))} />
           <RolesCard key={`r${p.roles.map((r) => r.key).join()}`} person={p} roles={roles.data?.items ?? []} busy={action.busy}
                  onSave={(keys) => change("Roles saved.", () => api.put(`${path}/roles`, { roles: keys }))} />
@@ -195,21 +198,23 @@ function PersonDrawer({ code, supervisors, onClose, onChanged }: {
                   onSave={(pin) => change("PIN set.", () => api.post(`${path}/pin`, { pin }))} />
           <Secret label="New password" kind="password" busy={action.busy}
                   onSave={(password) => change("Password set.", () => api.post(`${path}/password`, { password }))} />
-          <div>
+          {self && <div className="small">You can't change your own permission or deactivate yourself.</div>}
+          {!self && <div>
             {p.active
               ? <button type="button" className="btn danger" disabled={action.busy}
                         onClick={() => void change("Deactivated. Their records stay.", () => api.post(`${path}/deactivate`))}>Deactivate</button>
               : <button type="button" className="btn" disabled={action.busy}
                         onClick={() => void change("Reactivated.", () => api.post(`${path}/reactivate`))}>Reactivate</button>}
-          </div>
+          </div>}
         </>
       )}
     </Drawer>
   );
 }
 
-function Details({ person, permissions, supervisors, busy, onSave }: {
-  person: Person; permissions: Permission[]; supervisors: Person[]; busy: boolean; onSave: (body: unknown) => void;
+function Details({ person, permissions, supervisors, self, busy, onSave }: {
+  person: Person; permissions: Permission[]; supervisors: Person[]; self: boolean; busy: boolean;
+  onSave: (body: unknown) => void;
 }) {
   const [name, setName] = useState(person.name);
   const [email, setEmail] = useState(person.email ?? "");
@@ -218,17 +223,19 @@ function Details({ person, permissions, supervisors, busy, onSave }: {
   return (
     <form className="card flex flex-col gap-3" onSubmit={(e) => {
       e.preventDefault();
-      onSave({ name, email: email || null, permission, supervisor: supervisor || null });
+      onSave({ name, email: email || null, ...(self ? {} : { permission }), supervisor: supervisor || null });
     }}>
       <div className="eyebrow">Details</div>
       <label className="label">Name<input className="field" value={name} onChange={(e) => setName(e.target.value)} required /></label>
       <label className="label">Email<input className="field" type="email" value={email} onChange={(e) => setEmail(e.target.value)} /></label>
       <div className="grid grid-cols-2 gap-3">
-        <label className="label">Permission
-          <select className="field" value={permission} onChange={(e) => setPermission(e.target.value as Permission)}>
-            {permissions.map((x) => <option key={x} value={x}>{x}</option>)}
-          </select>
-        </label>
+        {!self && (
+          <label className="label">Permission
+            <select className="field" value={permission} onChange={(e) => setPermission(e.target.value as Permission)}>
+              {permissions.map((x) => <option key={x} value={x}>{x}</option>)}
+            </select>
+          </label>
+        )}
         <SupervisorSelect value={supervisor} onChange={setSupervisor} supervisors={supervisors} not={person.code} />
       </div>
       <button type="submit" className="btn primary" disabled={busy}>Save details</button>
@@ -248,16 +255,15 @@ function RolesCard({ person, roles, busy, onSave }: { person: Person; roles: Rol
 
 function Overrides({ current, competencies, busy, onAdd }: {
   current: Override[]; competencies: Competency[]; busy: boolean;
-  onAdd: (body: { competency: string; kind: string; note: string }) => void;
+  onAdd: (body: { competency: string; kind: string; note: string }) => Promise<boolean>;
 }) {
   const [competency, setCompetency] = useState("");
   const [kind, setKind] = useState("extra");
   const [note, setNote] = useState("");
   return (
-    <form className="card flex flex-col gap-3" onSubmit={(e) => {
+    <form className="card flex flex-col gap-3" onSubmit={async (e) => {
       e.preventDefault();
-      onAdd({ competency, kind, note: note.trim() });
-      setNote("");
+      if (await onAdd({ competency, kind, note: note.trim() })) setNote("");
     }}>
       <div className="eyebrow">Extras and waivers</div>
       {current.length === 0 && <div className="small">None: their roles decide what they need.</div>}
@@ -288,10 +294,12 @@ function Overrides({ current, competencies, busy, onAdd }: {
   );
 }
 
-function Secret({ label, kind, busy, onSave }: { label: string; kind: "pin" | "password"; busy: boolean; onSave: (v: string) => void }) {
+function Secret({ label, kind, busy, onSave }: {
+  label: string; kind: "pin" | "password"; busy: boolean; onSave: (v: string) => Promise<boolean>;
+}) {
   const [value, setValue] = useState("");
   return (
-    <form className="card flex items-end gap-3" onSubmit={(e) => { e.preventDefault(); onSave(value); setValue(""); }}>
+    <form className="card flex items-end gap-3" onSubmit={async (e) => { e.preventDefault(); if (await onSave(value)) setValue(""); }}>
       <label className="label flex-1">{label}
         {kind === "pin"
           ? <input className="field" inputMode="numeric" pattern="[0-9]{4,8}" value={value} onChange={(e) => setValue(e.target.value)} required />
