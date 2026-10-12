@@ -1,0 +1,78 @@
+# Simple LMS — instructions for Claude Code
+
+Read `docs/plans/2026-10-12-simple-lms-design.md` before touching anything. It
+is the design, and the decisions in it are settled unless a human changes them
+there first.
+
+## What this is
+An open source, self-hosted learning management system by Q7 Technology, for
+workplace training: inductions, online modules, practical sign-offs, outside
+tickets and licences, and signed policies. It answers one question for a
+business and its auditors: is each person current for everything their job
+needs? Desktop web app (managers, supervisors, admins), learner PWA (phone or
+shared tablet), one Python API, one PostgreSQL database. It sits beside
+Simple WMS, Simple TMS and Platen and works without any of them. Other
+systems only ever talk to the API.
+
+## Four rules that never bend
+1. **The training record is append-only.** Never UPDATE or DELETE a
+   `competency_record`, `quiz_attempt` or `signoff` row (nor a
+   `person_override`). A mistake is corrected by a new row (`revoked`, with a
+   note). People are deactivated, never deleted.
+2. **Status is worked out, never stored by hand.** It comes from the records
+   and the date, so it cannot drift. `competency.expiring` and
+   `competency.lapsed` fire from the daily job, each once, each with an event
+   id.
+3. **Nobody grants their own competency.** A practical is signed off by a
+   supervisor who is not the learner; a ticket is verified by a manager who is
+   not the learner. A module pass is the only thing a learner earns alone.
+4. **The API is the only door.** The desktop and the learner app are ordinary
+   API clients with a session token, whichever way the person signed in. If
+   the UI can do it, a partner can too.
+
+## Stack (decided)
+- API: Python 3.12, FastAPI, Pydantic v2, SQLAlchemy 2, Alembic.
+- Database: PostgreSQL 16.
+- Queue: a Postgres table drained by a Python worker with backoff (1 min, 5,
+  30, 2 h), for webhooks, email and print jobs, and the daily job. No Redis
+  or RabbitMQ. (The worker arrives with build step 2.)
+- Front ends: Vite + React + TypeScript + Tailwind. One repo, two entry
+  points: `apps/desktop` and `apps/learner`. The learner app is a PWA at
+  `/learn/` whose service worker caches the app shell, as the Simple TMS
+  driver app's does.
+- Hosting: Ubuntu + Docker Compose: `api`, `worker`, `db`, `caddy`, static
+  builds for both apps. Secrets in `.env` on the host.
+
+## Repo layout
+```
+CLAUDE.md            this file
+docs/plans/          the design and the implementation plans
+docs/api.md          every endpoint: keep it in step with the routes
+.github/workflows/   CI: the tests, both apps' builds, and a Compose start
+api/                 FastAPI app (package lms), migrations, tests
+apps/desktop/        the desktop app for managers, supervisors and admins
+apps/learner/        the learner app, a PWA served at /learn/
+deploy/Caddyfile     the only door in
+docker-compose.yml   api, db, caddy (the worker comes with step 2)
+```
+`npm` commands run from the app's folder (`apps/desktop/` or `apps/learner/`):
+`npm test`, `npm run typecheck`, `npm run build` (Caddy serves each app's
+`dist`).
+
+## Conventions
+- Status: `current`, `expiring` (within 30 days), `lapsed`, `missing`,
+  `waived`, `not_required`, worked out by `lms/services/status.py` and
+  nowhere else. The latest record for a person and competency is the one
+  that counts.
+- Sister apps: nothing in Simple WMS or Simple TMS changes for Simple LMS. It
+  publishes signed events and a competency API (build step 6).
+- Printing: Simple LMS never renders a document. Certificates and skills
+  cards go to Platen (or any print service) as `template` + JSON `data`
+  through the queue.
+- Build order is in the design under "Build order". Finish a step so it is
+  usable before starting the next.
+- Tests: pytest for the API against a real PostgreSQL, Vitest for the apps.
+- Australian English in copy. No "utilise", no "leverage".
+- Git: no `Co-Authored-By` lines, no tooling or generated-by trailers, no
+  session links. A commit message is the subject line and, if needed, a
+  short body about the change. Nothing else.
