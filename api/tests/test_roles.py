@@ -46,6 +46,22 @@ def test_an_unknown_or_deactivated_competency_is_refused(client, manager_headers
     assert r.status_code == 422 and "deactivated" in r.json()["errors"][0]["message"]
 
 
+def test_a_role_keeps_a_competency_deactivated_since(client, manager_headers, catalogue):
+    client.put("/v1/roles/forklift-operator/requirements", headers=manager_headers,
+               json={"competencies": ["forklift-licence"]})
+    client.post("/v1/competencies/forklift-licence/deactivate", headers=manager_headers)
+    role = client.get("/v1/roles/forklift-operator", headers=manager_headers).json()
+    r = client.put("/v1/roles/forklift-operator/requirements", headers=manager_headers,
+                   json={"competencies": [c["key"] for c in role["competencies"]]})
+    assert r.status_code == 200, r.text
+    assert [c["key"] for c in r.json()["competencies"]] == ["forklift-licence"]
+    client.post("/v1/competencies/site-induction/deactivate", headers=manager_headers)
+    r = client.put("/v1/roles/forklift-operator/requirements", headers=manager_headers,
+                   json={"competencies": ["forklift-licence", "site-induction"]})
+    assert r.status_code == 422
+    assert "site-induction is deactivated" in r.json()["errors"][0]["message"]
+
+
 def test_rename_and_list(client, manager_headers, supervisor_headers, catalogue):
     r = client.patch("/v1/roles/forklift-operator", headers=manager_headers,
                      json={"name": "Forklift operator (LF)"})

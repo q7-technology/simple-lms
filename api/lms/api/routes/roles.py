@@ -98,10 +98,11 @@ def set_requirements(key: str, body: RequirementsIn, db: DB,
     keys = list(dict.fromkeys(normal_key(k) for k in body.competencies))
     found = {c.key: c for c in db.execute(
         select(Competency).where(Competency.key.in_(keys))).scalars()}
+    already = {c.key for c in r.competencies}  # a deactivated one already required may stay
     for k in keys:
         if k not in found:
             raise FieldError("competencies", f"no competency {k}")
-        if not found[k].active:
+        if not found[k].active and k not in already:
             raise FieldError("competencies", f"{k} is deactivated")
     r.competencies = [found[k] for k in keys]
     db.commit()
