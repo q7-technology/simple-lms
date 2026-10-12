@@ -1,0 +1,36 @@
+{
+	# Listen on the host's ports (LMS_HTTP_PORT, LMS_HTTPS_PORT), so Simple LMS
+	# can run beside a sibling's Caddy, which may already have 80 and 443.
+	http_port {$LMS_HTTP_PORT:80}
+	https_port {$LMS_HTTPS_PORT:443}
+	# Caddy's own redirect leaves the port out, so the one below names it.
+	auto_https disable_redirects
+}
+
+http://{$LMS_DOMAIN} {
+	redir https://{host}:{$LMS_HTTPS_PORT:443}{uri} 308
+}
+
+{$LMS_DOMAIN} {
+	encode gzip
+	header {
+		X-Content-Type-Options nosniff
+		Referrer-Policy same-origin
+	}
+
+	# The API is the only door.
+	handle /v1/* {
+		reverse_proxy api:8000
+	}
+	handle /docs* {
+		reverse_proxy api:8000
+	}
+	handle /openapi.json {
+		reverse_proxy api:8000
+	}
+
+	# The desktop and the learner app arrive with Task 21.
+	handle {
+		respond "Simple LMS. The API is at /v1, its docs at /docs." 404
+	}
+}

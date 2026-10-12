@@ -17,6 +17,52 @@ services:
       timeout: 3s
       retries: 20
 
+  api:
+    build: ./api
+    restart: unless-stopped
+    # migrations run on every start, before the API takes requests
+    command: sh -c "alembic upgrade head && uvicorn lms.api.app:app --host 0.0.0.0 --port 8000"
+    environment:
+      LMS_DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-lms}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-lms}
+      LMS_TIMEZONE: ${LMS_TIMEZONE:-Australia/Melbourne}
+    depends_on:
+      db:
+        condition: service_healthy
+    expose:
+      - "8000"
+    # Caddy is the only door in a real install. Published on the host as well
+    # for local work and CI.
+    ports:
+      - "127.0.0.1:${LMS_API_PORT:-8033}:8000"
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request;urllib.request.urlopen('http://127.0.0.1:8000/v1/health')\""]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  # The worker arrives with build step 2, with the queue it drains (the
+  # daily job, email reminders, and later the webhooks and print jobs).
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    environment:
+      LMS_DOMAIN: ${LMS_DOMAIN:-localhost}
+      LMS_HTTP_PORT: ${LMS_HTTP_PORT:-80}
+      LMS_HTTPS_PORT: ${LMS_HTTPS_PORT:-443}
+    # The same port inside and out: Caddy names it in its redirect to https.
+    ports:
+      - "${LMS_HTTP_PORT:-80}:${LMS_HTTP_PORT:-80}"
+      - "${LMS_HTTPS_PORT:-443}:${LMS_HTTPS_PORT:-443}"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - api
 
 volumes:
   pgdata:
+  caddy_data:
+  caddy_config:
