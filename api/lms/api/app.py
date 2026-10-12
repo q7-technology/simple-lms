@@ -5,7 +5,7 @@ from sqlalchemy import text
 
 from lms.api import errors
 from lms.api.deps import DB
-from lms.api.routes import auth, competencies, people, roles
+from lms.api.routes import auth, competencies, overrides, people, roles
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 
@@ -23,6 +23,7 @@ v1.include_router(auth.router)
 v1.include_router(people.router)
 v1.include_router(roles.router)
 v1.include_router(competencies.router)
+v1.include_router(overrides.router)
 
 
 @v1.get("/health", tags=["system"])
