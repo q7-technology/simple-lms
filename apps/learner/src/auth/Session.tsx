@@ -20,20 +20,32 @@ function idleTooLong(s: Stored, now = Date.now()): boolean {
   return now - s.active_at > s.person.idle_seconds * 1000;
 }
 
-function read(): Stored | null {
-  try {
-    const s = JSON.parse(window.localStorage.getItem(KEY) ?? "null") as Stored | null;
-    return s && !idleTooLong(s) ? s : null;
-  } catch {
-    return null;
-  }
-}
 
 function write(s: Stored | null) {
   try {
     if (s) window.localStorage.setItem(KEY, JSON.stringify(s));
     else window.localStorage.removeItem(KEY);
   } catch { /* private mode: signed in for this page only */ }
+}
+
+function logout(token: string) {
+  // tell the API too; signed out here whatever it says
+  void fetch("/v1/auth/logout", { method: "POST", headers: { Authorization: `Bearer ${token}` } }).catch(() => undefined);
+}
+
+/** Who is on this device, if they have not left it alone too long. A session
+ * left idle is wiped from the device, token and all, not just ignored. */
+function read(): Stored | null {
+  let s: Stored | null;
+  try {
+    s = JSON.parse(window.localStorage.getItem(KEY) ?? "null") as Stored | null;
+  } catch {
+    s = null;
+  }
+  if (s && !idleTooLong(s)) return s;
+  write(null);
+  if (s?.token) logout(s.token);
+  return null;
 }
 
 /** Who is signed in on this device. On a shared tablet the app forgets them
@@ -51,8 +63,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     api.token = null;
     write(null);
     setSession(null);
-    // tell the API too; signed out here whatever it says
-    if (token) void fetch("/v1/auth/logout", { method: "POST", headers: { Authorization: `Bearer ${token}` } }).catch(() => undefined);
+    if (token) logout(token);
   }, []);
 
   useEffect(() => {
@@ -61,18 +72,33 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (!session) return;
+    const check = () => {
+      if (!idleTooLong(session)) return false;
+      signOut();
+      return true;
+    };
+    // a tap after the idle time is the next person: it signs out, never extends
     const touch = () => {
+      if (check()) return;
       const s = { ...session, active_at: Date.now() };
       write(s);
       session.active_at = s.active_at;
     };
-    const check = setInterval(() => { if (idleTooLong(session)) signOut(); }, CHECK_EVERY_MS);
-    window.addEventListener("pointerdown", touch);
-    window.addEventListener("keydown", touch);
+    // timers stop while a tablet sleeps, so check again the moment it wakes
+    const woke = () => { if (document.visibilityState === "visible") check(); };
+    const every = setInterval(check, CHECK_EVERY_MS);
+    window.addEventListener("pointerdown", touch, true);
+    window.addEventListener("keydown", touch, true);
+    window.addEventListener("focus", woke);
+    window.addEventListener("pageshow", woke);
+    document.addEventListener("visibilitychange", woke);
     return () => {
-      clearInterval(check);
-      window.removeEventListener("pointerdown", touch);
-      window.removeEventListener("keydown", touch);
+      clearInterval(every);
+      window.removeEventListener("pointerdown", touch, true);
+      window.removeEventListener("keydown", touch, true);
+      window.removeEventListener("focus", woke);
+      window.removeEventListener("pageshow", woke);
+      document.removeEventListener("visibilitychange", woke);
     };
   }, [session, signOut]);
 

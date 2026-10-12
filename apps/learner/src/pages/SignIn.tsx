@@ -4,11 +4,15 @@ import { ApiError } from "../api/client";
 import { useSession } from "../auth/Session";
 import { Logo } from "../ui";
 
-function refusal(e: unknown): string {
+function refusal(e: unknown, withPassword: boolean): string {
   if (!(e instanceof ApiError)) return (e as Error).message;
   if (e.code === "wrong_pin") return "Wrong code or PIN.";
   if (e.code === "wrong_password") return "Wrong email or password.";
   if (e.code === "locked") return e.message.charAt(0).toUpperCase() + e.message.slice(1) + ".";
+  // no reason given: still plain words, never "Simple LMS answered 401"
+  if (e.status === 401) return withPassword ? "Wrong email or password." : "Wrong code or PIN.";
+  if (e.status === 429) return "Too many tries. Wait a minute and try again.";
+  if (e.status >= 500) return "Simple LMS couldn't sign you in just now. Try again in a minute.";
   return e.message;
 }
 
@@ -31,7 +35,7 @@ export function SignIn() {
       if (withPassword) await signInWithPassword(who.trim(), secret);
       else await signInWithPin(who.trim(), secret);
     } catch (err) {
-      setError(refusal(err));
+      setError(refusal(err, withPassword));
       setSecret("");
     } finally {
       setBusy(false);

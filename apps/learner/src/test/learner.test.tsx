@@ -91,5 +91,46 @@ describe("the learner app", () => {
     stubApi(answers);
     renderApp(KIM, Date.now() - 16 * 60_000);
     expect(await screen.findByRole("heading", { name: "Sign in" })).toBeInTheDocument();
+    expect(window.localStorage.getItem("lms.learner.session")).toBeNull();
+  });
+
+  it("does not let the next person's tap keep the last person signed in", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      stubApi(answers);
+      renderApp(KIM);
+      expect(await screen.findByRole("heading", { name: "My training" })).toBeInTheDocument();
+      // the tablet slept, so the check never ran; then someone taps it
+      vi.setSystemTime(Date.now() + 16 * 60_000);
+      await act(async () => { window.dispatchEvent(new Event("pointerdown")); });
+      expect(await screen.findByRole("heading", { name: "Sign in" })).toBeInTheDocument();
+      expect(screen.queryByText("First aid")).toBeNull();
+      expect(window.localStorage.getItem("lms.learner.session")).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("forgets the last person as soon as a sleeping tablet wakes", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      stubApi(answers);
+      renderApp(KIM);
+      expect(await screen.findByRole("heading", { name: "My training" })).toBeInTheDocument();
+      vi.setSystemTime(Date.now() + 16 * 60_000);
+      await act(async () => { document.dispatchEvent(new Event("visibilitychange")); });
+      expect(await screen.findByRole("heading", { name: "Sign in" })).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("says something plain when signing in fails without a reason", async () => {
+    stubApi((_m, url) => url === "/v1/auth/pin-login" ? json(401, {}) : null);
+    renderApp();
+    await userEvent.type(await screen.findByLabelText("Your code"), "LL042");
+    await userEvent.type(screen.getByLabelText("PIN"), "0000");
+    await userEvent.click(screen.getByRole("button", { name: "Sign in" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Wrong code or PIN.");
   });
 });
