@@ -1,0 +1,89 @@
+@import "tailwindcss";
+
+/* Simple LMS colours: the siblings' bones, training blue for its own. The
+ * matrix uses the shared green, amber, red and grey. Amber and red text use
+ * their darker ink, never the fill. */
+@theme {
+  --color-page: #F3F5F8;
+  --color-ink: #17202B;
+  --color-ink-2: #48566A;
+  --color-muted: #5B6778;
+  --color-blue: #2F6FB8;
+  --color-blue-dark: #23558E;
+  --color-tint: #E8F0FA;
+  --color-line: #DCE3EC;
+  --color-line-2: #C8D3E0;
+  --color-green: #1F8A5B;
+  --color-green-ink: #146B45;
+  --color-green-bg: #E3F3EA;
+  --color-amber: #E8A317;
+  --color-amber-ink: #8A5A00;
+  --color-amber-bg: #FFF3D6;
+  --color-red: #C9343D;
+  --color-red-ink: #A3242C;
+  --color-red-bg: #FCE9EA;
+  --color-grey-bg: #EEF1F4;
+  --font-sans: Manrope, ui-sans-serif, system-ui, sans-serif;
+  --shadow-soft: 0 6px 20px rgba(23, 32, 43, 0.08);
+  --shadow-lift: 0 10px 30px rgba(23, 32, 43, 0.12);
+}
+
+@layer base {
+  html, body, #root { min-height: 100%; }
+  body { margin: 0; background: var(--color-page); color: var(--color-ink); font-family: var(--font-sans); -webkit-font-smoothing: antialiased; }
+  a { color: var(--color-blue-dark); }
+  :focus-visible { outline: 3px solid rgba(47, 111, 184, 0.45); outline-offset: 2px; }
+  button, input, select, textarea { font: inherit; color: inherit; }
+}
+
+@layer components {
+  .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  .eyebrow { font-size: 12px; font-weight: 800; letter-spacing: 1.2px; color: var(--color-muted); text-transform: uppercase; }
+  .pill { display: inline-flex; align-items: center; gap: 5px; padding: 4px 10px; border-radius: 999px; font-size: 12px; font-weight: 800; white-space: nowrap; line-height: 1.3; }
+  .t-green { background: var(--color-green-bg); color: var(--color-green-ink); }
+  .t-amber { background: var(--color-amber-bg); color: var(--color-amber-ink); }
+  .t-red { background: var(--color-red-bg); color: var(--color-red-ink); }
+  .t-grey { background: var(--color-grey-bg); color: var(--color-ink-2); }
+  .btn { height: 40px; padding: 0 14px; border-radius: 10px; border: 1px solid var(--color-line-2); background: #fff; font-weight: 700; font-size: 14px; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 6px; white-space: nowrap; }
+  .btn:hover { border-color: var(--color-blue); }
+  .btn:disabled { opacity: 0.55; cursor: default; }
+  .btn.primary { border: 0; background: var(--color-blue); color: #fff; font-weight: 800; }
+  .btn.primary:hover { background: var(--color-blue-dark); }
+  .btn.danger { color: var(--color-red-ink); border-color: #F1B9BD; }
+  .field { height: 40px; padding: 0 12px; border: 1px solid var(--color-line-2); border-radius: 10px; background: #fff; font-size: 14px; width: 100%; }
+  textarea.field { height: 72px; padding: 8px 12px; resize: vertical; }
+  .label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; font-weight: 700; color: var(--color-ink-2); }
+  .card { background: #fff; border: 1px solid var(--color-line); border-radius: 16px; padding: 16px; }
+  .msg { font-size: 13px; border-radius: 10px; padding: 8px 10px; }
+  .msg.r { background: var(--color-red-bg); color: var(--color-red-ink); }
+  .msg.g { background: var(--color-green-bg); color: var(--color-green-ink); }
+  .small { font-size: 12px; color: var(--color-muted); }
+
+  .hdr { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 20px; padding: 12px 24px; background: #fff; border-bottom: 1px solid var(--color-line); }
+  .brand { display: flex; align-items: center; gap: 10px; font-size: 18px; font-weight: 800; }
+  .nav { display: flex; gap: 4px; flex-wrap: wrap; }
+  .nav a { height: 40px; padding: 0 14px; border-radius: 10px; color: var(--color-ink-2); font-weight: 700; font-size: 14px; text-decoration: none; display: flex; align-items: center; }
+  .nav a:hover { background: var(--color-page); }
+  .nav a.active { background: var(--color-tint); color: var(--color-blue-dark); font-weight: 800; }
+  .page { padding: 20px 24px 40px; display: flex; flex-direction: column; gap: 16px; }
+  .page h1 { margin: 0; font-size: 24px; font-weight: 800; letter-spacing: -0.3px; }
+
+  .tbl { width: 100%; border-collapse: separate; border-spacing: 0; background: #fff; border: 1px solid var(--color-line); border-radius: 14px; overflow: hidden; font-size: 14px; }
+  .tbl th { text-align: left; font-size: 12px; font-weight: 800; color: var(--color-muted); padding: 10px 12px; border-bottom: 1px solid var(--color-line); background: #FAFBFC; }
+  .tbl td { padding: 8px 12px; border-bottom: 1px solid var(--color-line); vertical-align: middle; }
+  .tbl tr:last-child td { border-bottom: 0; }
+  .tbl tr.click { cursor: pointer; }
+  .tbl tr.click:hover td { background: #F8FAFC; }
+  .matrix th.c { writing-mode: vertical-rl; transform: rotate(180deg); white-space: nowrap; padding: 10px 6px; text-align: left; }
+  .cell { width: 100%; min-width: 34px; height: 30px; border-radius: 8px; border: 0; cursor: pointer; font-size: 11px; font-weight: 800; }
+  .cell.t-green { background: var(--color-green); color: #fff; }
+  .cell.t-amber { background: var(--color-amber); color: #2B1D00; }
+  .cell.t-red { background: var(--color-red); color: #fff; }
+  .cell.t-grey { background: var(--color-grey-bg); color: var(--color-muted); }
+
+  .dim { position: fixed; inset: 0; background: rgba(23, 32, 43, 0.35); }
+  .drawer { position: fixed; top: 0; right: 0; bottom: 0; width: min(560px, 100%); background: #fff; box-shadow: -20px 0 50px rgba(23, 32, 43, 0.2); display: flex; flex-direction: column; }
+  .dhead { display: flex; align-items: flex-start; gap: 12px; padding: 20px 24px 12px; }
+  .dhead h2 { margin: 0; font-size: 20px; font-weight: 800; }
+  .dbody { flex: 1; overflow: auto; padding: 0 24px 32px; display: flex; flex-direction: column; gap: 16px; }
+}
