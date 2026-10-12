@@ -1,0 +1,107 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# One run per branch: a new push cancels the one before it.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  api:
+    name: API
+    runs-on: ubuntu-latest
+    services:
+      db:
+        image: postgres:16
+        env:
+          POSTGRES_DB: lms
+          POSTGRES_USER: lms
+          POSTGRES_PASSWORD: lms
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U lms"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+    env:
+      # the suite makes and drops its own databases on this server
+      TEST_DATABASE_URL: postgresql+psycopg://lms:lms@127.0.0.1:5432/lms_test
+    defaults:
+      run:
+        working-directory: api
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - name: Install
+        run: uv venv -p 3.12 && uv pip install -e ".[dev]"
+      - name: Tests
+        run: .venv/bin/pytest -q
+
+  desktop:
+    name: Desktop app
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/desktop
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/desktop/package-lock.json
+      - run: npm ci
+      - name: Tests
+        run: npm test
+      - name: Build
+        run: npm run build
+
+  learner:
+    name: Learner app
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/learner
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/learner/package-lock.json
+      - run: npm ci
+      - name: Tests
+        run: npm test
+      - name: Build
+        run: npm run build
+
+  compose:
+    name: Docker Compose comes up
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Settings a real install needs
+        run: |
+          cp .env.example .env
+          sed -i 's/^POSTGRES_PASSWORD=.*/POSTGRES_PASSWORD=ci-only-password/' .env
+      - name: Up
+        run: docker compose up -d --build db api
+      - name: The API answers and the migrations ran
+        run: |
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8033/v1/health 2>/dev/null; then ok=1; break; fi
+            sleep 2
+          done
+          test "${ok:-0}" = 1 || (docker compose logs api; exit 1)
+          # both append-only triggers are there on a real install
+          docker compose exec -T db psql -U lms -d lms -tAc \
+            "select count(*) from pg_trigger where tgname like '%_append_only'" | grep -qx 2
+      - name: Logs on failure
+        if: failure()
+        run: docker compose logs

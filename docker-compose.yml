@@ -57,10 +57,16 @@ services:
       - "${LMS_HTTPS_PORT:-443}:${LMS_HTTPS_PORT:-443}"
     volumes:
       - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      # the desktop, built on the host: cd apps/desktop && npm run build
+      - ./apps/desktop/dist:/srv/desktop:ro
+      # the learner app, built on the host: cd apps/learner && npm run build
+      - ./apps/learner/dist:/srv/learner:ro
       - caddy_data:/data
       - caddy_config:/config
+    # the API runs its migrations first: wait until it answers
     depends_on:
-      - api
+      api:
+        condition: service_healthy
 
 volumes:
   pgdata:

@@ -29,8 +29,30 @@ http://{$LMS_DOMAIN} {
 		reverse_proxy api:8000
 	}
 
-	# The desktop and the learner app arrive with Task 21.
+	# The learner app: a PWA under /learn/.
+	@learnbare path /learn
+	redir @learnbare /learn/ 308
+	handle_path /learn/* {
+		header Content-Security-Policy "default-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+		# checked on every launch, so a new build reaches the phones
+		header /sw.js Cache-Control "no-cache"
+		# the page names the build's files: asked after every time, never
+		# taken from the browser's cache unchecked (any route is the page)
+		@learnpage not path /assets/* /sw.js /manifest.webmanifest /favicon.svg /icon-192.png /icon-512.png
+		header @learnpage Cache-Control "no-cache"
+		root * /srv/learner
+		try_files {path} /index.html
+		file_server
+	}
+
+	# The desktop: everything else.
 	handle {
-		respond "Simple LMS. The API is at /v1, its docs at /docs." 404
+		# Only the desktop: the API's /docs page loads its scripts from a CDN.
+		header Content-Security-Policy "default-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+		@desktoppage not path /assets/* /favicon.svg
+		header @desktoppage Cache-Control "no-cache"
+		root * /srv/desktop
+		try_files {path} /index.html
+		file_server
 	}
 }
