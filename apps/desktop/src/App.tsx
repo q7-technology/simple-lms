@@ -1,7 +1,10 @@
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { AuthProvider } from "./auth/AuthContext";
 import { RequireAuth } from "./auth/RequireAuth";
+import { Competencies } from "./pages/Competencies";
 import { Matrix } from "./pages/Matrix";
+import { People } from "./pages/People";
+import { Roles } from "./pages/Roles";
 import { SignIn } from "./pages/SignIn";
 import { Layout } from "./ui/Layout";
 
@@ -12,6 +15,9 @@ export function AppRoutes() {
       <Route element={<RequireAuth />}>
         <Route element={<Layout />}>
           <Route index element={<Matrix />} />
+          <Route path="/people" element={<People />} />
+          <Route path="/roles" element={<Roles />} />
+          <Route path="/competencies" element={<Competencies />} />
         </Route>
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
