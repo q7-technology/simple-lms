@@ -123,3 +123,33 @@ def test_a_supervisor_cannot_see_or_change_the_people_list(client, supervisor_he
 
 def test_an_unknown_person_is_404(client, manager_headers):
     assert client.get("/v1/people/NOBODY", headers=manager_headers).status_code == 404
+
+
+def test_a_supervisor_keeps_their_permission_while_they_have_a_team(client, manager_headers,
+                                                                    learner):
+    r = client.patch("/v1/people/SV001", headers=manager_headers, json={"permission": "learner"})
+    assert r.status_code == 409 and r.json()["code"] == "has_team"
+    r = client.post("/v1/people/SV001/deactivate", headers=manager_headers)
+    assert r.status_code == 409 and r.json()["code"] == "has_team"
+
+
+def test_a_supervisor_whose_team_has_gone_can_be_demoted_or_deactivated(client, manager_headers,
+                                                                        learner):
+    assert client.patch("/v1/people/SV001", headers=manager_headers,
+                        json={"name": "Sam Vu"}).status_code == 200
+    client.post("/v1/people/LL042/deactivate", headers=manager_headers)
+    r = client.patch("/v1/people/SV001", headers=manager_headers, json={"permission": "learner"})
+    assert r.status_code == 200 and r.json()["permission"] == "learner"
+    assert client.post("/v1/people/SV001/deactivate", headers=manager_headers).status_code == 200
+
+
+def test_a_supervisor_with_a_team_can_still_move_up(client, admin_headers, learner):
+    r = client.patch("/v1/people/SV001", headers=admin_headers, json={"permission": "manager"})
+    assert r.status_code == 200 and r.json()["permission"] == "manager"
+
+
+def test_nobody_changes_their_own_permission(client, admin_headers):
+    r = client.patch("/v1/people/AD001", headers=admin_headers, json={"permission": "learner"})
+    assert r.status_code == 409 and r.json()["code"] == "self"
+    r = client.patch("/v1/people/AD001", headers=admin_headers, json={"name": "Leighton L"})
+    assert r.status_code == 200 and r.json()["permission"] == "admin"

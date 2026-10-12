@@ -127,6 +127,15 @@ def _supervisor(db, code: str, person: Person | None = None) -> Person:
     return sup
 
 
+def _keeps_no_team(db, p: Person) -> None:
+    """A supervisor's team needs someone who can still supervise it."""
+    team = db.execute(select(Person.id).where(Person.supervisor_id == p.id,
+                                              Person.active.is_(True)).limit(1)).first()
+    if team is not None:
+        raise Conflict("has_team", f"{p.code} still supervises a team: "
+                                   "give their team another supervisor first")
+
+
 def _roles(db, keys: list[str]) -> list[Role]:
     keys = list(dict.fromkeys(normal_key(k) for k in keys))
     found = {r.key: r for r in db.execute(select(Role).where(Role.key.in_(keys))).scalars()}
@@ -197,7 +206,11 @@ def update_person(code: str, body: PersonPatch, db: DB, who: Principal = require
     if "email" in body.model_fields_set:
         _email_free(db, body.email, p)
         p.email = body.email
-    if body.permission is not None:
+    if body.permission is not None and body.permission != p.permission:
+        if p.id == who.person.id:
+            raise Conflict("self", "you can't change your own permission")
+        if body.permission not in SUPERVISES:
+            _keeps_no_team(db, p)
         p.permission = body.permission
     if "supervisor" in body.model_fields_set:
         p.supervisor = _supervisor(db, body.supervisor, p) if body.supervisor else None
@@ -250,6 +263,7 @@ def deactivate_person(code: str, db: DB, who: Principal = require("people:write"
     may_manage(who, p.permission)
     if p.id == who.person.id:
         raise Conflict("self", "you can't deactivate yourself")
+    _keeps_no_team(db, p)
     p.active = False
     sessions.end_all(db, p)
     db.commit()
