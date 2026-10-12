@@ -63,6 +63,15 @@ def _latest(db, person_id: int, competency_id: int) -> CompetencyRecord | None:
     ).scalar_one_or_none()
 
 
+def _one_at_a_time(db, code: str):
+    # the person stays locked until this record is in, so a grant and a revoke
+    # sent at once are weighed one after the other: a revoke never misses a
+    # grant made at the same moment
+    p = get_person(db, code)
+    db.refresh(p, with_for_update=True)
+    return p
+
+
 def _created(r: CompetencyRecord) -> JSONResponse:
     return JSONResponse(status_code=201, content=record_out(r).model_dump(mode="json"))
 
@@ -84,7 +93,7 @@ def list_records(code: str, db: DB, competency: str | None = None,
 
 @router.post("/people/{code}/records", status_code=201, response_model=RecordOut)
 def grant(code: str, body: GrantIn, db: DB, who: Principal = require("records:write")):
-    p = get_person(db, code)
+    p = _one_at_a_time(db, code)
     if p.id == who.person.id:
         raise Forbidden("nobody records their own competency: ask another manager",
                         "own_record")
@@ -108,7 +117,7 @@ def grant(code: str, body: GrantIn, db: DB, who: Principal = require("records:wr
 @router.post("/people/{code}/records/revoke", status_code=201, response_model=RecordOut)
 def revoke(code: str, body: RevokeIn, db: DB, who: Principal = require("records:write")):
     """Cancels the grant that counts now, with a note saying why."""
-    p = get_person(db, code)
+    p = _one_at_a_time(db, code)
     c = get_competency(db, body.competency)
     latest = _latest(db, p.id, c.id)
     if latest is None or latest.kind != "granted":
