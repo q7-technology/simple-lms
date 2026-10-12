@@ -129,7 +129,7 @@ def matrix(db: DB, role: str | None = None, supervisor: str | None = None,
 
 def _safe(value: str) -> str:
     # a spreadsheet would run a cell that starts like a formula
-    return "'" + value if value[:1] in ("=", "+", "-", "@") else value
+    return "'" + value if value[:1] in ("=", "+", "-", "@", "\t", "\r") else value
 
 
 @router.get("/matrix.csv")
