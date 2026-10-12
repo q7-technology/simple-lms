@@ -56,7 +56,8 @@ export function Competencies() {
         <tbody>
           {list.data?.items.map((c) => (
             <tr key={c.key} className="click" onClick={() => setOpen(c.key)}>
-              <td><b>{c.name}</b><div className="small">{c.key}</div></td>
+              <td><button type="button" className="rowbtn" onClick={() => setOpen(c.key)}>
+                <b>{c.name}</b><span className="small block">{c.key}</span></button></td>
               <td>{kindLabel(c.kind)}</td>
               <td>{months(c.refresher_months)}</td>
               <td>{!c.active && <span className="pill t-grey">Deactivated</span>}</td>

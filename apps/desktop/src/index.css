@@ -74,6 +74,7 @@
   .tbl tr:last-child td { border-bottom: 0; }
   .tbl tr.click { cursor: pointer; }
   .tbl tr.click:hover td { background: #F8FAFC; }
+  .rowbtn { background: none; border: 0; padding: 0; font: inherit; color: inherit; text-align: left; cursor: pointer; }
   .matrix th.c { writing-mode: vertical-rl; transform: rotate(180deg); white-space: nowrap; padding: 10px 6px; text-align: left; }
   .cell { width: 100%; min-width: 34px; height: 30px; border-radius: 8px; border: 0; cursor: pointer; font-size: 11px; font-weight: 800; }
   .cell.t-green { background: var(--color-green); color: #fff; }

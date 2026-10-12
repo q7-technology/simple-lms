@@ -41,7 +41,8 @@ export function Roles() {
         <tbody>
           {roles.data?.items.map((r) => (
             <tr key={r.key} className="click" onClick={() => setOpen(r.key)}>
-              <td><b>{r.name}</b><div className="small">{r.key}</div></td>
+              <td><button type="button" className="rowbtn" onClick={() => setOpen(r.key)}>
+                <b>{r.name}</b><span className="small block">{r.key}</span></button></td>
               <td className="small">{r.competencies.map((c) => c.name).join(", ") || "Nothing yet"}</td>
               <td>{r.people}</td>
             </tr>

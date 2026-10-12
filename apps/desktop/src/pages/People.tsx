@@ -37,7 +37,7 @@ export function People() {
         <tbody>
           {people.data?.items.map((p) => (
             <tr key={p.code} className="click" onClick={() => setOpen(p.code)}>
-              <td><b>{p.name}</b>{!p.active && <span className="pill t-grey ml-2">Deactivated</span>}</td>
+              <td><button type="button" className="rowbtn" onClick={() => setOpen(p.code)}><b>{p.name}</b></button>{!p.active && <span className="pill t-grey ml-2">Deactivated</span>}</td>
               <td>{p.code}</td>
               <td>{p.permission}</td>
               <td className="small">{p.roles.map((r) => r.name).join(", ")}</td>
