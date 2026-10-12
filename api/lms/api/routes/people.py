@@ -12,7 +12,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import or_, select
 
 from lms.api.deps import DB, Principal, require
-from lms.api.errors import Conflict, FieldError, Forbidden, NotFound
+from lms.api.errors import Conflict, FieldError, Forbidden, NotFound, commit_unique
 from lms.api.schemas import (
     CODE, EMAIL, PIN, Page, PersonRef, RoleRef, normal_code, normal_key, person_ref, role_ref,
 )
@@ -153,12 +153,18 @@ def _email_free(db, email: str | None, person: Person | None = None) -> None:
         raise FieldError("email", f"{email} is already {other.code}'s")
 
 
+def _email_taken(email: str | None) -> FieldError:
+    # someone else took it between the check and the commit
+    return FieldError("email", f"{email} is already taken")
+
+
 @router.post("/people", status_code=201, response_model=PersonOut)
 def create_person(body: PersonIn, db: DB, who: Principal = require("people:write")):
     may_manage(who, None, body.permission)
     code = normal_code(body.code)
+    code_taken = FieldError("code", f"{code} is already taken")
     if db.execute(select(Person).where(Person.code == code)).scalar_one_or_none():
-        raise FieldError("code", f"{code} is already taken")
+        raise code_taken
     _email_free(db, body.email)
     p = Person(code=code, name=body.name, email=body.email, permission=body.permission,
                pin_hash=access.hash_password(body.pin) if body.pin else None,
@@ -168,7 +174,8 @@ def create_person(body: PersonIn, db: DB, who: Principal = require("people:write
         p.supervisor = _supervisor(db, body.supervisor)
     p.roles = _roles(db, body.roles)
     db.add(p)
-    db.commit()
+    commit_unique(db, {"uq_person_code": code_taken,
+                       "uq_person_email": _email_taken(body.email)})
     db.refresh(p)
     return JSONResponse(status_code=201, content=person_out(p).model_dump(mode="json"))
 
@@ -214,7 +221,7 @@ def update_person(code: str, body: PersonPatch, db: DB, who: Principal = require
         p.permission = body.permission
     if "supervisor" in body.model_fields_set:
         p.supervisor = _supervisor(db, body.supervisor, p) if body.supervisor else None
-    db.commit()
+    commit_unique(db, {"uq_person_email": _email_taken(body.email)})
     return person_out(p)
 
 

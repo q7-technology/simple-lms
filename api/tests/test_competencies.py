@@ -36,6 +36,15 @@ def test_a_key_is_used_once(client, manager_headers):
     assert r.status_code == 422 and r.json()["errors"][0]["field"] == "key"
 
 
+def test_a_key_taken_at_the_same_moment_is_still_a_field_error(client, manager_headers,
+                                                               beaten_to_it):
+    from lms.models import Competency
+
+    beaten_to_it(Competency(key="site-induction", name="Site induction", kind="module"), "key")
+    r = client.post("/v1/competencies", headers=manager_headers, json=INDUCTION)
+    assert r.status_code == 422 and r.json()["errors"][0]["field"] == "key"
+
+
 def test_a_key_is_letters_digits_and_dashes(client, manager_headers):
     r = client.post("/v1/competencies", headers=manager_headers,
                     json={**INDUCTION, "key": "site induction"})

@@ -10,7 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import select
 
 from lms.api.deps import DB, Principal, require
-from lms.api.errors import FieldError, NotFound
+from lms.api.errors import FieldError, NotFound, commit_unique
 from lms.api.schemas import KEY, Page, normal_key
 from lms.models import Competency
 
@@ -65,12 +65,13 @@ def get_competency(db, key: str) -> Competency:
 
 @router.post("/competencies", status_code=201, response_model=CompetencyOut)
 def create_competency(body: CompetencyIn, db: DB, who: Principal = require("competencies:write")):
+    taken = FieldError("key", f"competency {body.key} already exists")
     if db.execute(select(Competency).where(Competency.key == body.key)).scalar_one_or_none():
-        raise FieldError("key", f"competency {body.key} already exists")
+        raise taken
     c = Competency(key=body.key, name=body.name, kind=body.kind,
                    refresher_months=body.refresher_months, active=True)
     db.add(c)
-    db.commit()
+    commit_unique(db, {"uq_competency_key": taken})
     return JSONResponse(status_code=201, content=competency_out(c).model_dump(mode="json"))
 
 

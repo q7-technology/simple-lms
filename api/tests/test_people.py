@@ -42,6 +42,26 @@ def test_a_code_and_an_email_are_used_once(client, manager_headers, manager):
     assert r.status_code == 422 and r.json()["errors"][0]["field"] == "email"
 
 
+def test_a_code_or_email_taken_at_the_same_moment_is_still_a_field_error(client, manager_headers,
+                                                                         beaten_to_it):
+    from lms.models import Person
+
+    beaten_to_it(Person(code="LL042", name="Kim Lee", permission="learner"), "code")
+    r = client.post("/v1/people", headers=manager_headers, json=KIM)
+    assert r.status_code == 422 and r.json()["errors"][0]["field"] == "code"
+    beaten_to_it(Person(code="LL098", name="Ash", permission="learner",
+                        email="ash@example.com"), "email")
+    r = client.post("/v1/people", headers=manager_headers,
+                    json={"code": "LL043", "name": "Lee", "email": "ash@example.com"})
+    assert r.status_code == 422 and r.json()["errors"][0]["field"] == "email"
+    make(client, manager_headers, {"code": "LL044", "name": "Jo"})
+    beaten_to_it(Person(code="LL099", name="Jo", permission="learner",
+                        email="jo@example.com"), "email")
+    r = client.patch("/v1/people/LL044", headers=manager_headers,
+                     json={"email": "jo@example.com"})
+    assert r.status_code == 422 and r.json()["errors"][0]["field"] == "email"
+
+
 def test_a_pin_is_four_to_eight_digits(client, manager_headers):
     for pin in ("123", "12a4", "123456789"):
         r = client.post("/v1/people", headers=manager_headers, json={**KIM, "pin": pin})

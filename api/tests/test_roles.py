@@ -26,6 +26,15 @@ def test_a_role_key_is_used_once(client, manager_headers, catalogue):
     assert r.status_code == 422 and r.json()["errors"][0]["field"] == "key"
 
 
+def test_a_role_key_taken_at_the_same_moment_is_still_a_field_error(client, manager_headers,
+                                                                    beaten_to_it):
+    from lms.models import Role
+
+    beaten_to_it(Role(key="picker", name="Picker"), "key")
+    r = client.post("/v1/roles", headers=manager_headers, json={"key": "picker", "name": "Picker"})
+    assert r.status_code == 422 and r.json()["errors"][0]["field"] == "key"
+
+
 def test_requirements_are_set_in_full(client, manager_headers, catalogue):
     r = client.put("/v1/roles/forklift-operator/requirements", headers=manager_headers,
                    json={"competencies": ["site-induction", "forklift-licence", "site-induction"]})

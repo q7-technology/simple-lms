@@ -4,6 +4,7 @@ from __future__ import annotations
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from sqlalchemy.exc import IntegrityError
 
 
 class FieldError(Exception):
@@ -44,6 +45,20 @@ class Forbidden(Exception):
         self.message = message
         self.code = code
         super().__init__(message)
+
+
+def commit_unique(db, taken: dict[str, FieldError]) -> None:
+    """Commit, as the check before it said was fine. Two requests at once can
+    both pass that check; the one that loses to a unique constraint named in
+    `taken` gets that constraint's field error, as if the check had caught it."""
+    try:
+        db.commit()
+    except IntegrityError as e:
+        db.rollback()
+        error = taken.get(getattr(getattr(e.orig, "diag", None), "constraint_name", None))
+        if error is None:
+            raise
+        raise error from None
 
 
 def field_errors(errors: list[dict]) -> list[dict]:

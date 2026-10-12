@@ -9,7 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import func, select
 
 from lms.api.deps import DB, Principal, require
-from lms.api.errors import FieldError, NotFound
+from lms.api.errors import FieldError, NotFound, commit_unique
 from lms.api.schemas import KEY, CompetencyRef, Page, competency_ref, normal_key
 from lms.models import Competency, PersonRole, Role
 
@@ -63,11 +63,12 @@ def get_role(db, key: str) -> Role:
 
 @router.post("/roles", status_code=201, response_model=RoleOut)
 def create_role(body: RoleIn, db: DB, who: Principal = require("roles:write")):
+    taken = FieldError("key", f"role {body.key} already exists")
     if db.execute(select(Role).where(Role.key == body.key)).scalar_one_or_none():
-        raise FieldError("key", f"role {body.key} already exists")
+        raise taken
     r = Role(key=body.key, name=body.name)
     db.add(r)
-    db.commit()
+    commit_unique(db, {"uq_role_key": taken})
     return JSONResponse(status_code=201, content=role_out(db, r).model_dump(mode="json"))
 
 
