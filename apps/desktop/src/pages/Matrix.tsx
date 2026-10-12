@@ -1,11 +1,13 @@
 import { useMemo, useState } from "react";
 import { api } from "../api/client";
-import type { Matrix as MatrixData, Page, PersonRef, Role, Status } from "../api/types";
+import type { CompetencyRef, Matrix as MatrixData, MatrixRow, Page, Permission, Person, Role, Status } from "../api/types";
 import { useAuth } from "../auth/AuthContext";
 import { LOOK, STATUSES, describe } from "../lib/status";
-import { useLoad } from "../lib/useLoad";
+import { useAction, useLoad } from "../lib/useLoad";
 import { Problem } from "../ui/Drawer";
 import { HistoryDrawer } from "./HistoryDrawer";
+
+const SUPERVISES: Permission[] = ["supervisor", "manager", "admin"];
 
 /** People down the side, what they are asked for across the top. */
 export function Matrix() {
@@ -13,21 +15,24 @@ export function Matrix() {
   const [role, setRole] = useState("");
   const [supervisor, setSupervisor] = useState("");
   const [status, setStatus] = useState<"" | Status>("");
-  const [open, setOpen] = useState<{ code: string; key: string } | null>(null);
+  // the row and competency as they were when opened: a filter can hide them after a change
+  const [open, setOpen] = useState<{ row: MatrixRow; competency: CompetencyRef } | null>(null);
   const filters = { role, supervisor, status };
   const matrix = useLoad(() => api.get<MatrixData>("/v1/matrix", filters), [role, supervisor, status]);
   const roles = useLoad(() => api.get<Page<Role>>("/v1/roles"), []);
   const seesEveryone = me?.permission === "manager" || me?.permission === "admin";
+  // everyone who can supervise, not just those in the filtered matrix, so choosing one keeps the rest
+  const people = useLoad(() => seesEveryone ? api.get<Page<Person>>("/v1/people", { active: true }) : Promise.resolve(null),
+                         [seesEveryone]);
+  const exported = useAction();
 
-  const supervisors = useMemo(() => {
-    const all = new Map<string, PersonRef>();
-    for (const p of matrix.data?.people ?? []) if (p.supervisor) all.set(p.supervisor.code, p.supervisor);
-    return [...all.values()].sort((a, b) => a.name.localeCompare(b.name));
-  }, [matrix.data]);
+  const supervisors = useMemo(() => (people.data?.items ?? [])
+    .filter((p) => SUPERVISES.includes(p.permission))
+    .sort((a, b) => a.name.localeCompare(b.name)), [people.data]);
 
   const m = matrix.data;
-  const row = open && m?.people.find((p) => p.code === open.code);
-  const competency = open && m?.competencies.find((c) => c.key === open.key);
+  const row = open && (m?.people.find((p) => p.code === open.row.code) ?? open.row);
+  const competency = open && (m?.competencies.find((c) => c.key === open.competency.key) ?? open.competency);
 
   return (
     <main className="page">
@@ -54,7 +59,7 @@ export function Matrix() {
           </select>
         </label>
         <button type="button" className="btn" disabled={!m}
-                onClick={() => void api.download("/v1/matrix.csv", filters, `matrix-${m?.today}.csv`)}>
+                onClick={() => void exported.run(() => api.download("/v1/matrix.csv", filters, `matrix-${m?.today}.csv`))}>
           Export CSV
         </button>
       </div>
@@ -64,6 +69,7 @@ export function Matrix() {
         ))}
       </div>
       <Problem error={matrix.error} />
+      <Problem error={exported.error} />
       {m && m.people.length === 0 && <div className="card small">Nobody matches. Try fewer filters.</div>}
       {m && m.people.length > 0 && (
         <div className="overflow-x-auto">
@@ -78,7 +84,7 @@ export function Matrix() {
             <tbody>
               {m.people.map((p) => (
                 <tr key={p.code}>
-                  <td><b>{p.name}</b><div className="small">{p.code}</div></td>
+                  <th scope="row" className="rowh"><b>{p.name}</b><div className="small">{p.code}</div></th>
                   <td className="small">{p.roles.map((r) => r.name).join(", ") || "No role yet"}</td>
                   {m.competencies.map((c) => {
                     const cell = p.cells[c.key];
@@ -87,7 +93,7 @@ export function Matrix() {
                     return (
                       <td key={c.key}>
                         <button type="button" className={`cell t-${look.tone}`} title={says} aria-label={says}
-                                onClick={() => setOpen({ code: p.code, key: c.key })}>{look.short}</button>
+                                onClick={() => setOpen({ row: p, competency: c })}>{look.short}</button>
                       </td>
                     );
                   })}
@@ -97,8 +103,8 @@ export function Matrix() {
           </table>
         </div>
       )}
-      {row && competency && m && (
-        <HistoryDrawer person={row} competency={competency} cell={row.cells[competency.key]} today={m.today}
+      {open && row && competency && m && (
+        <HistoryDrawer person={row} competency={competency} cell={row.cells[competency.key] ?? open.row.cells[open.competency.key]} today={m.today}
                        onClose={() => setOpen(null)} onChanged={matrix.reload} />
       )}
     </main>

@@ -97,4 +97,72 @@ describe("the matrix", () => {
     expect(await screen.findByText("Nobody records their own competency: ask another manager.")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Record completion" })).not.toBeInTheDocument();
   });
+
+  it("names each row by its person", async () => {
+    stubApi((_method, url) => {
+      if (url.startsWith("/v1/matrix")) return json(200, MATRIX);
+      if (url === "/v1/roles") return json(200, { items: [], total: 0 });
+      return null;
+    });
+    renderApp("/");
+    expect(await screen.findByRole("rowheader", { name: /Kim Lee/ })).toBeInTheDocument();
+  });
+
+  it("keeps the drawer open when a filter hides the person after a change", async () => {
+    let matrix = MATRIX;
+    stubApi((method, url) => {
+      if (url.startsWith("/v1/matrix")) return json(200, matrix);
+      if (url === "/v1/roles") return json(200, { items: [], total: 0 });
+      if (method === "GET" && url.startsWith("/v1/people/LL042/records")) return json(200, []);
+      if (method === "POST" && url === "/v1/people/LL042/records") {
+        matrix = { ...MATRIX, people: [] }; // no longer missing anything, so the filter drops them
+        return json(201, {});
+      }
+      return null;
+    });
+    renderApp("/");
+    await screen.findByRole("button", { name: /Kim Lee, Forklift licence/ });
+    await userEvent.selectOptions(screen.getByLabelText("Status"), "missing");
+    await userEvent.click(await screen.findByRole("button", { name: "Kim Lee, Forklift licence: Missing" }));
+    const drawer = await screen.findByRole("dialog", { name: "Forklift licence" });
+    await userEvent.click(within(drawer).getByRole("button", { name: "Record completion" }));
+    expect(await screen.findByText("Nobody matches. Try fewer filters.")).toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: "Forklift licence" })).toBeInTheDocument();
+    await userEvent.click(within(drawer).getByRole("button", { name: "Close" }));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("says so when the CSV can't be made", async () => {
+    stubApi((_method, url) => {
+      if (url.startsWith("/v1/matrix.csv")) return json(500, { detail: "The export failed. Try again." });
+      if (url.startsWith("/v1/matrix")) return json(200, MATRIX);
+      if (url === "/v1/roles") return json(200, { items: [], total: 0 });
+      return null;
+    });
+    renderApp("/");
+    await screen.findByRole("button", { name: /Kim Lee, Forklift licence/ });
+    await userEvent.click(screen.getByRole("button", { name: "Export CSV" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("The export failed. Try again.");
+  });
+
+  it("keeps every supervisor on offer after choosing one", async () => {
+    const person = { email: null, roles: [], active: true, has_pin: false, pin_locked: false, has_password: true, supervisor: null };
+    const people = [
+      { ...person, id: 3, code: "SV001", name: "Sam Vu", permission: "supervisor" },
+      { ...person, id: 5, code: "SV002", name: "Ari Bell", permission: "supervisor" },
+      { ...person, id: 4, code: "LL042", name: "Kim Lee", permission: "learner" },
+    ];
+    stubApi((_method, url) => {
+      if (url.startsWith("/v1/matrix")) return json(200, url.includes("supervisor=SV002") ? { ...MATRIX, people: [] } : MATRIX);
+      if (url === "/v1/roles") return json(200, { items: [], total: 0 });
+      if (url.startsWith("/v1/people?")) return json(200, { items: people, total: people.length });
+      return null;
+    });
+    renderApp("/");
+    const select = await screen.findByLabelText("Supervisor");
+    await within(select).findByRole("option", { name: "Ari Bell" });
+    await userEvent.selectOptions(select, "SV002");
+    expect(await screen.findByText("Nobody matches. Try fewer filters.")).toBeInTheDocument();
+    expect(within(select).getAllByRole("option").map((o) => o.textContent)).toEqual(["Anyone", "Ari Bell", "Sam Vu"]);
+  });
 });
