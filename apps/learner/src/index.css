@@ -1,0 +1,52 @@
+@import "tailwindcss";
+
+/* The desktop's colours (apps/desktop/src/index.css), phone first: big
+ * buttons, one thing at a time. */
+@theme {
+  --color-page: #F3F5F8;
+  --color-ink: #17202B;
+  --color-ink-2: #48566A;
+  --color-muted: #5B6778;
+  --color-blue: #2F6FB8;
+  --color-blue-dark: #23558E;
+  --color-tint: #E8F0FA;
+  --color-line: #DCE3EC;
+  --color-line-2: #C8D3E0;
+  --color-green-ink: #146B45;
+  --color-green-bg: #E3F3EA;
+  --color-amber-ink: #8A5A00;
+  --color-amber-bg: #FFF3D6;
+  --color-red-ink: #A3242C;
+  --color-red-bg: #FCE9EA;
+  --font-sans: Manrope, ui-sans-serif, system-ui, sans-serif;
+}
+
+@layer base {
+  html, body, #root { min-height: 100%; }
+  body { margin: 0; background: var(--color-page); color: var(--color-ink); font-family: var(--font-sans); -webkit-font-smoothing: antialiased; -webkit-tap-highlight-color: transparent; }
+  :focus-visible { outline: 3px solid rgba(47, 111, 184, 0.45); outline-offset: 2px; }
+  button, input { font: inherit; color: inherit; }
+}
+
+@layer components {
+  .screen { max-width: 480px; margin: 0 auto; min-height: 100vh; padding: max(16px, env(safe-area-inset-top)) 16px 32px; display: flex; flex-direction: column; gap: 16px; }
+  .top { display: flex; align-items: center; gap: 10px; font-size: 17px; font-weight: 800; }
+  .chip { margin-left: auto; padding: 6px 12px; border-radius: 999px; background: var(--color-tint); color: var(--color-blue-dark); font-size: 13px; font-weight: 800; }
+  .input { height: 56px; padding: 0 16px; border: 1px solid var(--color-line-2); border-radius: 14px; background: #fff; font-size: 18px; width: 100%; }
+  .label { display: flex; flex-direction: column; gap: 6px; font-size: 14px; font-weight: 800; }
+  .big { height: 60px; border-radius: 16px; border: 0; font-size: 18px; font-weight: 800; cursor: pointer; width: 100%; }
+  .big.primary { background: var(--color-blue); color: #fff; }
+  .big:disabled { opacity: 0.55; }
+  .link { background: none; border: 0; color: var(--color-blue-dark); font-weight: 700; cursor: pointer; padding: 8px; }
+  .msg { font-size: 14px; border-radius: 12px; padding: 10px 12px; }
+  .msg.r { background: var(--color-red-bg); color: var(--color-red-ink); }
+  .group h2 { margin: 0 0 8px; font-size: 15px; font-weight: 800; display: flex; gap: 8px; align-items: center; }
+  .count { padding: 1px 9px; border-radius: 999px; font-size: 13px; }
+  .item { background: #fff; border: 1px solid var(--color-line); border-radius: 16px; padding: 14px 16px; display: flex; flex-direction: column; gap: 2px; }
+  .item + .item { margin-top: 8px; }
+  .item b { font-size: 16px; }
+  .item span { font-size: 14px; color: var(--color-ink-2); }
+  .t-red { background: var(--color-red-bg); color: var(--color-red-ink); }
+  .t-amber { background: var(--color-amber-bg); color: var(--color-amber-ink); }
+  .t-green { background: var(--color-green-bg); color: var(--color-green-ink); }
+}
