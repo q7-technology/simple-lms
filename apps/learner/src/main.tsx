@@ -12,3 +12,8 @@ createRoot(document.getElementById("root")!).render(
     <App />
   </StrictMode>,
 );
+
+// the app shell is kept on the device, so it opens fast (public/sw.js)
+if ("serviceWorker" in navigator && import.meta.env.PROD) {
+  void navigator.serviceWorker.register("/learn/sw.js", { scope: "/learn/" });
+}
