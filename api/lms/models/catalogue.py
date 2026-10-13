@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import Boolean, CheckConstraint, ForeignKey, Integer, String
+from sqlalchemy import Boolean, CheckConstraint, ForeignKey, Integer, String, true
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from lms.models.base import Base, created_at_column
@@ -52,6 +52,9 @@ class Competency(Base):
     # a refresher after this many months; none means it never runs out unless
     # the record itself says when (a ticket's card)
     refresher_months: Mapped[int | None] = mapped_column(Integer)
+    # a ticket: whether its card has an expiry date to type in (a forklift
+    # licence does; some cards never run out). Other kinds leave it be.
+    card_expires: Mapped[bool] = mapped_column(Boolean, default=True, server_default=true())
     active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = created_at_column()
 

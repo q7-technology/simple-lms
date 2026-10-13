@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import uuid
 from datetime import date, datetime
 
 from sqlalchemy import CheckConstraint, Date, ForeignKey, String
@@ -7,6 +8,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from lms.models.base import Base, created_at_column
 from lms.models.catalogue import Competency
+from lms.models.evidence import PolicyVersion
 from lms.models.people import Person
 
 
@@ -45,6 +47,9 @@ class CompetencyRecord(Base):
         CheckConstraint("kind = 'revoked' or granted_on is not null", name="granted_on"),
         CheckConstraint("kind = 'granted' or length(trim(note)) > 0", name="revoke_note"),
         CheckConstraint("expires_on > granted_on", name="expires_after_granted"),
+        CheckConstraint("signature_upload_id is null or "
+                        "(policy_version_id is not null and signed_name is not null)",
+                        name="signature"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -57,7 +62,17 @@ class CompetencyRecord(Base):
     expires_on: Mapped[date | None] = mapped_column(Date)
     note: Mapped[str | None] = mapped_column(String(500))
     recorded_by_id: Mapped[int] = mapped_column(ForeignKey("person.id"))
+    # a policy: the version this grant is for (signed in the learner app, or
+    # on paper and recorded by hand). A newer version needs a new grant.
+    policy_version_id: Mapped[int | None] = mapped_column(ForeignKey("policy_version.id"))
+    # signed in the learner app: the name they typed and their finger signature
+    signed_name: Mapped[str | None] = mapped_column(String(120))
+    signature_upload_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("upload.id"))
+    # a ticket a manager verified: the submission it came from
+    ticket_submission_id: Mapped[int | None] = mapped_column(ForeignKey("ticket_submission.id"),
+                                                             unique=True)
     created_at: Mapped[datetime] = created_at_column()
 
     competency: Mapped[Competency] = relationship()
     recorded_by: Mapped[Person] = relationship(foreign_keys=[recorded_by_id])
+    policy_version: Mapped[PolicyVersion | None] = relationship()

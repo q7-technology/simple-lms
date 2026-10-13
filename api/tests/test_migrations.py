@@ -11,7 +11,10 @@ from conftest import TEST_DATABASE_URL
 
 MIGRATION_URL = TEST_DATABASE_URL.rsplit("/", 1)[0] + "/lms_migration_check"
 TABLES = {"person", "session", "role", "person_role", "competency", "role_requirement",
-          "person_override", "competency_record", "alembic_version"}
+          "person_override", "competency_record", "upload", "policy_version",
+          "ticket_submission", "outbox", "alembic_version"}
+TRIGGERS = {"competency_record_append_only", "person_override_append_only",
+            "policy_version_append_only", "ticket_submission_decide_once"}
 
 
 @pytest.fixture
@@ -55,7 +58,7 @@ def test_migrations_go_up_down_and_up_again(blank_database):
     with engine.connect() as conn:
         triggers = set(conn.execute(text(
             "select tgname from pg_trigger where not tgisinternal")).scalars())
-    assert triggers == {"competency_record_append_only", "person_override_append_only"}
+    assert triggers == TRIGGERS
 
     command.downgrade(cfg, "base")
     assert _tables(engine) == {"alembic_version"}
