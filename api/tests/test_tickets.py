@@ -162,6 +162,16 @@ def test_a_card_that_ran_out_while_it_waited_is_not_approved(client, manager_hea
     assert r.status_code == 409 and r.json()["code"] == "card_ran_out"
 
 
+def test_a_ticket_for_a_competency_deactivated_while_it_waited_is_not_approved(
+        client, manager_headers, learner_headers, kim):
+    ticket = send_in(client, learner_headers).json()
+    client.post("/v1/competencies/forklift-licence/deactivate", headers=manager_headers)
+    r = client.post(f"/v1/tickets/{ticket['id']}/approve", headers=manager_headers)
+    assert r.status_code == 409 and r.json()["code"] == "inactive"
+    assert client.post(f"/v1/tickets/{ticket['id']}/reject", headers=manager_headers,
+                       json={"reason": "Forklift licences aren't asked for any more"}).status_code == 200
+
+
 def test_the_photos_are_shown_to_the_manager(client, manager_headers, learner_headers, kim):
     ticket = send_in(client, learner_headers).json()
     r = client.get(f"/v1/uploads/{ticket['front']}", headers=manager_headers)

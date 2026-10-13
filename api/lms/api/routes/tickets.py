@@ -151,6 +151,9 @@ def approve(ticket_id: int, db: DB, who: Principal = require("tickets:verify")):
     t = _to_decide(db, ticket_id, who)
     if not t.person.active:
         raise Conflict("inactive", f"{t.person.code} is deactivated")
+    # deactivated while it waited: a grant by hand is refused too, so send it back
+    if not t.competency.active:
+        raise Conflict("inactive", f"{t.competency.key} is deactivated: send it back")
     today = clock.today()
     if t.expires_on is not None and t.expires_on <= today:
         raise Conflict("card_ran_out", "this card ran out while it waited: send it back and ask "
