@@ -1,7 +1,10 @@
 """Tickets' photos and signatures: kept on disk under a random id, checked
 for what they are, and shown only to who may see whose they are."""
+import asyncio
 import hashlib
 import uuid
+
+import pytest
 
 from conftest import bearer, make_person, pin_login
 from files import JPEG, PDF, PNG, send, sent
@@ -41,9 +44,33 @@ def test_a_file_too_big_is_refused(client, learner_headers, monkeypatch):
     monkeypatch.setitem(uploads.PURPOSES, "ticket", ({"image/jpeg"}, 100))
     r = send(client, learner_headers)
     assert r.status_code == 413 and r.json()["code"] == "too_large"
-    # past the largest of all, it is refused before the body is read
-    monkeypatch.setattr(uploads, "LARGEST", 50)
-    assert send(client, learner_headers).status_code == 413
+
+
+def test_a_signature_is_read_no_further_than_its_own_limit(client, learner_headers, upload_dir):
+    from lms.api.errors import Refused
+    from lms.api.routes.uploads import sent as read_body
+
+    _, limit = uploads.PURPOSES["signature"]
+    # declared just past a signature's limit: refused, and nothing kept
+    r = send(client, learner_headers, "signature", PNG + b"x" * (limit + 1 - len(PNG)),
+             content_type="image/png")
+    assert r.status_code == 413 and r.json()["code"] == "too_large"
+    assert not list(upload_dir.rglob("*.png"))
+
+    # no length declared: read no further than a signature may be
+    read = []
+
+    class Body:
+        headers = {}
+
+        async def stream(self):
+            for n in range(20):
+                read.append(n)
+                yield b"x" * (limit // 2)
+
+    with pytest.raises(Refused) as refused:
+        asyncio.run(read_body(Body(), "signature"))
+    assert refused.value.status_code == 413 and len(read) == 3
 
 
 def test_an_unknown_purpose_or_no_session_is_refused(client, learner_headers):
@@ -90,15 +117,45 @@ def test_the_row_says_what_was_kept(client, db, learner_headers):
 
 
 def test_the_caller_is_checked_before_the_size(client, monkeypatch):
-    monkeypatch.setattr(uploads, "LARGEST", 50)
+    monkeypatch.setitem(uploads.PURPOSES, "ticket", ({"image/jpeg"}, 50))
     assert send(client, {}).status_code == 401
 
 
-def test_a_body_without_a_length_is_read_no_further_than_the_largest(
+def test_a_body_without_a_length_is_read_no_further_than_its_limit(
         client, learner_headers, monkeypatch, upload_dir):
-    monkeypatch.setattr(uploads, "LARGEST", 50)
+    monkeypatch.setitem(uploads.PURPOSES, "ticket", ({"image/jpeg"}, 50))
     r = client.post("/v1/uploads", params={"purpose": "ticket"},
                     content=iter([JPEG[:40], JPEG[40:]]),
                     headers={**learner_headers, "Content-Type": "image/jpeg"})
     assert r.status_code == 413 and r.json()["code"] == "too_large"
     assert not list(upload_dir.rglob("*.jpg"))
+
+
+def test_a_pdf_is_sent_as_a_download_and_a_photo_shown_inline(client, learner_headers):
+    pdf_id = sent(client, learner_headers, data=PDF, content_type="application/pdf")
+    png_id = sent(client, learner_headers, data=PNG, content_type="image/png")
+    r = client.get(f"/v1/uploads/{pdf_id}", headers=learner_headers)
+    # a sandboxed PDF shows blank in the browser: it is saved instead
+    assert r.headers["content-disposition"] == f'attachment; filename="{pdf_id}.pdf"'
+    assert r.headers["x-content-type-options"] == "nosniff"
+    assert r.headers["cache-control"] == "private, no-store"
+    r = client.get(f"/v1/uploads/{png_id}", headers=learner_headers)
+    assert r.headers["content-disposition"] == f'inline; filename="{png_id}.png"'
+
+
+def test_a_file_whose_row_is_not_kept_is_not_kept_either(
+        client, learner_headers, monkeypatch, upload_dir):
+    store = uploads.store
+
+    def store_then_fail_commit(db, *args):
+        row = store(db, *args)
+
+        def commit():
+            raise RuntimeError("the database went away")
+        monkeypatch.setattr(db, "commit", commit)
+        return row
+
+    monkeypatch.setattr(uploads, "store", store_then_fail_commit)
+    with pytest.raises(RuntimeError):
+        send(client, learner_headers)
+    assert not [p for p in upload_dir.rglob("*") if p.is_file()]

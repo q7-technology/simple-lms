@@ -22,7 +22,6 @@ PURPOSES = {
     "ticket": ({"image/jpeg", "image/png", "application/pdf"}, 20_000_000),
     "signature": ({"image/png"}, 1_000_000),
 }
-LARGEST = max(limit for _, limit in PURPOSES.values())
 MAGIC = {"image/png": b"\x89PNG\r\n\x1a\n", "image/jpeg": b"\xff\xd8\xff",
          "application/pdf": b"%PDF-"}
 EXT = {"image/png": "png", "image/jpeg": "jpg", "application/pdf": "pdf"}
