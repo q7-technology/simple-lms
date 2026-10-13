@@ -25,6 +25,8 @@ class CompetencyIn(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     kind: Kind
     refresher_months: int | None = Field(default=None, ge=1, le=240)
+    # a ticket: whether its card has an expiry date to type in
+    card_expires: bool = True
 
     @field_validator("key", mode="before")
     @classmethod
@@ -38,6 +40,7 @@ class CompetencyPatch(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
     name: str | None = Field(default=None, min_length=1, max_length=120)
     refresher_months: int | None = Field(default=None, ge=1, le=240)
+    card_expires: bool | None = None
 
 
 class CompetencyOut(BaseModel):
@@ -46,13 +49,15 @@ class CompetencyOut(BaseModel):
     name: str
     kind: str
     refresher_months: int | None
+    card_expires: bool
     active: bool
     created_at: datetime
 
 
 def competency_out(c: Competency) -> CompetencyOut:
     return CompetencyOut(id=c.id, key=c.key, name=c.name, kind=c.kind,
-                         refresher_months=c.refresher_months, active=c.active,
+                         refresher_months=c.refresher_months, card_expires=c.card_expires,
+                         active=c.active,
                          created_at=c.created_at)
 
 
@@ -69,7 +74,8 @@ def create_competency(body: CompetencyIn, db: DB, who: Principal = require("comp
     if db.execute(select(Competency).where(Competency.key == body.key)).scalar_one_or_none():
         raise taken
     c = Competency(key=body.key, name=body.name, kind=body.kind,
-                   refresher_months=body.refresher_months, active=True)
+                   refresher_months=body.refresher_months, card_expires=body.card_expires,
+                   active=True)
     db.add(c)
     commit_unique(db, {"uq_competency_key": taken})
     return JSONResponse(status_code=201, content=competency_out(c).model_dump(mode="json"))
@@ -101,6 +107,8 @@ def update_competency(key: str, body: CompetencyPatch, db: DB,
     if "refresher_months" in body.model_fields_set:
         # null takes the refresher away: worked out again for everyone at once
         c.refresher_months = body.refresher_months
+    if body.card_expires is not None:
+        c.card_expires = body.card_expires
     db.commit()
     return competency_out(c)
 

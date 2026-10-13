@@ -97,3 +97,15 @@ def test_a_learner_cannot_see_the_list(client, learner_headers):
 
 def test_an_unknown_competency_is_404(client, manager_headers):
     assert client.get("/v1/competencies/nope", headers=manager_headers).status_code == 404
+
+
+def test_a_ticket_says_whether_its_card_runs_out(client, manager_headers):
+    out = make_competency(client, manager_headers,
+                          {"key": "forklift-licence", "name": "Forklift licence", "kind": "ticket"})
+    assert out["card_expires"] is True
+    out = make_competency(client, manager_headers, {"key": "white-card", "name": "White card",
+                                                    "kind": "ticket", "card_expires": False})
+    assert out["card_expires"] is False
+    r = client.patch("/v1/competencies/white-card", headers=manager_headers,
+                     json={"card_expires": True})
+    assert r.json()["card_expires"] is True
