@@ -18,13 +18,13 @@ def test_email_and_password_give_a_session_that_says_who_you_are(client, manager
 def test_code_and_pin_give_a_learner_session(client, learner):
     out = pin_login(client, " ll042")
     me = client.get("/v1/auth/me", headers=bearer(out["token"])).json()
-    assert (me["code"], me["method"], me["scopes"]) == ("LL042", "pin", ["training:read"])
+    assert (me["code"], me["method"], me["scopes"]) == ("LL042", "pin", ["training:read", "training:write"])
     assert me["idle_seconds"] == 15 * 60
 
 
-def test_a_supervisor_signed_in_by_pin_only_reads_training(client, supervisor):
+def test_a_supervisor_signed_in_by_pin_only_does_their_own_training(client, supervisor):
     by_pin = pin_login(client, supervisor.code)["person"]
-    assert (by_pin["permission"], by_pin["scopes"]) == ("supervisor", ["training:read"])
+    assert (by_pin["permission"], by_pin["scopes"]) == ("supervisor", ["training:read", "training:write"])
     by_password = login(client, supervisor.email)["person"]
     assert "matrix:read" in by_password["scopes"]
 

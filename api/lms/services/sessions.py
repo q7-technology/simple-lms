@@ -21,17 +21,20 @@ TOUCH_EVERY = timedelta(minutes=1)
 
 # What each permission level may do (the design's table). Admin-only areas
 # (users, sign-in settings, webhooks, API keys) arrive with their steps.
+# training:write is doing your own training: signing a policy, adding a
+# ticket. tickets:verify is checking someone else's ticket.
 SCOPES: dict[str, list[str]] = {
-    "learner": ["training:read"],
-    "supervisor": ["training:read", "matrix:read", "roles:read", "competencies:read"],
-    "manager": ["training:read", "matrix:read", "roles:read", "competencies:read",
-                "people:read", "people:write", "roles:write", "competencies:write",
-                "records:write"],
+    "learner": ["training:read", "training:write"],
+    "supervisor": ["training:read", "training:write", "matrix:read", "roles:read",
+                   "competencies:read"],
+    "manager": ["training:read", "training:write", "matrix:read", "roles:read",
+                "competencies:read", "people:read", "people:write", "roles:write",
+                "competencies:write", "records:write", "tickets:verify"],
     "admin": ["*"],
 }
 # A PIN is short, so a PIN session is for the learner app's own training,
-# whoever signs in with it.
-PIN_SCOPES = ["training:read"]
+# whoever signs in with it: seeing it, signing a policy, adding a ticket.
+PIN_SCOPES = ["training:read", "training:write"]
 
 
 def scopes_for(permission: str, method: str) -> list[str]:
