@@ -1,0 +1,49 @@
+"""Email through SMTP, with the settings in .env (LMS_SMTP_*). Only the
+worker sends, from the outbox; nothing waits on an email."""
+from __future__ import annotations
+
+import smtplib
+import ssl
+from email.message import EmailMessage
+
+from lms.config import Settings, get_settings
+
+TIMEOUT_SECONDS = 20
+
+
+def set_up() -> bool:
+    s = get_settings()
+    return bool(s.smtp_host and s.smtp_from)
+
+
+def connect(s: Settings) -> smtplib.SMTP:
+    """A connection to the mail server, encrypted as the settings say."""
+    if s.smtp_security == "ssl":
+        return smtplib.SMTP_SSL(s.smtp_host, s.smtp_port, timeout=TIMEOUT_SECONDS,
+                                context=ssl.create_default_context())
+    smtp = smtplib.SMTP(s.smtp_host, s.smtp_port, timeout=TIMEOUT_SECONDS)
+    if s.smtp_security == "starttls":
+        smtp.starttls(context=ssl.create_default_context())
+    return smtp
+
+
+def message(payload: dict) -> EmailMessage:
+    msg = EmailMessage()
+    msg["From"] = get_settings().smtp_from
+    msg["To"] = payload["to"]
+    msg["Subject"] = payload["subject"]
+    msg.set_content(payload["text"])
+    return msg
+
+
+def send(payload: dict) -> str | None:
+    """Send one email: None when the server took it, else what went wrong."""
+    s = get_settings()
+    try:
+        with connect(s) as smtp:
+            if s.smtp_user:
+                smtp.login(s.smtp_user, s.smtp_password)
+            smtp.send_message(message(payload))
+    except (smtplib.SMTPException, OSError) as e:
+        return f"{type(e).__name__}: {e}"
+    return None

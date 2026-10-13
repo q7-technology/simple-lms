@@ -98,6 +98,45 @@ def upload_dir(tmp_path, monkeypatch):
 
 
 @pytest.fixture
+def mailbox(monkeypatch):
+    """A mail server of the test's own, set up as LMS_SMTP_* would be: what
+    the worker sends lands in .sent. Set .refuse to an exception to make the
+    next sends fail."""
+    from lms.config import get_settings
+    from lms.services import mail
+
+    settings = get_settings()
+    monkeypatch.setattr(settings, "smtp_host", "mail.example.com.au")
+    monkeypatch.setattr(settings, "smtp_from", "Simple LMS <lms@example.com.au>")
+
+    class Mailbox:
+        def __init__(self):
+            self.sent = []
+            self.logins = []
+            self.refuse: Exception | None = None
+
+    box = Mailbox()
+
+    class Server:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def login(self, user, password):
+            box.logins.append((user, password))
+
+        def send_message(self, msg):
+            if box.refuse is not None:
+                raise box.refuse
+            box.sent.append(msg)
+
+    monkeypatch.setattr(mail, "connect", lambda s: Server())
+    return box
+
+
+@pytest.fixture
 def beaten_to_it(engine):
     """Another request, at the same moment, commits `row` after this one's
     check and before its insert: arm(row, "key") waits for an object like
