@@ -4,6 +4,7 @@ latest row counts, so a wrong date is put right by recording it again.
 Nobody records their own (rule 3)."""
 from __future__ import annotations
 
+import uuid
 from datetime import date, datetime
 
 from fastapi import APIRouter
@@ -17,7 +18,7 @@ from lms.api.routes.competencies import get_competency
 from lms.api.routes.people import get_person
 from lms.api.schemas import CompetencyRef, PersonRef, competency_ref, normal_key, person_ref
 from lms.models import Competency, CompetencyRecord
-from lms.services import clock
+from lms.services import clock, policies
 
 router = APIRouter(tags=["records"])
 
@@ -45,16 +46,26 @@ class RecordOut(BaseModel):
     expires_on: date | None
     note: str | None
     recorded_by: PersonRef
+    # a policy: the version this grant is for; signed in the learner app, the
+    # name they typed and their signature (GET /v1/uploads/{id})
+    policy_version: int | None
+    signed_name: str | None
+    signature: uuid.UUID | None
+    # a ticket a manager verified: its submission's id
+    ticket: int | None
     created_at: datetime
 
 
 def record_out(r: CompetencyRecord) -> RecordOut:
     return RecordOut(id=r.id, competency=competency_ref(r.competency), kind=r.kind,
                      granted_on=r.granted_on, expires_on=r.expires_on, note=r.note,
-                     recorded_by=person_ref(r.recorded_by), created_at=r.created_at)
+                     recorded_by=person_ref(r.recorded_by),
+                     policy_version=r.policy_version.version if r.policy_version else None,
+                     signed_name=r.signed_name, signature=r.signature_upload_id,
+                     ticket=r.ticket_submission_id, created_at=r.created_at)
 
 
-def _latest(db, person_id: int, competency_id: int) -> CompetencyRecord | None:
+def latest_record(db, person_id: int, competency_id: int) -> CompetencyRecord | None:
     return db.execute(
         select(CompetencyRecord)
         .where(CompetencyRecord.person_id == person_id,
@@ -63,7 +74,7 @@ def _latest(db, person_id: int, competency_id: int) -> CompetencyRecord | None:
     ).scalar_one_or_none()
 
 
-def _one_at_a_time(db, code: str):
+def one_at_a_time(db, code: str):
     # the person stays locked until this record is in, so a grant and a revoke
     # sent at once are weighed one after the other: a revoke never misses a
     # grant made at the same moment
@@ -93,7 +104,7 @@ def list_records(code: str, db: DB, competency: str | None = None,
 
 @router.post("/people/{code}/records", status_code=201, response_model=RecordOut)
 def grant(code: str, body: GrantIn, db: DB, who: Principal = require("records:write")):
-    p = _one_at_a_time(db, code)
+    p = one_at_a_time(db, code)
     if p.id == who.person.id:
         raise Forbidden("nobody records their own competency: ask another manager",
                         "own_record")
@@ -106,9 +117,11 @@ def grant(code: str, body: GrantIn, db: DB, who: Principal = require("records:wr
         raise FieldError("granted_on", "can't be in the future")
     if body.expires_on is not None and body.expires_on <= body.granted_on:
         raise FieldError("expires_on", "must be after the date it was granted")
+    # a policy signed on paper: for the version people are asked to sign now
+    version = policies.newest(db, c) if c.kind == "policy" else None
     r = CompetencyRecord(person_id=p.id, competency=c, kind="granted",
                          granted_on=body.granted_on, expires_on=body.expires_on,
-                         note=body.note or None, recorded_by=who.person)
+                         note=body.note or None, recorded_by=who.person, policy_version=version)
     db.add(r)
     db.commit()
     return _created(r)
@@ -117,9 +130,9 @@ def grant(code: str, body: GrantIn, db: DB, who: Principal = require("records:wr
 @router.post("/people/{code}/records/revoke", status_code=201, response_model=RecordOut)
 def revoke(code: str, body: RevokeIn, db: DB, who: Principal = require("records:write")):
     """Cancels the grant that counts now, with a note saying why."""
-    p = _one_at_a_time(db, code)
+    p = one_at_a_time(db, code)
     c = get_competency(db, body.competency)
-    latest = _latest(db, p.id, c.id)
+    latest = latest_record(db, p.id, c.id)
     if latest is None or latest.kind != "granted":
         raise Conflict("nothing_to_revoke", f"{p.code} has no grant of {c.key} to revoke")
     r = CompetencyRecord(person_id=p.id, competency=c, kind="revoked", note=body.note,
