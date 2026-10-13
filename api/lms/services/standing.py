@@ -8,7 +8,9 @@ from datetime import date
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session as Db
 
-from lms.models import Competency, CompetencyRecord, PersonOverride, PersonRole, RoleRequirement
+from lms.models import (
+    Competency, CompetencyRecord, PersonOverride, PersonRole, PolicyVersion, RoleRequirement,
+)
 from lms.services.status import Latest, Status, work_out
 
 
@@ -19,6 +21,8 @@ class Standing:
     by_role: set[tuple[int, int]]
     overrides: dict[tuple[int, int], str]
     records: dict[tuple[int, int], CompetencyRecord]
+    # each policy's newest version id
+    versions: dict[int, int]
 
     def asked_for(self, person_id: int) -> set[int]:
         """Competencies their roles or an extra ask for, waived or not."""
@@ -29,7 +33,7 @@ class Standing:
     def status(self, person_id: int, competency_id: int) -> Status:
         record = self.records.get((person_id, competency_id))
         latest = None if record is None else Latest(record.kind, record.granted_on,
-                                                    record.expires_on)
+                                                    record.expires_on, record.policy_version_id)
         override = self.overrides.get((person_id, competency_id))
         return work_out(
             by_role=(person_id, competency_id) in self.by_role,
@@ -37,6 +41,7 @@ class Standing:
             latest=latest,
             refresher_months=self.competencies[competency_id].refresher_months,
             today=self.today,
+            current_version=self.versions.get(competency_id),
         )
 
 
@@ -49,7 +54,7 @@ def latest_rows(db: Db, model, person_ids: list[int]):
 
 def load(db: Db, person_ids: list[int], today: date) -> Standing:
     if not person_ids:
-        return Standing(today, {}, set(), {}, {})
+        return Standing(today, {}, set(), {}, {}, {})
     competencies = {c.id: c for c in db.execute(
         select(Competency).where(Competency.active.is_(True))).scalars()}
     by_role = {(p, c) for p, c in db.execute(
@@ -59,4 +64,10 @@ def load(db: Db, person_ids: list[int], today: date) -> Standing:
     overrides = {(o.person_id, o.competency_id): o.kind
                  for o in latest_rows(db, PersonOverride, person_ids)}
     records = {(r.person_id, r.competency_id): r for r in latest_rows(db, CompetencyRecord, person_ids)}
-    return Standing(today, competencies, by_role, overrides, records)
+    return Standing(today, competencies, by_role, overrides, records, current_versions(db))
+
+
+def current_versions(db: Db) -> dict[int, int]:
+    """Each policy's newest version: the one to sign."""
+    return dict(db.execute(select(PolicyVersion.competency_id, func.max(PolicyVersion.id))
+                           .group_by(PolicyVersion.competency_id)).all())

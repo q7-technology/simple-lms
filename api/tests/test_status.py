@@ -79,3 +79,20 @@ def test_expiry_is_the_record_then_the_refresher_then_never():
     assert expiry(D("2026-01-01"), D("2026-06-30"), 12) == D("2026-06-30")
     assert expiry(D("2026-01-01"), None, 12) == D("2027-01-01")
     assert expiry(D("2026-01-01"), None, None) is None
+
+
+def signed(version: int | None) -> Latest:
+    return Latest("granted", D("2026-03-01"), None, version)
+
+
+@pytest.mark.parametrize("why,latest,current,status", [
+    ("no version published yet: any grant counts", signed(None), None, "current"),
+    ("signed the version that is current", signed(7), 7, "current"),
+    ("signed an older version", signed(3), 7, "missing"),
+    ("recorded before there were versions", signed(None), 7, "missing"),
+    ("a revoke is still a revoke", REVOKED, 7, "missing"),
+])
+def test_a_new_policy_version_needs_a_new_signature(why, latest, current, status):
+    s = work_out(by_role=True, override=None, latest=latest, refresher_months=None,
+                 today=TODAY, current_version=current)
+    assert s.status == status, why

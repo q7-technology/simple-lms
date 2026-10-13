@@ -18,6 +18,8 @@ class Latest:
     kind: str  # granted | revoked
     granted_on: date | None = None
     expires_on: date | None = None
+    # a policy: the version it was granted for
+    policy_version_id: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -45,14 +47,19 @@ def expiry(granted_on: date, expires_on: date | None, refresher_months: int | No
 
 
 def work_out(*, by_role: bool, override: str | None, latest: Latest | None,
-             refresher_months: int | None, today: date) -> Status:
+             refresher_months: int | None, today: date,
+             current_version: int | None = None) -> Status:
     """Required is roles plus extras, less waivers. `override` is the latest
-    override's kind: extra, waive, or None (none, or cleared)."""
+    override's kind: extra, waive, or None (none, or cleared).
+    `current_version` is a policy's newest version: a grant for any other
+    version (or for none) is not a signature of what the policy says now."""
     if not (by_role or override == "extra"):
         return Status("not_required")
     if override == "waive":
         return Status("waived")
     if latest is None or latest.kind != "granted" or latest.granted_on is None:
+        return Status("missing")
+    if current_version is not None and latest.policy_version_id != current_version:
         return Status("missing")
     ends = expiry(latest.granted_on, latest.expires_on, refresher_months)
     if ends is None:
