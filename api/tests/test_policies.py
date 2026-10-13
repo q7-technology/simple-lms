@@ -146,6 +146,15 @@ def test_a_deactivated_policy_is_not_signed(client, manager_headers, learner_hea
     assert r.status_code == 409 and r.json()["code"] == "inactive"
 
 
+def test_a_deactivated_policy_gets_no_new_version(client, manager_headers, kim):
+    publish(client, manager_headers)
+    client.post("/v1/competencies/whs-policy/deactivate", headers=manager_headers)
+    r = client.post(f"{WHS}/versions", headers=manager_headers, json={"body": "Version two."})
+    assert r.status_code == 409 and r.json()["code"] == "inactive"
+    versions = client.get(f"{WHS}/versions", headers=manager_headers).json()
+    assert [v["version"] for v in versions] == [1]
+
+
 def test_the_matrix_shows_who_has_signed(client, manager_headers, learner_headers, kim, db):
     make_person(db, "LL043", "Ash Patel")
     yard.give_roles(client, manager_headers, "LL043", "picker")
@@ -170,7 +179,8 @@ def test_a_signature_signs_once(client, manager_headers, learner_headers, kim):
     assert sign(client, learner_headers, signature=used).status_code == 201
     publish(client, manager_headers, "Version two.")
     r = sign(client, learner_headers, version=2, signature=used)
-    assert r.status_code == 422 and r.json()["errors"][0]["field"] == "signature"
+    assert r.status_code == 422 and r.json()["errors"][0] == {
+        "field": "signature", "message": "this signature is already on a record: sign again"}
     assert sign(client, learner_headers, version=2).status_code == 201
 
 

@@ -77,6 +77,13 @@ class TicketSubmission(Base):
                         " and (status = 'pending') = (decided_at is null)",
                         name="decided"),
         CheckConstraint("length(trim(number)) > 0", name="number"),
+        # a photo is one side of one ticket: never both sides, never on two
+        # tickets. A front on one ticket as the back of another isn't a rule
+        # a unique index can say; uploads.on_a_ticket() checks that one.
+        CheckConstraint("front_upload_id <> back_upload_id", name="two_sides"),
+        Index("uq_ticket_submission_front_upload_id", "front_upload_id", unique=True),
+        Index("uq_ticket_submission_back_upload_id", "back_upload_id", unique=True,
+              postgresql_where=text("back_upload_id is not null")),
         # one waiting at a time for a person and a ticket
         Index("uq_ticket_submission_waiting", "person_id", "competency_id", unique=True,
               postgresql_where=text("status = 'pending'")),

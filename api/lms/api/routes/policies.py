@@ -78,6 +78,8 @@ def publish_version(key: str, body: VersionIn, db: DB,
                     who: Principal = require("competencies:write")):
     """The next version. Everyone asked for the policy needs to sign it."""
     c = get_policy(db, key)
+    if not c.active:
+        raise Conflict("inactive", f"{c.key} is deactivated")
     # one at a time per policy, so two published at once get 1 and 2
     db.refresh(c, with_for_update=True)
     last = db.execute(select(func.max(PolicyVersion.version))
@@ -119,8 +121,10 @@ def sign(key: str, body: SignIn, db: DB, who: Principal = require("training:writ
     if not policies.same_name(body.signed_name, p.name):
         raise FieldError("signed_name", f"type your name as it is on your record: {p.name}")
     signature = uploads.mine(db, p, body.signature, "signature")
-    if signature is None or policies.signature_used(db, signature.id):
+    if signature is None:
         raise FieldError("signature", "sign with your finger first")
+    if policies.signature_used(db, signature.id):
+        raise FieldError("signature", "this signature is already on a record: sign again")
     r = CompetencyRecord(person_id=p.id, competency=c, kind="granted", granted_on=clock.today(),
                          recorded_by=p, policy_version=v, signed_name=body.signed_name,
                          signature_upload_id=signature.id)

@@ -109,12 +109,58 @@ def test_a_ticket_is_never_deleted(db, waiting):
 def _ticket(db, waiting, **values):
     """A second ticket, inserted as is: no trigger stands in the way of an insert."""
     boss, ticket = waiting
+    if "front_upload_id" not in values:
+        values["front_upload_id"] = _upload(db, ticket.person_id).id
     values = {"person_id": ticket.person_id, "competency_id": ticket.competency_id,
-              "number": "LF0054321", "front_upload_id": ticket.front_upload_id,
+              "number": "LF0054321",
               "status": "approved", "decided_by_id": boss.id, "decided_at": datetime.now(UTC),
               "reason": None} | values
     db.execute(insert(TicketSubmission).values(**values))
     db.commit()
+
+
+def _upload(db, person_id, purpose="ticket"):
+    u = Upload(id=uuid.uuid4(), person_id=person_id, purpose=purpose, content_type="image/png",
+               size_bytes=3, sha256="0" * 64, path=f"ab/{uuid.uuid4()}.png")
+    db.add(u)
+    db.flush()
+    return u
+
+
+def test_a_signature_is_on_one_record_only(db, setting):
+    boss, kim, forklift = setting
+    whs = db.execute(select(PolicyVersion)).scalar_one()
+    signature = _upload(db, kim.id, "signature")
+    row = {"person_id": kim.id, "competency_id": whs.competency_id, "kind": "granted",
+           "granted_on": date(2026, 3, 1), "recorded_by_id": kim.id,
+           "policy_version_id": whs.id, "signed_name": "Kim Lee",
+           "signature_upload_id": signature.id}
+    db.execute(insert(CompetencyRecord).values(**row))
+    db.commit()
+    with pytest.raises(IntegrityError, match="uq_competency_record_signature_upload_id"):
+        db.execute(insert(CompetencyRecord).values(**row))
+        db.commit()
+
+
+def test_a_photo_is_the_front_of_one_ticket_only(db, waiting):
+    boss, ticket = waiting
+    with pytest.raises(IntegrityError, match="uq_ticket_submission_front_upload_id"):
+        _ticket(db, waiting, front_upload_id=ticket.front_upload_id)
+
+
+def test_a_photo_is_the_back_of_one_ticket_only(db, waiting):
+    boss, ticket = waiting
+    back = _upload(db, ticket.person_id)
+    _ticket(db, waiting, back_upload_id=back.id)
+    with pytest.raises(IntegrityError, match="uq_ticket_submission_back_upload_id"):
+        _ticket(db, waiting, back_upload_id=back.id)
+
+
+def test_a_ticket_has_two_different_sides(db, waiting):
+    boss, ticket = waiting
+    photo = _upload(db, ticket.person_id)
+    with pytest.raises(IntegrityError, match="ck_ticket_submission_two_sides"):
+        _ticket(db, waiting, front_upload_id=photo.id, back_upload_id=photo.id)
 
 
 @pytest.mark.parametrize("values", [

@@ -87,6 +87,11 @@ def upgrade() -> None:
                            " and (status = 'pending') = (decided_at is null)",
                            name=op.f("ck_ticket_submission_decided")),
         sa.CheckConstraint("length(trim(number)) > 0", name=op.f("ck_ticket_submission_number")),
+        # a photo is one side of one ticket: never both sides, never on two
+        # tickets. A front on one ticket as the back of another isn't a rule
+        # a unique index can say; uploads.on_a_ticket() checks that one.
+        sa.CheckConstraint("front_upload_id <> back_upload_id",
+                           name=op.f("ck_ticket_submission_two_sides")),
         sa.ForeignKeyConstraint(["person_id"], ["person.id"],
                                 name=op.f("fk_ticket_submission_person_id_person")),
         sa.ForeignKeyConstraint(["competency_id"], ["competency.id"],
@@ -105,6 +110,11 @@ def upgrade() -> None:
     op.create_index("uq_ticket_submission_waiting", "ticket_submission",
                     ["person_id", "competency_id"], unique=True,
                     postgresql_where=sa.text("status = 'pending'"))
+    op.create_index("uq_ticket_submission_front_upload_id", "ticket_submission",
+                    ["front_upload_id"], unique=True)
+    op.create_index("uq_ticket_submission_back_upload_id", "ticket_submission",
+                    ["back_upload_id"], unique=True,
+                    postgresql_where=sa.text("back_upload_id is not null"))
 
     op.add_column("competency_record", sa.Column("policy_version_id", sa.Integer(), nullable=True))
     op.add_column("competency_record", sa.Column("signed_name", sa.String(length=120),
@@ -124,6 +134,10 @@ def upgrade() -> None:
     op.create_check_constraint(
         op.f("ck_competency_record_signature"), "competency_record",
         "signature_upload_id is null or (policy_version_id is not null and signed_name is not null)")
+    # a drawn signature goes on one record only
+    op.create_index("uq_competency_record_signature_upload_id", "competency_record",
+                    ["signature_upload_id"], unique=True,
+                    postgresql_where=sa.text("signature_upload_id is not null"))
 
     op.create_table(
         "outbox",
@@ -183,6 +197,7 @@ def downgrade() -> None:
     op.execute("drop trigger if exists policy_version_append_only on policy_version")
     op.drop_index("ix_outbox_due", table_name="outbox")
     op.drop_table("outbox")
+    op.drop_index("uq_competency_record_signature_upload_id", table_name="competency_record")
     op.drop_constraint(op.f("ck_competency_record_signature"), "competency_record", type_="check")
     op.drop_constraint(op.f("uq_competency_record_ticket_submission_id"), "competency_record",
                        type_="unique")
@@ -195,6 +210,8 @@ def downgrade() -> None:
     for column in ("ticket_submission_id", "signature_upload_id", "signed_name",
                    "policy_version_id"):
         op.drop_column("competency_record", column)
+    op.drop_index("uq_ticket_submission_back_upload_id", table_name="ticket_submission")
+    op.drop_index("uq_ticket_submission_front_upload_id", table_name="ticket_submission")
     op.drop_index("uq_ticket_submission_waiting", table_name="ticket_submission")
     op.drop_index(op.f("ix_ticket_submission_competency_id"), table_name="ticket_submission")
     op.drop_index(op.f("ix_ticket_submission_person_id"), table_name="ticket_submission")

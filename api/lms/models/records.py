@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 from datetime import date, datetime
 
-from sqlalchemy import CheckConstraint, Date, ForeignKey, String
+from sqlalchemy import CheckConstraint, Date, ForeignKey, Index, String, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from lms.models.base import Base, created_at_column
@@ -50,6 +50,9 @@ class CompetencyRecord(Base):
         CheckConstraint("signature_upload_id is null or "
                         "(policy_version_id is not null and signed_name is not null)",
                         name="signature"),
+        # a drawn signature goes on one record only
+        Index("uq_competency_record_signature_upload_id", "signature_upload_id", unique=True,
+              postgresql_where=text("signature_upload_id is not null")),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
