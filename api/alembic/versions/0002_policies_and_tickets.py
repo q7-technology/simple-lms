@@ -78,9 +78,13 @@ def upgrade() -> None:
         _created_at(),
         sa.CheckConstraint("status in ('pending', 'approved', 'rejected')",
                            name=op.f("ck_ticket_submission_status")),
-        sa.CheckConstraint("status <> 'rejected' or length(trim(reason)) > 0",
+        # a reason when rejected, and only then
+        sa.CheckConstraint("case when status = 'rejected' then coalesce(length(trim(reason)), 0) > 0"
+                           " else reason is null end",
                            name=op.f("ck_ticket_submission_reason")),
-        sa.CheckConstraint("(status = 'pending') = (decided_by_id is null)",
+        # pending has no decider and no date; approved and rejected have both
+        sa.CheckConstraint("(status = 'pending') = (decided_by_id is null)"
+                           " and (status = 'pending') = (decided_at is null)",
                            name=op.f("ck_ticket_submission_decided")),
         sa.CheckConstraint("length(trim(number)) > 0", name=op.f("ck_ticket_submission_number")),
         sa.ForeignKeyConstraint(["person_id"], ["person.id"],
@@ -127,14 +131,17 @@ def upgrade() -> None:
         sa.Column("kind", sa.String(length=16), nullable=False),
         sa.Column("key", sa.String(length=200), nullable=False),
         sa.Column("payload", postgresql.JSONB(astext_type=sa.Text()), nullable=False),
-        sa.Column("status", sa.String(length=16), nullable=False),
-        sa.Column("attempts", sa.Integer(), nullable=False),
-        sa.Column("next_attempt_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("status", sa.String(length=16), server_default="pending", nullable=False),
+        sa.Column("attempts", sa.Integer(), server_default="0", nullable=False),
+        sa.Column("next_attempt_at", sa.DateTime(timezone=True), server_default=sa.text("now()"),
+                  nullable=False),
         sa.Column("last_error", sa.String(length=500), nullable=True),
         sa.Column("done_at", sa.DateTime(timezone=True), nullable=True),
         _created_at(),
         sa.CheckConstraint("kind in ('email')", name=op.f("ck_outbox_kind")),
         sa.CheckConstraint("status in ('pending', 'done', 'failed')", name=op.f("ck_outbox_status")),
+        # sent, and when: done_at is set exactly when it is done
+        sa.CheckConstraint("(status = 'done') = (done_at is not null)", name=op.f("ck_outbox_done_at")),
         sa.PrimaryKeyConstraint("id", name=op.f("pk_outbox")),
         sa.UniqueConstraint("key", name=op.f("uq_outbox_key")),
     )

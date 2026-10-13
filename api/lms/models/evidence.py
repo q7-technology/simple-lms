@@ -68,8 +68,14 @@ class TicketSubmission(Base):
     __tablename__ = "ticket_submission"
     __table_args__ = (
         CheckConstraint("status in ('pending', 'approved', 'rejected')", name="status"),
-        CheckConstraint("status <> 'rejected' or length(trim(reason)) > 0", name="reason"),
-        CheckConstraint("(status = 'pending') = (decided_by_id is null)", name="decided"),
+        # a reason when rejected, and only then
+        CheckConstraint("case when status = 'rejected' then coalesce(length(trim(reason)), 0) > 0"
+                        " else reason is null end",
+                        name="reason"),
+        # pending has no decider and no date; approved and rejected have both
+        CheckConstraint("(status = 'pending') = (decided_by_id is null)"
+                        " and (status = 'pending') = (decided_at is null)",
+                        name="decided"),
         CheckConstraint("length(trim(number)) > 0", name="number"),
         # one waiting at a time for a person and a ticket
         Index("uq_ticket_submission_waiting", "person_id", "competency_id", unique=True,

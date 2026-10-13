@@ -4,11 +4,12 @@ import uuid
 from datetime import UTC, date, datetime
 
 import pytest
-from sqlalchemy import delete, select, update
+from sqlalchemy import delete, insert, select, text, update
 from sqlalchemy.exc import DBAPIError, IntegrityError
 
 from lms.models import (
-    Competency, CompetencyRecord, Person, PersonOverride, PolicyVersion, TicketSubmission, Upload,
+    Competency, CompetencyRecord, Outbox, Person, PersonOverride, PolicyVersion, TicketSubmission,
+    Upload,
 )
 
 
@@ -102,4 +103,70 @@ def test_a_ticket_cannot_be_changed_while_it_waits(db, waiting):
 def test_a_ticket_is_never_deleted(db, waiting):
     with pytest.raises(DBAPIError, match="cannot be deleted"):
         db.execute(delete(TicketSubmission))
+        db.commit()
+
+
+def _ticket(db, waiting, **values):
+    """A second ticket, inserted as is: no trigger stands in the way of an insert."""
+    boss, ticket = waiting
+    values = {"person_id": ticket.person_id, "competency_id": ticket.competency_id,
+              "number": "LF0054321", "front_upload_id": ticket.front_upload_id,
+              "status": "approved", "decided_by_id": boss.id, "decided_at": datetime.now(UTC),
+              "reason": None} | values
+    db.execute(insert(TicketSubmission).values(**values))
+    db.commit()
+
+
+@pytest.mark.parametrize("values", [
+    {"decided_at": None},
+    {"decided_by_id": None},
+    {"status": "rejected", "reason": "blurry", "decided_at": None},
+])
+def test_a_decided_ticket_says_who_and_when(db, waiting, values):
+    with pytest.raises(IntegrityError, match="ck_ticket_submission_decided"):
+        _ticket(db, waiting, **values)
+
+
+@pytest.mark.parametrize("values", [
+    {"decided_by_id": None},
+    {"decided_at": None},
+])
+def test_a_waiting_ticket_has_no_decision(db, waiting, values):
+    boss, ticket = waiting
+    with pytest.raises(IntegrityError, match="ck_ticket_submission_decided"):
+        _ticket(db, waiting, status="pending", person_id=boss.id, **values)
+
+
+@pytest.mark.parametrize("values", [
+    {"status": "rejected", "reason": None},
+    {"status": "rejected", "reason": "  "},
+    {"status": "approved", "reason": "looks fine"},
+])
+def test_only_a_rejected_ticket_has_a_reason(db, waiting, values):
+    with pytest.raises(IntegrityError, match="ck_ticket_submission_reason"):
+        _ticket(db, waiting, **values)
+
+
+def test_a_waiting_ticket_has_no_reason(db, waiting):
+    boss, _ = waiting
+    with pytest.raises(IntegrityError, match="ck_ticket_submission_reason"):
+        _ticket(db, waiting, status="pending", person_id=boss.id, decided_by_id=None,
+                decided_at=None, reason="not yet")
+
+
+def test_the_outbox_fills_in_its_own_defaults(db):
+    db.execute(text("insert into outbox (kind, key, payload) values ('email', 'k', '{}')"))
+    row = db.execute(select(Outbox)).scalar_one()
+    assert (row.status, row.attempts, row.done_at) == ("pending", 0, None)
+    assert row.next_attempt_at is not None
+
+
+@pytest.mark.parametrize("status, done_at", [
+    ("done", None), ("pending", datetime.now(UTC)), ("failed", datetime.now(UTC)),
+])
+def test_only_a_sent_email_has_a_done_at(db, status, done_at):
+    with pytest.raises(IntegrityError, match="ck_outbox_done_at"):
+        db.execute(insert(Outbox).values(kind="email", key="k", payload={}, status=status,
+                                         attempts=1, next_attempt_at=datetime.now(UTC),
+                                         done_at=done_at))
         db.commit()
