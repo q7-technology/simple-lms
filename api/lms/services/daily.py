@@ -45,13 +45,17 @@ def _where_to(path: str) -> str:
     return f"\n\nOpen Simple LMS: {url}{path}" if url else ""
 
 
-def reminder(person: Person, name: str, expires_on: date, days: int) -> tuple[str, str]:
-    if days == 0:
+def reminder(person: Person, name: str, expires_on: date, days_left: int) -> tuple[str, str]:
+    """Said with the real days left, whichever of 30, 14 and 0 is being sent."""
+    if days_left == 0:
         subject = f"{name}: today is its last day"
         when = f"Your {name} is good until the end of today, {formatted(expires_on)}."
+    elif days_left == 1:
+        subject = f"{name}: tomorrow is its last day"
+        when = f"Your {name} is good until the end of tomorrow, {formatted(expires_on)}."
     else:
-        subject = f"{name}: {days} days left"
-        when = f"Your {name} is good until {formatted(expires_on)}, {days} days from now."
+        subject = f"{name}: {days_left} days left"
+        when = f"Your {name} is good until {formatted(expires_on)}, {days_left} days from now."
     text = (f"Hi {person.name},\n\n{when} Renew it before then, and it will show in "
             f"My training.{_where_to('/learn/')}\n\nIf you have already done it, ask your "
             "supervisor to check it is recorded.\n\nSimple LMS")
@@ -90,9 +94,10 @@ def run(db: Db, today: date, now: datetime | None = None) -> dict[str, int]:
             name = st.competencies[c].name
             items.append(Item(p, name, s.status, s.expires_on))
             if s.status == "expiring" and p.email:
-                days = reminder_for((s.expires_on - today).days)
-                subject, text = reminder(p, name, s.expires_on, days)
-                key = f"reminder:{p.id}:{c}:{s.expires_on.isoformat()}:{days}"
+                days_left = (s.expires_on - today).days
+                tier = reminder_for(days_left)
+                subject, text = reminder(p, name, s.expires_on, days_left)
+                key = f"reminder:{p.id}:{c}:{s.expires_on.isoformat()}:{tier}"
                 queued["reminders"] += outbox.queue_email(db, key, p.email, subject, text, now)
     if today.weekday() == MONDAY and items:
         items.sort(key=lambda i: (i.expires_on, i.person.name, i.name))

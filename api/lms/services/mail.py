@@ -2,6 +2,7 @@
 worker sends, from the outbox; nothing waits on an email."""
 from __future__ import annotations
 
+import re
 import smtplib
 import ssl
 from email.message import EmailMessage
@@ -9,6 +10,8 @@ from email.message import EmailMessage
 from lms.config import Settings, get_settings
 
 TIMEOUT_SECONDS = 20
+# line breaks and other control characters, which in a header could start a new one
+CONTROL = re.compile(r"[\x00-\x1f\x7f-\x9f\u2028\u2029]+")
 
 
 def set_up() -> bool:
@@ -27,11 +30,17 @@ def connect(s: Settings) -> smtplib.SMTP:
     return smtp
 
 
+def one_line(value: str) -> str:
+    """A header value on one line: names go into subjects, and a name with a
+    line break in it must not add a header (or fail the email)."""
+    return CONTROL.sub(" ", value).strip()
+
+
 def message(payload: dict) -> EmailMessage:
     msg = EmailMessage()
-    msg["From"] = get_settings().smtp_from
-    msg["To"] = payload["to"]
-    msg["Subject"] = payload["subject"]
+    msg["From"] = one_line(get_settings().smtp_from)
+    msg["To"] = one_line(payload["to"])
+    msg["Subject"] = one_line(payload["subject"])
     msg.set_content(payload["text"])
     return msg
 

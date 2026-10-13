@@ -50,7 +50,22 @@ def test_reminders_at_30_14_and_0_days_each_once(db, kim):
 
 def test_a_day_the_worker_missed_still_gets_the_reminder_it_owed(db, kim):
     on(db, date(2026, 11, 2))   # 9 days left: the 14-day one, not the 30
-    assert emails(db) == [("kim@example.com.au", "Forklift licence: 14 days left")]
+    assert emails(db) == [("kim@example.com.au", "Forklift licence: 9 days left")]
+    on(db, date(2026, 11, 3))   # the 14-day one has gone, so nothing more until the day
+    assert len(emails(db)) == 1
+
+
+def test_the_reminder_says_the_real_days_left_not_the_tier(db, kim):
+    on(db, date(2026, 11, 2))
+    text = db.query(Outbox).filter(Outbox.key.startswith("reminder")).one().payload["text"]
+    assert "Your Forklift licence is good until 11 Nov 2026, 9 days from now." in text
+
+
+def test_one_day_left_is_tomorrow(db, kim):
+    on(db, date(2026, 11, 10))   # missed until the day before: the 14-day one, said as tomorrow
+    assert emails(db) == [("kim@example.com.au", "Forklift licence: tomorrow is its last day")]
+    text = db.query(Outbox).filter(Outbox.key.startswith("reminder")).one().payload["text"]
+    assert "Your Forklift licence is good until the end of tomorrow, 11 Nov 2026." in text
 
 
 def test_what_the_reminder_says(db, kim, monkeypatch):
@@ -75,7 +90,7 @@ def test_a_renewed_ticket_is_reminded_afresh(client, db, manager_headers, kim):
                expires_on="2026-11-30")
     on(db, date(2026, 11, 1))
     assert [s for _, s in emails(db)] == ["Forklift licence: 30 days left",
-                                          "Forklift licence: 30 days left"]
+                                          "Forklift licence: 29 days left"]
 
 
 def test_a_waived_one_is_not_reminded(client, db, manager_headers, kim):

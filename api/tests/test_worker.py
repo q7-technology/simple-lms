@@ -165,3 +165,14 @@ def test_the_connection_is_encrypted_as_the_settings_say(monkeypatch):
     mail.connect(Settings(smtp_host="relay", smtp_port=25, smtp_security="none"))
     assert made == [("SMTP", "mail.example.com.au", 587), "starttls",
                     ("SMTP_SSL", "mail.example.com.au", 465), ("SMTP", "relay", 25)]
+
+
+def test_a_line_break_in_a_name_cannot_add_a_header():
+    from lms.services import mail
+
+    msg = mail.message({"to": "kim@example.com.au", "text": "Hi Kim",
+                        "subject": "Forklift\r\nBcc: x@example.com: 30 days left"})
+    assert msg["Subject"] == "Forklift Bcc: x@example.com: 30 days left"
+    assert msg["Bcc"] is None
+    head = msg.as_string().split("\n\n", 1)[0]
+    assert [line for line in head.splitlines() if line.startswith("Bcc")] == []
