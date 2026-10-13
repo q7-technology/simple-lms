@@ -10,11 +10,12 @@ import tempfile
 import uuid
 from pathlib import Path
 
+from sqlalchemy import exists, or_, select
 from sqlalchemy.orm import Session as Db
 
 from lms.api.errors import Refused
 from lms.config import get_settings
-from lms.models import Person, Upload
+from lms.models import Person, TicketSubmission, Upload
 
 # what each purpose may be, and how big: 20 MB for a ticket (the design's
 # limit for anything that is not a video); a signature is a few kB
@@ -79,3 +80,12 @@ def mine(db: Db, person: Person, upload_id: uuid.UUID | None, purpose: str) -> U
     if row is None or row.person_id != person.id or row.purpose != purpose:
         return None
     return row
+
+
+def on_a_ticket(db: Db, upload_id: uuid.UUID) -> bool:
+    """A photo goes on one ticket only, waiting or decided: what a manager
+    checked can't turn up again on another. The sender's row is locked while
+    they send, so two at once can't both find it unused."""
+    return db.execute(select(exists().where(or_(
+        TicketSubmission.front_upload_id == upload_id,
+        TicketSubmission.back_upload_id == upload_id)))).scalar()

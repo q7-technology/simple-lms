@@ -19,7 +19,7 @@ from lms.api.schemas import (
     CompetencyRef, PersonRef, RoleRef, competency_ref, normal_code, normal_key, person_ref,
     role_ref,
 )
-from lms.models import Person, PersonRole, Role
+from lms.models import Person, PersonRole, Role, TicketSubmission
 from lms.services import clock, standing
 from lms.services.status import STATUSES
 
@@ -57,6 +57,10 @@ class TrainingItem(BaseModel):
     status: str
     granted_on: date | None
     expires_on: date | None
+    # a ticket: whether its card has an expiry date to type in
+    card_expires: bool
+    # a ticket sent in and waiting for a manager's check
+    waiting: bool
 
 
 class TrainingOut(BaseModel):
@@ -164,6 +168,8 @@ def training(code: str, db: DB, who: Principal = require("training:read")):
     if not who.sees(p):
         raise NotFound(f"no person {code}")
     st = standing.load(db, [p.id], clock.today())
+    waiting = set(db.execute(select(TicketSubmission.competency_id).where(
+        TicketSubmission.person_id == p.id, TicketSubmission.status == "pending")).scalars())
     items = []
     for c in st.asked_for(p.id):
         s = st.status(p.id, c)
@@ -171,6 +177,7 @@ def training(code: str, db: DB, who: Principal = require("training:read")):
             comp = st.competencies[c]
             items.append(TrainingItem(key=comp.key, name=comp.name, kind=comp.kind,
                                       status=s.status, granted_on=s.granted_on,
-                                      expires_on=s.expires_on))
+                                      expires_on=s.expires_on, card_expires=comp.card_expires,
+                                      waiting=c in waiting))
     items.sort(key=lambda i: (i.name, i.key))
     return TrainingOut(person=person_ref(p), today=st.today, items=items)
