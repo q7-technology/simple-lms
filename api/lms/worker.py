@@ -121,8 +121,9 @@ def run_once(session: Session, today: Daily, now: datetime | None = None) -> int
             queued = daily.run(session, day, now)
         except Exception:  # the emails already queued still go
             log.exception("daily job for %s failed; trying again in %s", day, DAILY_RETRY)
-            session.rollback()
+            # set first: a dead connection can make the rollback raise as well
             today.not_before = (now or clock()) + DAILY_RETRY
+            session.rollback()
         else:
             today.last = day
             today.not_before = None

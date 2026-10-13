@@ -1,3 +1,4 @@
+import pytest
 from sqlalchemy import select
 
 from lms.cli import main
@@ -47,3 +48,10 @@ def test_daily_job_queues_the_reminders_now(client, db, manager_headers, learner
     assert main(["daily-job", "--on", "2026-10-13"]) == 0
     assert "0 reminders" in capsys.readouterr().out
     assert db.query(Outbox).count() == 1
+
+
+def test_daily_job_refuses_a_date_it_cannot_read(capsys):
+    with pytest.raises(SystemExit) as stopped:
+        main(["daily-job", "--on", "13/10/2026"])
+    assert stopped.value.code == 2
+    assert "YYYY-MM-DD" in capsys.readouterr().err

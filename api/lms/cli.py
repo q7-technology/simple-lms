@@ -36,10 +36,17 @@ def cmd_create_user(args) -> int:
     return 0
 
 
+def _day(text: str) -> date:
+    try:
+        return date.fromisoformat(text)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"{text!r} is not a date: write it as YYYY-MM-DD") from None
+
+
 def cmd_daily_job(args) -> int:
     """What the worker does each morning, now. Safe to run again: nothing
     already queued is queued twice."""
-    day = date.fromisoformat(args.on) if args.on else clock.today()
+    day = args.on or clock.today()
     with get_sessionmaker()() as db:
         queued = daily.run(db, day)
     print(f"{day.isoformat()}: {queued['reminders']} reminders and {queued['digests']} digests "
@@ -60,7 +67,7 @@ def main(argv: list[str] | None = None) -> int:
     p.set_defaults(func=cmd_create_user)
 
     p = sub.add_parser("daily-job", help="queue the reminders (and on a Monday the digests) now")
-    p.add_argument("--on", help="as if today were this date, YYYY-MM-DD (to try it out)")
+    p.add_argument("--on", type=_day, help="as if today were this date, YYYY-MM-DD (to try it out)")
     p.set_defaults(func=cmd_daily_job)
 
     args = parser.parse_args(argv)
