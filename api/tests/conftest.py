@@ -87,6 +87,16 @@ def today(monkeypatch):
     return c
 
 
+@pytest.fixture(autouse=True)
+def upload_dir(tmp_path, monkeypatch):
+    """Files go to a folder of the test's own, never /data/uploads."""
+    from lms.config import get_settings
+
+    folder = tmp_path / "uploads"
+    monkeypatch.setattr(get_settings(), "upload_dir", str(folder))
+    return folder
+
+
 @pytest.fixture
 def beaten_to_it(engine):
     """Another request, at the same moment, commits `row` after this one's
