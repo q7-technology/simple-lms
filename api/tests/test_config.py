@@ -36,3 +36,10 @@ def test_the_daily_job_runs_from_an_hour_of_the_day():
 
 def test_the_public_url_loses_its_trailing_slash():
     assert Settings(public_url="https://lms.example.com.au/").public_url == "https://lms.example.com.au"
+
+
+def test_the_worker_waits_some_time_between_polls():
+    assert Settings().worker_poll_seconds == 5.0
+    for bad in (0, -1):
+        with pytest.raises(ValidationError):
+            Settings(worker_poll_seconds=bad)

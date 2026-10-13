@@ -34,7 +34,7 @@ class Settings(BaseSettings):
 
     # The worker: how long it waits when there is nothing to send, and the
     # hour (in LMS_TIMEZONE) from which it runs the daily job each day.
-    worker_poll_seconds: float = 5.0
+    worker_poll_seconds: float = Field(default=5.0, gt=0)
     daily_hour: int = Field(default=6, ge=0, le=23)
 
     @field_validator("timezone")

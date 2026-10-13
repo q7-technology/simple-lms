@@ -176,3 +176,38 @@ def test_a_line_break_in_a_name_cannot_add_a_header():
     assert msg["Bcc"] is None
     head = msg.as_string().split("\n\n", 1)[0]
     assert [line for line in head.splitlines() if line.startswith("Bcc")] == []
+
+
+def test_an_email_that_cannot_be_built_is_a_failure_and_the_next_one_still_goes(db, mailbox):
+    queued(db, key="broken")
+    row(db, "broken").payload = {"subject": "no one to send it to", "text": "Hi"}
+    db.commit()
+    queued(db, key="fine")
+    assert worker.send_emails(db, now=T0) == 2
+    broken = row(db, "broken")
+    assert (broken.status, broken.attempts) == ("pending", 1)
+    assert broken.next_attempt_at == T0 + timedelta(minutes=1)
+    assert broken.last_error == "KeyError: 'to'"
+    assert (row(db, "fine").status, len(mailbox.sent)) == ("done", 1)
+
+
+def test_a_failing_daily_job_does_not_hold_up_the_emails(db, mailbox, monkeypatch):
+    runs = []
+
+    def broken(session, day, now):
+        runs.append(now)
+        outbox.queue_email(session, "half-done", "kim@example.com.au", "s", "t", now=now)
+        raise RuntimeError("database hiccup")
+
+    monkeypatch.setattr(worker.daily, "run", broken)
+    morning = datetime(2026, 10, 11, 20, 0, tzinfo=UTC)
+    outbox.queue_email(db, "hello", "kim@example.com.au", "s", "t", now=morning)
+    db.commit()
+    today = worker.Daily()
+    assert worker.run_once(db, today, now=morning) == 1
+    assert row(db).status == "done"
+    assert db.query(Outbox).filter_by(key="half-done").count() == 0   # rolled back
+    # not tried again straight away, but again a few minutes on, the same day
+    worker.run_once(db, today, now=morning + timedelta(minutes=4))
+    worker.run_once(db, today, now=morning + timedelta(minutes=5))
+    assert runs == [morning, morning + timedelta(minutes=5)]
