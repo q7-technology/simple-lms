@@ -29,11 +29,14 @@ http://{$LMS_DOMAIN} {
 		reverse_proxy api:8000
 	}
 
+	# Photos and signatures are fetched with the session's token and shown
+	# from blob: URLs, so both apps allow blob: images and nothing else new.
+
 	# The learner app: a PWA under /learn/.
 	@learnbare path /learn
 	redir @learnbare /learn/ 308
 	handle_path /learn/* {
-		header Content-Security-Policy "default-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+		header Content-Security-Policy "default-src 'self'; img-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
 		# checked on every launch, so a new build reaches the phones
 		header /sw.js Cache-Control "no-cache"
 		# the page names the build's files: asked after every time, never
@@ -48,7 +51,7 @@ http://{$LMS_DOMAIN} {
 	# The desktop: everything else.
 	handle {
 		# Only the desktop: the API's /docs page loads its scripts from a CDN.
-		header Content-Security-Policy "default-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+		header Content-Security-Policy "default-src 'self'; img-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
 		@desktoppage not path /assets/* /favicon.svg
 		header @desktoppage Cache-Control "no-cache"
 		root * /srv/desktop

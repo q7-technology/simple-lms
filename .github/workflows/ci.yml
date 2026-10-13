@@ -91,17 +91,24 @@ jobs:
           cp .env.example .env
           sed -i 's/^POSTGRES_PASSWORD=.*/POSTGRES_PASSWORD=ci-only-password/' .env
       - name: Up
-        run: docker compose up -d --build db api
-      - name: The API answers and the migrations ran
+        run: docker compose up -d --build db api worker
+      - name: The API answers, the migrations ran and the worker started
         run: |
           for i in $(seq 1 30); do
             if curl -fsS http://127.0.0.1:8033/v1/health 2>/dev/null; then ok=1; break; fi
             sleep 2
           done
           test "${ok:-0}" = 1 || (docker compose logs api; exit 1)
-          # both append-only triggers are there on a real install
+          # the append-only triggers and the ticket's decide-once one are there
           docker compose exec -T db psql -U lms -d lms -tAc \
-            "select count(*) from pg_trigger where tgname like '%_append_only'" | grep -qx 2
+            "select count(*) from pg_trigger where tgname like '%_append_only'" | grep -qx 3
+          docker compose exec -T db psql -U lms -d lms -tAc \
+            "select count(*) from pg_trigger where tgname = 'ticket_submission_decide_once'" | grep -qx 1
+          for i in $(seq 1 30); do
+            if docker compose logs worker | grep -q "worker started"; then up=1; break; fi
+            sleep 2
+          done
+          test "${up:-0}" = 1 || (docker compose logs worker; exit 1)
       - name: Logs on failure
         if: failure()
         run: docker compose logs

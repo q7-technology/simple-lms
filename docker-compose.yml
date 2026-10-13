@@ -25,6 +25,9 @@ services:
     environment:
       LMS_DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-lms}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-lms}
       LMS_TIMEZONE: ${LMS_TIMEZONE:-Australia/Melbourne}
+    volumes:
+      # tickets' photos and policy signatures (LMS_UPLOAD_DIR)
+      - uploads:/data/uploads
     depends_on:
       db:
         condition: service_healthy
@@ -41,8 +44,27 @@ services:
       retries: 10
       start_period: 20s
 
-  # The worker arrives with build step 2, with the queue it drains (the
-  # daily job, email reminders, and later the webhooks and print jobs).
+  # Sends the emails in the outbox with backoff, and runs the daily job
+  # (reminders, and the managers' Monday digest). Waits for the api's
+  # migrations. Later steps give it the webhooks and print jobs.
+  worker:
+    build: ./api
+    restart: unless-stopped
+    command: python -m lms.worker
+    environment:
+      LMS_DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-lms}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-lms}
+      LMS_TIMEZONE: ${LMS_TIMEZONE:-Australia/Melbourne}
+      LMS_PUBLIC_URL: ${LMS_PUBLIC_URL:-}
+      LMS_DAILY_HOUR: ${LMS_DAILY_HOUR:-6}
+      LMS_SMTP_HOST: ${LMS_SMTP_HOST:-}
+      LMS_SMTP_PORT: ${LMS_SMTP_PORT:-587}
+      LMS_SMTP_USER: ${LMS_SMTP_USER:-}
+      LMS_SMTP_PASSWORD: ${LMS_SMTP_PASSWORD:-}
+      LMS_SMTP_FROM: ${LMS_SMTP_FROM:-}
+      LMS_SMTP_SECURITY: ${LMS_SMTP_SECURITY:-starttls}
+    depends_on:
+      db:
+        condition: service_healthy
 
   caddy:
     image: caddy:2
@@ -70,5 +92,6 @@ services:
 
 volumes:
   pgdata:
+  uploads:
   caddy_data:
   caddy_config:
