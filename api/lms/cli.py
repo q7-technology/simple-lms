@@ -4,13 +4,14 @@ from __future__ import annotations
 import argparse
 import getpass
 import sys
+from datetime import date
 
 from sqlalchemy import or_, select
 
 from lms.api.schemas import normal_code
 from lms.db import get_sessionmaker
 from lms.models import PERMISSIONS, Person
-from lms.services import access
+from lms.services import access, clock, daily
 
 
 def cmd_create_user(args) -> int:
@@ -35,6 +36,17 @@ def cmd_create_user(args) -> int:
     return 0
 
 
+def cmd_daily_job(args) -> int:
+    """What the worker does each morning, now. Safe to run again: nothing
+    already queued is queued twice."""
+    day = date.fromisoformat(args.on) if args.on else clock.today()
+    with get_sessionmaker()() as db:
+        queued = daily.run(db, day)
+    print(f"{day.isoformat()}: {queued['reminders']} reminders and {queued['digests']} digests "
+          "queued; the worker sends them")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="lms")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -46,6 +58,10 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--permission", default="admin", choices=list(PERMISSIONS))
     p.add_argument("--password", help="prompted for if omitted")
     p.set_defaults(func=cmd_create_user)
+
+    p = sub.add_parser("daily-job", help="queue the reminders (and on a Monday the digests) now")
+    p.add_argument("--on", help="as if today were this date, YYYY-MM-DD (to try it out)")
+    p.set_defaults(func=cmd_daily_job)
 
     args = parser.parse_args(argv)
     return args.func(args)

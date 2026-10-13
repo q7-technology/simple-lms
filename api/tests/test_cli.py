@@ -29,3 +29,21 @@ def test_create_user_refuses_a_code_or_email_already_taken(db, admin, capsys):
     assert main(["create-user", "--code", "AD002", "--name", "Another",
                  "--email", admin.email, "--password", "a long enough password"]) == 1
     assert capsys.readouterr().err.count("already exists") == 2
+
+
+def test_daily_job_queues_the_reminders_now(client, db, manager_headers, learner, capsys):
+    import yard
+    from lms.models import Outbox
+
+    yard.build(client, manager_headers)
+    learner.email = "kim@example.com.au"
+    db.commit()
+    yard.give_roles(client, manager_headers, "LL042", "forklift-operator")
+    yard.grant(client, manager_headers, "LL042", "forklift-licence", "2025-01-01",
+               expires_on="2026-11-11")
+    assert main(["daily-job", "--on", "2026-10-13"]) == 0
+    assert capsys.readouterr().out.strip() == (
+        "2026-10-13: 1 reminders and 0 digests queued; the worker sends them")
+    assert main(["daily-job", "--on", "2026-10-13"]) == 0
+    assert "0 reminders" in capsys.readouterr().out
+    assert db.query(Outbox).count() == 1
