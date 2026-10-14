@@ -49,6 +49,8 @@
   .t-red { background: var(--color-red-bg); color: var(--color-red-ink); }
   .t-amber { background: var(--color-amber-bg); color: var(--color-amber-ink); }
   .t-green { background: var(--color-green-bg); color: var(--color-green-ink); }
+  .act { align-self: flex-start; margin-top: 8px; padding: 10px 16px; border-radius: 12px; background: var(--color-blue); color: #fff; font-weight: 800; font-size: 15px; text-decoration: none; }
+  .item .waiting { margin-top: 6px; color: var(--color-amber-ink); font-weight: 700; }
 }
 
 /* read aloud, not shown */

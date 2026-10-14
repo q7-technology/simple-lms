@@ -21,4 +21,17 @@ describe("The learner app's client", () => {
     await expect(client.get("/v1/people/LL042/training")).rejects.toMatchObject({ status: 401 });
     expect(signedOut).toHaveBeenCalledOnce();
   });
+
+  it("sends a file as it is, with its own type", async () => {
+    const seen: RequestInit[] = [];
+    const client = new LearnerApi(async (_url, init) => {
+      seen.push(init);
+      return new Response(JSON.stringify({ id: "u-1" }), { status: 201 });
+    });
+    client.token = "lms_s.kim";
+    const photo = new Blob([new Uint8Array([0xff, 0xd8, 0xff])], { type: "image/jpeg" });
+    expect(await client.upload("ticket", photo)).toEqual({ id: "u-1" });
+    expect(seen[0].body).toBe(photo);
+    expect((seen[0].headers as Record<string, string>)["Content-Type"]).toBe("image/jpeg");
+  });
 });

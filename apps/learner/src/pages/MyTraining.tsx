@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { api, ApiError } from "../api/client";
 import type { Training, TrainingItem } from "../api/types";
 import { useSession } from "../auth/Session";
-import { groupTraining, whenLine } from "../lib/training";
+import { groupTraining, nextStep, whenLine } from "../lib/training";
 import { Logo } from "../ui";
 
 function Group({ title, tone, items, empty }: { title: string; tone: string; items: TrainingItem[]; empty: string }) {
@@ -10,14 +11,21 @@ function Group({ title, tone, items, empty }: { title: string; tone: string; ite
     <section className="group" aria-label={title}>
       <h2>{title}<span className="sr-only">, </span><span className={`count ${tone}`}>{items.length}</span></h2>
       {items.length === 0 && <div className="small" style={{ color: "var(--color-muted)" }}>{empty}</div>}
-      {items.map((i) => (
-        <div key={i.key} className="item"><b>{i.name}</b><span>{whenLine(i)}</span></div>
-      ))}
+      {items.map((i) => {
+        const step = nextStep(i);
+        return (
+          <div key={i.key} className="item"><b>{i.name}</b><span>{whenLine(i)}</span>
+            {step && "to" in step && <Link className="act" to={step.to} aria-label={`${step.label}: ${i.name}`}>{step.label}</Link>}
+            {step && "waiting" in step && <span className="waiting">{step.waiting}</span>}
+          </div>
+        );
+      })}
     </section>
   );
 }
 
-/** Read only in step 1: what is overdue, what is due soon and what is done. */
+/** What is overdue, what is due soon and what is done; a policy to sign or a
+ * ticket to send in opens from its item. */
 export function MyTraining() {
   const { person, signOut } = useSession();
   const [training, setTraining] = useState<Training | null>(null);

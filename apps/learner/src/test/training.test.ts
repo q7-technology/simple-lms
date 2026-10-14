@@ -1,8 +1,9 @@
 import type { TrainingItem } from "../api/types";
-import { groupTraining, whenLine } from "../lib/training";
+import { groupTraining, nextStep, whenLine } from "../lib/training";
 
 const item = (name: string, status: TrainingItem["status"], expires_on: string | null = null): TrainingItem =>
-  ({ key: name.toLowerCase().replace(/ /g, "-"), name, kind: "ticket", status, granted_on: null, expires_on });
+  ({ key: name.toLowerCase().replace(/ /g, "-"), name, kind: "ticket", status, granted_on: null, expires_on,
+     card_expires: true, waiting: false });
 
 describe("My training", () => {
   it("puts lapsed and missing in Overdue, expiring in Due soon and current in Done", () => {
@@ -31,5 +32,16 @@ describe("My training", () => {
     expect(whenLine(item("A", "expiring", "2026-11-01"))).toBe("Due by 1 Nov 2026");
     expect(whenLine(item("A", "current", "2031-03-01"))).toBe("Done · good until 1 Mar 2031");
     expect(whenLine(item("A", "current"))).toBe("Done · doesn't run out");
+  });
+
+  it("offers the next step: sign a policy, add a ticket, or wait for the check", () => {
+    const policy = { ...item("WHS policy", "missing"), kind: "policy" as const };
+    expect(nextStep(policy)).toEqual({ to: "/sign/whs-policy", label: "Read and sign" });
+    expect(nextStep({ ...policy, status: "current" })).toBeNull();
+    expect(nextStep(item("First aid", "lapsed"))).toEqual({ to: "/ticket/first-aid", label: "Add your ticket" });
+    expect(nextStep(item("Forklift licence", "expiring"))).toEqual({ to: "/ticket/forklift-licence", label: "Add your ticket" });
+    expect(nextStep({ ...item("Forklift licence", "missing"), waiting: true })).toEqual({ waiting: "Sent in · waiting for a manager's check" });
+    expect(nextStep(item("Forklift licence", "current"))).toBeNull();
+    expect(nextStep({ ...item("Site induction", "missing"), kind: "module" })).toBeNull();
   });
 });

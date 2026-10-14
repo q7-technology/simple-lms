@@ -13,25 +13,27 @@ export const KIM: Me = {
   scopes: ["training:read"], idle_seconds: 900,
 };
 
-export interface Call { method: string; url: string; body: unknown }
+export interface Call { method: string; url: string; body: unknown; contentType?: string }
 type Handler = (method: string, url: string, body: unknown) => Response | null;
 
 export function stubApi(more: Handler) {
   const calls: Call[] = [];
   vi.stubGlobal("fetch", vi.fn(async (url: string, init: RequestInit = {}) => {
     const method = init.method ?? "GET";
-    const body = init.body ? JSON.parse(init.body as string) : undefined;
-    calls.push({ method, url, body });
+    // JSON is read back; a file (a Blob) is kept as it was sent
+    const body = typeof init.body === "string" ? JSON.parse(init.body) : init.body ?? undefined;
+    calls.push({ method, url, body, contentType: (init.headers as Record<string, string> | undefined)?.["Content-Type"] });
     return more(method, url, body) ?? json(404, { detail: `no stub for ${method} ${url}` });
   }));
   return calls;
 }
 
-/** Signed in already when `who` is given, as if the app had been opened again. */
-export function renderApp(who: Me | null = null, activeAt = Date.now()) {
+/** Signed in already when `who` is given, as if the app had been opened again,
+ * at `path` (My training unless told). */
+export function renderApp(who: Me | null = null, activeAt = Date.now(), path = "/") {
   if (who) window.localStorage.setItem("lms.learner.session", JSON.stringify({ token: "lms_s.kim", person: who, active_at: activeAt }));
   return render(
-    <MemoryRouter>
+    <MemoryRouter initialEntries={[path]}>
       <SessionProvider>
         <AppRoutes />
       </SessionProvider>

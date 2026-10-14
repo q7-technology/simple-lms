@@ -45,3 +45,18 @@ export function whenLine(item: TrainingItem): string {
       return item.expires_on ? `Done · good until ${formatDate(item.expires_on)}` : "Done · doesn't run out";
   }
 }
+
+export type Step = { to: string; label: string } | { waiting: string } | null;
+
+/** What the learner can do about an item here: sign a policy that wants
+ * their signature, or send in a ticket that is missing, running out or run
+ * out. A ticket already sent in waits for a manager. */
+export function nextStep(item: TrainingItem): Step {
+  const key = encodeURIComponent(item.key);
+  if (item.kind === "policy" && item.status !== "current") return { to: `/sign/${key}`, label: "Read and sign" };
+  if (item.kind === "ticket") {
+    if (item.waiting) return { waiting: "Sent in · waiting for a manager's check" };
+    if (item.status !== "current") return { to: `/ticket/${key}`, label: "Add your ticket" };
+  }
+  return null;
+}
