@@ -49,6 +49,8 @@ export interface Competency {
   name: string;
   kind: Kind;
   refresher_months: number | null;
+  /** a ticket: whether its card has an expiry date to type in */
+  card_expires: boolean;
   active: boolean;
 }
 
@@ -81,5 +83,37 @@ export interface CompetencyRecord {
   expires_on: string | null;
   note: string | null;
   recorded_by: PersonRef;
+  /** a policy: the version this grant is for */
+  policy_version: number | null;
+  /** signed in the learner app: the name typed, and the signature's upload id */
+  signed_name: string | null;
+  signature: string | null;
+  /** a ticket a manager checked: its submission's id */
+  ticket: number | null;
+  created_at: string;
+}
+
+export interface PolicyVersion {
+  id: number;
+  version: number;
+  body: string;
+  note: string | null;
+  published_by: PersonRef;
+  created_at: string;
+}
+
+export interface Ticket {
+  id: number;
+  person: PersonRef;
+  competency: CompetencyRef;
+  number: string;
+  expires_on: string | null;
+  /** upload ids: GET /v1/uploads/{id} */
+  front: string;
+  back: string | null;
+  status: "pending" | "approved" | "rejected";
+  reason: string | null;
+  decided_by: PersonRef | null;
+  decided_at: string | null;
   created_at: string;
 }

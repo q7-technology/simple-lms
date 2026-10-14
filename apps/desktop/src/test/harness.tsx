@@ -11,8 +11,8 @@ export function json(status: number, body: unknown) {
 
 export const MEL: Me = {
   id: 2, code: "MG001", name: "Mel Grant", email: "mel@example.com.au", permission: "manager", method: "password",
-  scopes: ["training:read", "matrix:read", "roles:read", "competencies:read", "people:read", "people:write",
-           "roles:write", "competencies:write", "records:write"],
+  scopes: ["training:read", "training:write", "matrix:read", "roles:read", "competencies:read", "people:read",
+           "people:write", "roles:write", "competencies:write", "records:write", "tickets:verify"],
   idle_seconds: 43200,
 };
 

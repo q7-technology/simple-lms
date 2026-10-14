@@ -2,6 +2,7 @@ import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { AuthProvider } from "./auth/AuthContext";
 import { RequireAuth } from "./auth/RequireAuth";
 import { Competencies } from "./pages/Competencies";
+import { Inbox } from "./pages/Inbox";
 import { Matrix } from "./pages/Matrix";
 import { People } from "./pages/People";
 import { Roles } from "./pages/Roles";
@@ -18,6 +19,7 @@ export function AppRoutes() {
           <Route path="/people" element={<People />} />
           <Route path="/roles" element={<Roles />} />
           <Route path="/competencies" element={<Competencies />} />
+          <Route path="/inbox" element={<Inbox />} />
         </Route>
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />

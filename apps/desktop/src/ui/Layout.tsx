@@ -14,6 +14,7 @@ export function Layout() {
           {can("people:read") && <NavLink to="/people">People</NavLink>}
           {can("roles:read") && <NavLink to="/roles">Roles</NavLink>}
           {can("competencies:read") && <NavLink to="/competencies">Competencies</NavLink>}
+          {can("tickets:verify") && <NavLink to="/inbox">Inbox</NavLink>}
         </nav>
         <div className="ml-auto flex items-center gap-3">
           <span className="small">{me?.name} · {me?.permission}</span>

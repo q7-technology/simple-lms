@@ -102,6 +102,14 @@ export class ApiClient {
   patch<T>(path: string, body: unknown) { return this.request<T>("PATCH", path, body); }
   put<T>(path: string, body: unknown) { return this.request<T>("PUT", path, body); }
 
+  /** A file kept by the API (a ticket's photo, a signature), fetched with the
+   * session's token: an <img> can't send it. */
+  async blob(path: string): Promise<Blob> {
+    const res = await this.send("GET", path);
+    if (!res.ok) throw new ApiError(res.status, await res.json().catch(() => null));
+    return res.blob();
+  }
+
   /** A file the API makes (the matrix as CSV), saved by the browser. */
   async download(path: string, params: Params, filename: string): Promise<void> {
     const res = await this.send("GET", path + query(params));

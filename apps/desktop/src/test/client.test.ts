@@ -52,4 +52,14 @@ describe("ApiClient", () => {
     answers.push(new Response("<html>Bad gateway</html>", { status: 502 }));
     await expect(client.get("/v1/matrix")).rejects.toThrow("Can't reach Simple LMS right now.");
   });
+
+  it("fetches a kept file with the token", async () => {
+    client.token = "lms_s.abc";
+    answers.push(new Response(new Uint8Array([0xff, 0xd8, 0xff]), { status: 200, headers: { "Content-Type": "image/jpeg" } }));
+    const b = await client.blob("/v1/uploads/abc");
+    expect(b.type).toBe("image/jpeg");
+    expect(new Headers(calls[0].init.headers).get("Authorization")).toBe("Bearer lms_s.abc");
+    answers.push(json(404, { detail: "no file abc" }));
+    await expect(client.blob("/v1/uploads/abc")).rejects.toThrow("no file abc");
+  });
 });
