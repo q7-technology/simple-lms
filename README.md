@@ -6,12 +6,15 @@ and licences, and signed policies. It answers one question for a business and
 its auditors: is each person current for everything their job needs? It sits
 beside Simple WMS, Simple TMS and Platen and works without any of them.
 
-Status: **build step 1, the skeleton.** People with a code and PIN or an
-email and password, roles and the competencies each requires, extras and
-waivers, completions recorded by hand on the desktop, the matrix (with a CSV
-export), and a learner app that shows each person's training. Policies,
-tickets, modules, practicals, Entra sign-in and the outward links come with
-the next steps in `docs/plans/2026-10-12-simple-lms-design.md`.
+Status: **build step 2, policies and tickets, is done.** People with a
+code and PIN or an email and password, roles and the competencies each
+requires, extras and waivers, completions recorded by hand on the desktop,
+the matrix (with a CSV export), and a learner app that shows each person's
+training. People sign policies and send in their tickets from the learner
+app; a manager checks each ticket in the desktop's Inbox; the worker emails
+reminders and a Monday digest. Modules, practicals, Entra sign-in and the
+outward links come with the next steps in
+`docs/plans/2026-10-12-simple-lms-design.md`.
 
 ## What is in this repo
 
@@ -24,7 +27,7 @@ api/                 FastAPI app, migrations, tests
 apps/desktop/        the desktop app (Vite + React)
 apps/learner/        the learner app, a PWA at /learn/ (Vite + React)
 deploy/Caddyfile     the only door in
-docker-compose.yml   api, db, caddy
+docker-compose.yml   api, worker, db, caddy
 ```
 
 ## Getting started
@@ -42,10 +45,41 @@ docker compose exec api lms create-user --code AD001 --name "Your Name" --email 
 `create-user` asks for a password (12 characters or more) and makes an
 admin unless you give `--permission`.
 
+For email, set `LMS_SMTP_HOST`, `LMS_SMTP_FROM` (both are empty in
+`.env.example`) and the rest of the `LMS_SMTP_*` settings in `.env` (and
+`LMS_PUBLIC_URL`, for the links in them), then `docker compose up -d worker`
+again. While either is empty, emails wait in the outbox, untried, and
+nothing else is held up.
+
 The desktop is at `https://<LMS_DOMAIN>/` (default `https://localhost/`,
 self-signed): sign in with that email and password and it opens on the
 matrix. Add competencies, then roles and what each requires, then people.
 Click a cell to see that person's history for it and record a completion.
+
+**Policies.** Add a competency of kind *Signed policy*, open it under
+**Competencies** and publish version 1 of its text. Each person asked for
+it reads it in the learner app, types their name and signs with a finger.
+Publishing version 2 asks once on the desktop, then asks everyone to sign
+again; the matrix shows them red (missing) until they do. A policy signed on
+paper can still be recorded by hand: it counts for the version people are
+asked to sign now. Each signature goes on one record only.
+
+**Tickets.** A competency of kind *Ticket or licence* says whether its card
+has an expiry date. A person adds a photo of the front and back (or a PDF),
+the number and the expiry in the learner app; each photo goes on one ticket
+only. It waits in the desktop's **Inbox**, where a manager or admin who is
+not them (nobody approves their own) checks the photos and approves it
+(current until the card's date) or sends it back with a reason they see.
+
+**Reminders.** Each morning (from `LMS_DAILY_HOUR`, 6 am by default, in
+`LMS_TIMEZONE`) the worker emails each person with an email when something
+of theirs has 30, 14 or 0 days left, saying the real days left (a day the
+worker missed still gets the reminder it owed), and on Mondays sends each
+manager and admin with an email a digest of what is expiring and lapsed.
+Each is sent once. A failed email is tried again after 1 minute, 5, 30 and
+2 hours, then left `failed`. To queue them now:
+`docker compose exec worker lms daily-job` (add `--on YYYY-MM-DD` to run it
+as if today were that date, to try it out).
 
 The learner app is at `https://<LMS_DOMAIN>/learn/`. A person signs in with
 their code and PIN (set when they are added, or reset by a manager under
@@ -62,7 +96,9 @@ The API runs its migrations each time it starts; it is at `/v1`, its
 interactive docs at `/docs`, and it is also published on `127.0.0.1:8033`
 (`LMS_API_PORT`) for local work. Rebuild an app (`npm run build`) after
 pulling changes to it; Caddy serves each `dist` as it is. After editing
-`deploy/Caddyfile`, `docker compose restart caddy` picks it up.
+`deploy/Caddyfile`, `docker compose restart caddy` picks it up. Back up
+the `uploads` volume (tickets' photos and policy signatures) along with the
+database: the records name the files in it.
 
 On a machine that already runs Simple WMS or Simple TMS, their Caddy has
 ports 80 and 443: set `LMS_HTTP_PORT` and `LMS_HTTPS_PORT` in `.env` (say
@@ -75,9 +111,11 @@ LMS site on the Caddy that holds 80 and 443 and start only
 | | Learner | Supervisor | Manager | Admin |
 | --- | --- | --- | --- | --- |
 | See their own training | ✓ | ✓ | ✓ | ✓ |
+| Sign a policy, send in their own ticket | ✓ | ✓ | ✓ | ✓ |
 | See the matrix | | own team | everyone | everyone |
 | Add and change people, roles, competencies, extras and waivers | | | ✓ | ✓ |
 | Record or revoke a completion (never their own) | | | ✓ | ✓ |
+| Approve or reject a ticket (never their own) | | | ✓ | ✓ |
 | Add or change a manager or an admin | | | | ✓ |
 
 A supervisor's team is the people whose supervisor they are, and only
@@ -98,10 +136,14 @@ export LMS_DATABASE_URL=postgresql+psycopg://lms:<POSTGRES_PASSWORD>@127.0.0.1:5
 .venv/bin/alembic upgrade head
 .venv/bin/lms create-user --code AD001 --name "Your Name" --email you@example.com
 .venv/bin/uvicorn lms.api.app:app --reload --port 8033
+.venv/bin/python -m lms.worker   # in another terminal, for email and the daily job
 ```
 
-Stop the `api` container first (`docker compose stop api`), as it holds
-8033. Then `npm run dev` in `apps/desktop` (http://localhost:5176) or
+Outside Docker, set `LMS_UPLOAD_DIR` to a folder of your own (the default
+is `/data/uploads`), and give the worker's terminal the same
+`LMS_DATABASE_URL`. Stop the `api` and `worker` containers first
+(`docker compose stop api worker`), as the API holds 8033.
+Then `npm run dev` in `apps/desktop` (http://localhost:5176) or
 `apps/learner` (http://localhost:5177/learn/); both send `/v1` to
 `127.0.0.1:8033` (`LMS_API_URL` points them elsewhere).
 

@@ -17,8 +17,9 @@ systems only ever talk to the API.
 ## Four rules that never bend
 1. **The training record is append-only.** Never UPDATE or DELETE a
    `competency_record`, `quiz_attempt` or `signoff` row (nor a
-   `person_override`). A mistake is corrected by a new row (`revoked`, with a
-   note). People are deactivated, never deleted.
+   `person_override` or `policy_version`; a `ticket_submission` is decided
+   once and never deleted). A mistake is corrected by a new row (`revoked`,
+   with a note). People are deactivated, never deleted.
 2. **Status is worked out, never stored by hand.** It comes from the records
    and the date, so it cannot drift. `competency.expiring` and
    `competency.lapsed` fire from the daily job, each once, each with an event
@@ -35,7 +36,7 @@ systems only ever talk to the API.
 - Database: PostgreSQL 16.
 - Queue: a Postgres table drained by a Python worker with backoff (1 min, 5,
   30, 2 h), for webhooks, email and print jobs, and the daily job. No Redis
-  or RabbitMQ. (The worker arrives with build step 2.)
+  or RabbitMQ. The worker (`python -m lms.worker`) drains the `outbox`.
 - Front ends: Vite + React + TypeScript + Tailwind. One repo, two entry
   points: `apps/desktop` and `apps/learner`. The learner app is a PWA at
   `/learn/` whose service worker caches the app shell, as the Simple TMS
@@ -53,7 +54,7 @@ api/                 FastAPI app (package lms), migrations, tests
 apps/desktop/        the desktop app for managers, supervisors and admins
 apps/learner/        the learner app, a PWA served at /learn/
 deploy/Caddyfile     the only door in
-docker-compose.yml   api, db, caddy (the worker comes with step 2)
+docker-compose.yml   api, worker, db, caddy
 ```
 `npm` commands run from the app's folder (`apps/desktop/` or `apps/learner/`):
 `npm test`, `npm run typecheck`, `npm run build` (Caddy serves each app's
