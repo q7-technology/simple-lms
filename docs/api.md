@@ -25,14 +25,15 @@ in UTC. Interactive docs are at `/docs`.
 
 | Permission | Scopes (signed in with a password) |
 | --- | --- |
-| `learner` | `training:read` |
-| `supervisor` | `training:read`, `matrix:read`, `roles:read`, `competencies:read` |
-| `manager` | the supervisor's, plus `people:read`, `people:write`, `roles:write`, `competencies:write`, `records:write` |
+| `learner` | `training:read`, `training:write` |
+| `supervisor` | `training:read`, `training:write`, `matrix:read`, `roles:read`, `competencies:read` |
+| `manager` | the supervisor's, plus `people:read`, `people:write`, `roles:write`, `competencies:write`, `records:write`, `tickets:verify` |
 | `admin` | `*` |
 
-A session signed in with a **PIN** carries `training:read` only, whoever it
-is: a PIN is short, so it opens the learner app's own training and nothing
-more. A supervisor sees their own team (the people whose supervisor they
+`training:write` is doing your own training: sending a file, signing a
+policy, sending in a ticket. A session signed in with a **PIN** carries
+`training:read` and `training:write` only, whoever it is: a PIN is short, so
+it opens the learner app's own training and nothing more. A supervisor sees their own team (the people whose supervisor they
 are); a manager or admin sees everyone. Only an admin adds or changes a
 manager or an admin (`403 { "code": "admin_only" }`).
 
@@ -134,17 +135,20 @@ where `people` is how many people have the role.
 
 - `POST /v1/competencies` — `{ "key": "site-induction", "name": "Site
   induction", "kind": "module" | "practical" | "ticket" | "policy",
-  "refresher_months"?: 1 to 240 }` → `201`.
+  "refresher_months"?: 1 to 240, "card_expires"?: true }` → `201`.
+  `card_expires` is for a ticket: whether its card has an expiry date that
+  people type in (true unless said otherwise).
 - `GET /v1/competencies?kind=&active=` — `{ "items", "total" }` by name;
   `GET /v1/competencies/{key}`
-- `PATCH /v1/competencies/{key}` — `name` and/or `refresher_months` (`null`
-  for none). The kind cannot change.
+- `PATCH /v1/competencies/{key}` — `name`, `refresher_months` (`null` for
+  none) and/or `card_expires`. The kind cannot change.
 - `POST /v1/competencies/{key}/deactivate`, `/reactivate` — a deactivated
   competency is asked of nobody; its records stay.
 
-Each competency: `{ "id", "key", "name", "kind", "refresher_months", "active", "created_at" }`.
-In step 1 every kind is recorded by hand; modules, practicals, tickets and
-policies get their own ways in with later build steps.
+Each competency: `{ "id", "key", "name", "kind", "refresher_months", "card_expires", "active", "created_at" }`.
+Every kind can still be recorded by hand. Policies are signed in the
+learner app and tickets sent in from it (below); modules and practicals get
+their own ways in with later build steps.
 
 ## Extras and waivers
 
@@ -169,12 +173,17 @@ policies get their own ways in with later build steps.
   [{ "id": 7, "competency": { "key": "forklift-licence", "name": "Forklift licence", "kind": "ticket" },
      "kind": "granted", "granted_on": "2026-03-01", "expires_on": "2031-03-01",
      "note": "LF 0012345, sighted", "recorded_by": { "code": "MG001", "name": "Mel Grant" },
+     "policy_version": null, "signed_name": null, "signature": null, "ticket": null,
      "created_at": "…" }]
   ```
+  `policy_version` is the policy version a grant is for; `signed_name` and
+  `signature` (an upload id) are there when it was signed in the learner
+  app; `ticket` is the ticket's id when a manager approved one.
 - `POST /v1/people/{code}/records` (`records:write`) — `{ "competency",
   "granted_on", "expires_on"?, "note"? }` → `201`. `granted_on` can't be in
   the future; `expires_on` (the last good day, e.g. a ticket's card date)
   must be after it. Nobody records their own (`403 { "code": "own_record" }`).
+  A policy recorded by hand (signed on paper) is for its newest version.
   A deactivated person is `409 { "code": "inactive" }`; a deactivated
   competency is `422`. A wrong date is put right by recording the
   completion again with the right one.
@@ -198,6 +207,10 @@ Worked out on every request, never stored:
 The last good day is the record's `expires_on` if it has one, else
 `granted_on` plus the competency's refresher months, else never. Today is
 the date in `LMS_TIMEZONE` (default `Australia/Melbourne`).
+
+A **policy** with a version published counts only for its newest version:
+a grant for an older version (or from before there were versions) is
+`missing` again until they sign the new one.
 
 ## The matrix
 
@@ -231,9 +244,115 @@ carriage return is prefixed with `'`, so a spreadsheet doesn't run it.
 `training:read`; your own, your team's, or anyone's for a manager (anyone
 else is `404`). What the
 person is asked for and not let off, by name:
-`{ "person": { "code", "name" }, "today", "items": [{ "key", "name", "kind", "status", "granted_on", "expires_on" }] }`.
+`{ "person": { "code", "name" }, "today", "items": [{ "key", "name", "kind", "status", "granted_on", "expires_on", "card_expires", "waiting" }] }`.
+`waiting` is true while a ticket they sent in waits for a manager's check.
 The learner app shows it as Overdue (`lapsed`, `missing`), Due soon
 (`expiring`) and Done (`current`).
+
+## Files
+
+Tickets' photos (or a PDF) and policy signatures. Sent before the ticket or
+signature that names them; kept on the host under `LMS_UPLOAD_DIR`
+(`/data/uploads`), named by a random id.
+
+- `POST /v1/uploads?purpose=ticket|signature` (`training:write`) — the file
+  as the request body (any `Content-Type`: what counts is its first bytes)
+  → `201 { "id", "purpose", "content_type", "size_bytes", "created_at" }`.
+  A ticket may be a JPEG, PNG or PDF of up to 20 MB; a signature a PNG of
+  up to 1 MB. Anything else is `415 { "code": "unsupported_type" }`. Bigger
+  than its purpose allows is `413 { "code": "too_large" }`: before the body
+  is read when its `Content-Length` says so, and otherwise as soon as the
+  body passes the limit (it is never read further). An unknown purpose is
+  `422`, before any of the body is read.
+- `GET /v1/uploads/{id}` — the file, for the person it belongs to, their
+  supervisor, and managers and admins; anyone else gets `404` (and so does a
+  file missing from disk). Sent with `Cache-Control: private, no-store`,
+  `Content-Security-Policy: default-src 'none'; sandbox`,
+  `X-Content-Type-Options: nosniff` and `Content-Disposition:
+  <how>; filename="<id>.<ext>"`, where `<how>` is `inline` for an image and
+  `attachment` for a PDF (which shows blank under the sandbox, so it is
+  saved instead).
+
+A ticket or signature may only name the caller's own uploads of the right
+purpose. Each upload goes on one record or ticket only: the database holds
+each signature to one record and each photo to one ticket.
+
+## Policies
+
+- `POST /v1/policies/{key}/versions` (`competencies:write`) — `{ "body",
+  "note"? }` → `201`, the next version (1, 2, 3 …). Versions are never
+  changed or deleted: what someone signed stays as they read it. Everyone
+  asked for the policy needs to sign the new one. A deactivated policy is
+  `409 { "code": "inactive" }`.
+- `GET /v1/policies/{key}/versions` (`competencies:read`) — newest first:
+  `[{ "id", "version", "body", "note", "published_by": { "code", "name" }, "created_at" }]`.
+- `GET /v1/policies/{key}` (`training:read`) — the version to sign now:
+  `{ "key", "name", "version": { … } }`; `404` until one is published.
+- `POST /v1/policies/{key}/sign` (`training:write`) — your own signature:
+  `{ "version", "signed_name", "signature" }` (an upload with purpose
+  `signature`, yours) → `201`, the record (above), recorded as yours.
+  `version` is the one you read: if a newer one came out meanwhile, `409 {
+  "code": "new_version" }`. Once per version (`409 { "code":
+  "already_signed" }`). The name is yours as Simple LMS has it, case and
+  spacing aside (`422` on `signed_name`). A signature goes on one record
+  only: one already used is `422` on `signature` ("this signature is already
+  on a record: sign again"), and so is one that is not yours. A deactivated
+  policy is `409 { "code": "inactive" }`; one with no version yet is `404`.
+
+A key that is not a policy is `404` on all of these.
+
+## Tickets
+
+- `POST /v1/tickets` (`training:write`) — your own: `{ "competency",
+  "number", "expires_on"?, "front", "back"? }` (`front` and `back` are your
+  uploads with purpose `ticket`) → `201`, waiting. The competency must be an
+  active ticket (`422`). `expires_on` (the card's last good day) is needed
+  when the ticket's card expires and must be after today; it is left out
+  when it doesn't (`422` either way). The back needs its own photo, not the
+  front's, and a photo goes on one ticket only, waiting or decided (`422`:
+  take a new one). One waits at a time for each ticket (`409 { "code":
+  "already_waiting" }`).
+- `GET /v1/tickets?status=pending|approved|rejected` (`tickets:verify`) —
+  the inbox, oldest first (`pending` unless asked).
+- `GET /v1/people/{code}/tickets` (`training:read`; your own, your team's,
+  or anyone's for a manager; anyone else is `404`) — newest first.
+- `POST /v1/tickets/{id}/approve` (`tickets:verify`) → `200`: a grant from
+  today until the card's date, recorded by you, with the note `Ticket
+  <number>, checked`. A card that ran out while it waited is `409 { "code":
+  "card_ran_out" }`; the person or the competency deactivated while it
+  waited is `409 { "code": "inactive" }`: send it back.
+- `POST /v1/tickets/{id}/reject` (`tickets:verify`) — `{ "reason" }`
+  (required) → `200`. The person sees the reason.
+
+Nobody approves or rejects their own, admins included (`403 { "code":
+"own_ticket" }`). A ticket is decided once (`409 { "code": "decided" }`).
+Each ticket:
+```json
+{ "id": 7, "person": { "code": "LL042", "name": "Kim Lee" },
+  "competency": { "key": "forklift-licence", "name": "Forklift licence", "kind": "ticket" },
+  "number": "LF0012345", "expires_on": "2031-03-01", "front": "…", "back": null,
+  "status": "pending", "reason": null, "decided_by": null, "decided_at": null, "created_at": "…" }
+```
+
+## Emails and the daily job
+
+The worker sends email through SMTP (`LMS_SMTP_*` in `.env`) from the
+outbox, trying a failed one again after 1 minute, 5, 30 and 2 hours, then
+leaving it `failed`. Without `LMS_SMTP_HOST` and `LMS_SMTP_FROM` emails
+wait in the outbox, untried. Links in them start with `LMS_PUBLIC_URL`
+(none without it). Each day from `LMS_DAILY_HOUR` (6 am by default, in
+`LMS_TIMEZONE`) it queues:
+
+- a reminder to each active person with an email when something they are
+  asked for has 30, 14 or 0 days left (the last good day itself), each once;
+  a day missed still gets the reminder it owed, and each says the real days
+  left;
+- on Mondays, a digest for each active manager and admin with an email of
+  what is lapsed and what is expiring, for everyone (none when nothing is).
+
+`lms daily-job [--on YYYY-MM-DD]` queues them now (as if today were that
+date); nothing is queued twice. A date it can't read is refused with exit
+code 2.
 
 ## System
 
