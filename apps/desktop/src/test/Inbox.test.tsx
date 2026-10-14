@@ -64,6 +64,24 @@ describe("the inbox", () => {
     await waitFor(() => expect(calls.find((c) => c.url === "/v1/tickets/7/reject")?.body).toEqual({ reason: "The photo is blurry" }));
   });
 
+  it("says so when another manager got there first, and it leaves the inbox", async () => {
+    let waiting = [KIMS];
+    stubApi((method, url) => {
+      if (url === "/v1/tickets") return json(200, waiting);
+      if (method === "POST" && url === "/v1/tickets/7/approve") {
+        waiting = [];
+        return json(409, { detail: "this ticket was approved already", code: "decided" });
+      }
+      return photos(url);
+    });
+    renderApp("/inbox");
+    await userEvent.click(await screen.findByRole("button", { name: /Kim Lee/ }));
+    await userEvent.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Approve" }));
+    expect(await screen.findByText("Another manager got there first: this ticket was approved already.")).toBeInTheDocument();
+    expect(await screen.findByText(/Nothing waiting/)).toBeInTheDocument();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
   it("doesn't offer a manager their own", async () => {
     const own = { ...KIMS, person: { code: MEL.code, name: MEL.name } };
     stubApi((_m, url) => url === "/v1/tickets" ? json(200, [own]) : photos(url));

@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from "react";
-import { api } from "../api/client";
+import { ApiError, api } from "../api/client";
 import type { Ticket } from "../api/types";
 import { useAuth } from "../auth/AuthContext";
 import { formatDate } from "../lib/status";
@@ -11,6 +11,8 @@ import { Picture } from "../ui/Picture";
 export function Inbox() {
   const tickets = useLoad(() => api.get<Ticket[]>("/v1/tickets"), []);
   const [open, setOpen] = useState<number | null>(null);
+  // another manager decided the one that was open: say so, as it leaves the list
+  const [taken, setTaken] = useState<string | null>(null);
   const ticket = tickets.data?.find((t) => t.id === open);
 
   return (
@@ -18,14 +20,15 @@ export function Inbox() {
       <h1>Inbox</h1>
       <div className="small">Tickets and licences people have sent in. Check each against its photos, then approve it or send it back with a reason.</div>
       <Problem error={tickets.error} />
+      {taken && <div className="msg r" role="status">{taken}</div>}
       {tickets.data?.length === 0 && <div className="card small">Nothing waiting. New tickets show here as people send them in.</div>}
       {tickets.data && tickets.data.length > 0 && (
         <table className="tbl">
           <thead><tr><th>Person</th><th>Ticket</th><th>Number</th><th>Card good until</th><th>Sent</th></tr></thead>
           <tbody>
             {tickets.data.map((t) => (
-              <tr key={t.id} className="click" onClick={() => setOpen(t.id)}>
-                <td><button type="button" className="rowbtn" onClick={() => setOpen(t.id)}>
+              <tr key={t.id} className="click" onClick={() => { setTaken(null); setOpen(t.id); }}>
+                <td><button type="button" className="rowbtn" onClick={() => { setTaken(null); setOpen(t.id); }}>
                   <b>{t.person.name}</b><span className="small block">{t.person.code}</span></button></td>
                 <td>{t.competency.name}</td>
                 <td>{t.number}</td>
@@ -38,13 +41,16 @@ export function Inbox() {
       )}
       {ticket && (
         <TicketDrawer key={ticket.id} ticket={ticket} onClose={() => setOpen(null)}
-                      onDecided={() => { setOpen(null); tickets.reload(); }} />
+                      onDecided={() => { setOpen(null); tickets.reload(); }}
+                      onTaken={(why) => { setOpen(null); setTaken(why); tickets.reload(); }} />
       )}
     </main>
   );
 }
 
-function TicketDrawer({ ticket, onClose, onDecided }: { ticket: Ticket; onClose: () => void; onDecided: () => void }) {
+function TicketDrawer({ ticket, onClose, onDecided, onTaken }: {
+  ticket: Ticket; onClose: () => void; onDecided: () => void; onTaken: (why: string) => void;
+}) {
   const { me } = useAuth();
   const [reason, setReason] = useState("");
   const action = useAction();
@@ -52,7 +58,18 @@ function TicketDrawer({ ticket, onClose, onDecided }: { ticket: Ticket; onClose:
   const own = me?.code === ticket.person.code;
 
   async function decide(fn: () => Promise<unknown>) {
-    if (await action.run(fn)) onDecided();
+    let taken: string | null = null;
+    const done = await action.run(async () => {
+      try {
+        await fn();
+      } catch (e) {
+        // 409 decided: another manager got there first
+        if (!(e instanceof ApiError && e.status === 409 && e.code === "decided")) throw e;
+        taken = `Another manager got there first: ${e.message}.`;
+      }
+    });
+    if (taken) onTaken(taken);
+    else if (done) onDecided();
   }
 
   function reject(e: FormEvent) {
