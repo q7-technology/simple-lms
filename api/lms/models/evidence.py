@@ -17,7 +17,8 @@ from lms.models.people import Person
 class Upload(Base):
     """A file someone sent: a ticket's photo or PDF, or a policy signature.
     Kept on disk under LMS_UPLOAD_DIR, named by its random id; served only
-    through the API to people who may see it."""
+    through the API to people who may see it. Append-only: a trigger refuses
+    UPDATE and DELETE, since records and tickets point at it."""
 
     __tablename__ = "upload"
     __table_args__ = (CheckConstraint("purpose in ('ticket', 'signature')", name="purpose"),)

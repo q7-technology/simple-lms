@@ -64,11 +64,14 @@ def store(db: Db, person: Person, purpose: str, data: bytes) -> Upload:
         raise Refused(415, "unsupported_type", f"a {purpose} file must be one of: {wanted}")
     upload_id = uuid.uuid4()
     relative = f"{upload_id.hex[:2]}/{upload_id}.{EXT[content_type]}"
-    _write(Path(get_settings().upload_dir) / relative, data)
     row = Upload(id=upload_id, person_id=person.id, purpose=purpose, content_type=content_type,
                  size_bytes=len(data), sha256=hashlib.sha256(data).hexdigest(), path=relative)
     db.add(row)
+    # the row first, then the file: a row that can't be saved leaves nothing
+    # on disk, and a file that can't be written is never committed. What is
+    # left to go wrong is the commit, and the route removes the file then.
     db.flush()
+    _write(Path(get_settings().upload_dir) / relative, data)
     return row
 
 

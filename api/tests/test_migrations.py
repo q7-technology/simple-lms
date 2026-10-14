@@ -14,7 +14,7 @@ TABLES = {"person", "session", "role", "person_role", "competency", "role_requir
           "person_override", "competency_record", "upload", "policy_version",
           "ticket_submission", "outbox", "alembic_version"}
 TRIGGERS = {"competency_record_append_only", "person_override_append_only",
-            "policy_version_append_only", "ticket_submission_decide_once"}
+            "policy_version_append_only", "upload_append_only", "ticket_submission_decide_once"}
 
 
 @pytest.fixture

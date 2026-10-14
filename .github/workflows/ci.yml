@@ -101,7 +101,7 @@ jobs:
           test "${ok:-0}" = 1 || (docker compose logs api; exit 1)
           # the append-only triggers and the ticket's decide-once one are there
           docker compose exec -T db psql -U lms -d lms -tAc \
-            "select count(*) from pg_trigger where tgname like '%_append_only'" | grep -qx 3
+            "select count(*) from pg_trigger where tgname like '%_append_only'" | grep -qx 4
           docker compose exec -T db psql -U lms -d lms -tAc \
             "select count(*) from pg_trigger where tgname = 'ticket_submission_decide_once'" | grep -qx 1
           for i in $(seq 1 30); do

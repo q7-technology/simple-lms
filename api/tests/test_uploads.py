@@ -159,3 +159,19 @@ def test_a_file_whose_row_is_not_kept_is_not_kept_either(
     with pytest.raises(RuntimeError):
         send(client, learner_headers)
     assert not [p for p in upload_dir.rglob("*") if p.is_file()]
+
+
+def test_a_file_whose_row_cannot_be_saved_is_not_kept_either(
+        client, learner_headers, monkeypatch, upload_dir):
+    store = uploads.store
+
+    def store_with_a_failing_flush(db, *args):
+        def flush(*_):
+            raise RuntimeError("the database went away")
+        monkeypatch.setattr(db, "flush", flush)
+        return store(db, *args)
+
+    monkeypatch.setattr(uploads, "store", store_with_a_failing_flush)
+    with pytest.raises(RuntimeError):
+        send(client, learner_headers)
+    assert not [p for p in upload_dir.rglob("*") if p.is_file()]

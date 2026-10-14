@@ -1,5 +1,6 @@
-"""The training record, the overrides and the policy versions are
-append-only, and a ticket is decided once, and the database says so (rule 1)."""
+"""The training record, the overrides, the policy versions and the files
+sent are append-only, and a ticket is decided once, and the database says so
+(rule 1)."""
 import uuid
 from datetime import UTC, date, datetime
 
@@ -43,6 +44,14 @@ def test_rows_cannot_be_updated(db, setting, model):
 def test_rows_cannot_be_deleted(db, setting, model):
     with pytest.raises(DBAPIError, match="append-only"):
         db.execute(delete(model))
+        db.commit()
+
+
+@pytest.mark.parametrize("change", [update(Upload).values(path="ab/other.jpg"), delete(Upload)])
+def test_a_file_sent_is_never_changed_or_deleted(db, waiting, change):
+    """Records and tickets point at it: what a manager checked stays what it was."""
+    with pytest.raises(DBAPIError, match="append-only"):
+        db.execute(change)
         db.commit()
 
 

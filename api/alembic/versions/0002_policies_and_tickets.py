@@ -15,6 +15,8 @@ down_revision: Union[str, None] = "0001"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
+APPEND_ONLY = ("upload", "policy_version")
+
 
 def _created_at() -> sa.Column:
     return sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.text("now()"),
@@ -161,9 +163,11 @@ def upgrade() -> None:
     )
     op.create_index("ix_outbox_due", "outbox", ["status", "next_attempt_at"])
 
-    # A policy's text never changes under the people who signed it.
-    op.execute("create trigger policy_version_append_only before update or delete "
-               "on policy_version for each row execute function block_change()")
+    # A policy's text never changes under the people who signed it, and a
+    # file sent never changes under the records and tickets that point at it.
+    for table in APPEND_ONLY:
+        op.execute(f"create trigger {table}_append_only before update or delete "
+                   f"on {table} for each row execute function block_change()")
     # A ticket is decided once: pending to approved or rejected, and nothing
     # else ever changes. Never deleted.
     op.execute("""
@@ -194,7 +198,8 @@ def upgrade() -> None:
 def downgrade() -> None:
     op.execute("drop trigger if exists ticket_submission_decide_once on ticket_submission")
     op.execute("drop function if exists decide_once()")
-    op.execute("drop trigger if exists policy_version_append_only on policy_version")
+    for table in APPEND_ONLY:
+        op.execute(f"drop trigger if exists {table}_append_only on {table}")
     op.drop_index("ix_outbox_due", table_name="outbox")
     op.drop_table("outbox")
     op.drop_index("uq_competency_record_signature_upload_id", table_name="competency_record")
