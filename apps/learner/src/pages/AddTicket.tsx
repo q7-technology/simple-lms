@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { Link, useParams } from "react-router-dom";
-import { api } from "../api/client";
+import { api, ApiError } from "../api/client";
 import type { Ticket, Training, TrainingItem } from "../api/types";
 import { useSession } from "../auth/Session";
 import { PhotoPicker } from "../pictures";
@@ -49,7 +49,9 @@ export function AddTicket() {
       });
       setDone(true);
     } catch (err) {
-      setError(plain(err));
+      // one is waiting already (sent from another tab, or a tap that didn't seem to take): it's sent
+      if (err instanceof ApiError && err.code === "already_waiting") setDone(true);
+      else setError(plain(err));
     } finally {
       setBusy(false);
     }

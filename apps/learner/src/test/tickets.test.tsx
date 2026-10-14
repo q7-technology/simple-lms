@@ -102,4 +102,24 @@ describe("adding a ticket", () => {
     await user.click(screen.getByRole("button", { name: "Send for checking" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("This card has run out: send the new one.");
   });
+
+  it("takes one already waiting as sent", async () => {
+    stubApi((method, url) => {
+      if (url === "/v1/people/LL042/training") return json(200, training([ITEM]));
+      if (url === "/v1/people/LL042/tickets") return json(200, []);
+      if (method === "POST" && url.startsWith("/v1/uploads")) return json(201, { id: "u-1" });
+      if (method === "POST" && url === "/v1/tickets") {
+        return json(409, { detail: "your Forklift licence is already waiting for a manager's check", code: "already_waiting" });
+      }
+      return null;
+    });
+    renderApp(KIM, Date.now(), "/ticket/forklift-licence");
+    const user = userEvent.setup();
+    await user.upload(await screen.findByLabelText(/Photo of the front/), new File(["x"], "front.jpg", { type: "image/jpeg" }));
+    await user.type(screen.getByLabelText("Number on the card"), "LF1");
+    await user.type(screen.getByLabelText("Good until (the date on the card)"), "2031-03-01");
+    await user.click(screen.getByRole("button", { name: "Send for checking" }));
+    expect(await screen.findByRole("status", { name: "Sent" })).toHaveTextContent("waits for a manager's check");
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
 });
