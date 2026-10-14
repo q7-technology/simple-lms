@@ -61,7 +61,8 @@ password for 15 minutes.
 The API runs its migrations each time it starts; it is at `/v1`, its
 interactive docs at `/docs`, and it is also published on `127.0.0.1:8033`
 (`LMS_API_PORT`) for local work. Rebuild an app (`npm run build`) after
-pulling changes to it; Caddy serves each `dist` as it is.
+pulling changes to it; Caddy serves each `dist` as it is. After editing
+`deploy/Caddyfile`, `docker compose restart caddy` picks it up.
 
 On a machine that already runs Simple WMS or Simple TMS, their Caddy has
 ports 80 and 443: set `LMS_HTTP_PORT` and `LMS_HTTPS_PORT` in `.env` (say

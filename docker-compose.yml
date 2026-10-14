@@ -78,7 +78,9 @@ services:
       - "${LMS_HTTP_PORT:-80}:${LMS_HTTP_PORT:-80}"
       - "${LMS_HTTPS_PORT:-443}:${LMS_HTTPS_PORT:-443}"
     volumes:
-      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      # the folder, not the file: an edited Caddyfile is a new file, and a
+      # file mount would keep showing Caddy the old one
+      - ./deploy:/etc/caddy:ro
       # the desktop, built on the host: cd apps/desktop && npm run build
       - ./apps/desktop/dist:/srv/desktop:ro
       # the learner app, built on the host: cd apps/learner && npm run build
