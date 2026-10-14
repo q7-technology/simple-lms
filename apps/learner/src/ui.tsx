@@ -30,8 +30,8 @@ export function plain(e: unknown): string {
   if (e.status >= 500) return NOT_ANSWERING;
   const first = e.errors[0];
   if (first) return sentence(first.message) || REFUSED;
-  // no detail and no errors: the client's own "Simple LMS answered 4xx"
-  if (e.message === `Simple LMS answered ${e.status}`) return REFUSED;
+  // no detail and no errors: the message is only the client's own "Simple LMS answered 4xx"
+  if (!e.hasDetail) return REFUSED;
   return sentence(e.message) || REFUSED;
 }
 

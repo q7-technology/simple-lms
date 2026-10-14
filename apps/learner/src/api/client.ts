@@ -9,6 +9,9 @@ export class ApiError extends Error {
   code: string | null;
   /** What a field needs, when the API says (a 422) */
   errors: { field: string; message: string }[];
+  /** Whether the API gave a reason of its own (a detail or field errors), not
+   * just a status */
+  hasDetail: boolean;
   constructor(status: number, body: unknown) {
     const detail = (body as { detail?: unknown })?.detail;
     const errors = (body as { errors?: { field: string; message: string }[] })?.errors ?? [];
@@ -16,6 +19,7 @@ export class ApiError extends Error {
       : errors.length > 0 ? errors.map((e) => e.message).join("; ") : `Simple LMS answered ${status}`);
     this.status = status;
     this.errors = errors;
+    this.hasDetail = typeof detail === "string" || errors.length > 0;
     const code = (body as { code?: unknown })?.code;
     this.code = typeof code === "string" ? code : null;
   }

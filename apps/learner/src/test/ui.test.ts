@@ -18,6 +18,13 @@ describe("an error in plain words", () => {
     expect(plain(new ApiError(502, { detail: "bad gateway" }))).toBe("Simple LMS isn't answering right now. Try again in a moment.");
   });
 
+  it("knows a reason the API gave from the client's own fallback", () => {
+    expect(new ApiError(403, {}).hasDetail).toBe(false);
+    expect(new ApiError(409, { detail: "this policy is no longer in use." }).hasDetail).toBe(true);
+    // a reason that happens to read like the fallback is still the API's own
+    expect(plain(new ApiError(409, { detail: "Simple LMS answered 409" }))).toBe("Simple LMS answered 409.");
+  });
+
   it("puts anything else thrown in plain words too", () => {
     expect(plain(new Unreachable())).toBe("No signal: Simple LMS can't be reached right now.");
     expect(plain(new Error("That picture couldn't be made. Try again."))).toBe("That picture couldn't be made. Try again.");
