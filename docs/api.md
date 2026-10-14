@@ -33,8 +33,10 @@ in UTC. Interactive docs are at `/docs`.
 `training:write` is doing your own training: sending a file, signing a
 policy, sending in a ticket. A session signed in with a **PIN** carries
 `training:read` and `training:write` only, whoever it is: a PIN is short, so
-it opens the learner app's own training and nothing more. A supervisor sees their own team (the people whose supervisor they
-are); a manager or admin sees everyone. Only an admin adds or changes a
+it opens the learner app's own training and nothing more.
+
+A supervisor sees their own team (the people whose supervisor they are); a
+manager or admin sees everyone. Only an admin adds or changes a
 manager or an admin (`403 { "code": "admin_only" }`).
 
 ## Sign in
@@ -264,9 +266,10 @@ signature that names them; kept on the host under `LMS_UPLOAD_DIR`
   is read when its `Content-Length` says so, and otherwise as soon as the
   body passes the limit (it is never read further). An unknown purpose is
   `422`, before any of the body is read.
-- `GET /v1/uploads/{id}` — the file, for the person it belongs to, their
-  supervisor, and managers and admins; anyone else gets `404` (and so does a
-  file missing from disk). Sent with `Cache-Control: private, no-store`,
+- `GET /v1/uploads/{id}` — the file. Any signed-in session may ask (a PIN
+  one too), but only someone who may see the file's owner gets it: that
+  person, their supervisor, and managers and admins. Anyone else gets `404`
+  (and so does a file missing from disk). Sent with `Cache-Control: private, no-store`,
   `Content-Security-Policy: default-src 'none'; sandbox`,
   `X-Content-Type-Options: nosniff` and `Content-Disposition:
   <how>; filename="<id>.<ext>"`, where `<how>` is `inline` for an image and
