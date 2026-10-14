@@ -5,6 +5,7 @@ import { useAuth } from "../auth/AuthContext";
 import { LOOK, describe, formatDate } from "../lib/status";
 import { useAction, useLoad } from "../lib/useLoad";
 import { Drawer, Problem } from "../ui/Drawer";
+import { Picture } from "../ui/Picture";
 
 /** One person's history for one competency, newest first: the first row is
  * the one that counts. A manager records a completion or revokes one here. */
@@ -100,6 +101,12 @@ export function HistoryDrawer({ person, competency, cell, today, onClose, onChan
               )}
               {i === 0 && <span className="small ml-auto">Counts now</span>}
             </div>
+            {r.policy_version && (
+              <div className="text-sm">{r.signed_name
+                ? <>Signed version {r.policy_version} as “{r.signed_name}”</>
+                : <>For version {r.policy_version}</>}</div>
+            )}
+            {r.signature && <Picture upload={r.signature} label={`${person.name}'s signature`} width={200} />}
             {r.note && <div className="text-sm">{r.note}</div>}
             <div className="small">by {r.recorded_by.name} · {formatDate(r.created_at.slice(0, 10))}</div>
           </div>

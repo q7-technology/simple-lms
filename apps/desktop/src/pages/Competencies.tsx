@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from "react";
 import { api } from "../api/client";
-import type { Competency, Kind, Page } from "../api/types";
+import type { Competency, Kind, Page, PolicyVersion } from "../api/types";
+import { formatDate } from "../lib/status";
 import { useAuth } from "../auth/AuthContext";
 import { useAction, useLoad } from "../lib/useLoad";
 import { Drawer, Problem } from "../ui/Drawer";
@@ -77,29 +78,87 @@ function CompetencyDrawer({ competency, onClose, onChanged }: {
 }) {
   const [name, setName] = useState(competency.name);
   const [refresher, setRefresher] = useState(competency.refresher_months?.toString() ?? "");
+  const [cardExpires, setCardExpires] = useState(competency.card_expires);
   const action = useAction();
   const path = `/v1/competencies/${encodeURIComponent(competency.key)}`;
   const done = async (fn: () => Promise<unknown>) => { if (await action.run(fn)) onChanged(); };
+  const ticket = competency.kind === "ticket";
 
   return (
     <Drawer title={competency.name} sub={`${competency.key} · ${kindLabel(competency.kind)}`} onClose={onClose}>
       <form className="flex flex-col gap-3" onSubmit={(e) => {
         e.preventDefault();
-        void done(() => api.patch(path, { name, refresher_months: refresher ? Number(refresher) : null }));
+        void done(() => api.patch(path, {
+          name, refresher_months: refresher ? Number(refresher) : null, ...(ticket ? { card_expires: cardExpires } : {}),
+        }));
       }}>
         <label className="label">Name<input className="field" value={name} onChange={(e) => setName(e.target.value)} required /></label>
         <label className="label">Refresher (months; empty for none)
           <input className="field" type="number" min={1} max={240} value={refresher} onChange={(e) => setRefresher(e.target.value)} />
         </label>
+        {ticket && (
+          <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" checked={cardExpires} onChange={(e) => setCardExpires(e.target.checked)} />
+            The card has an expiry date (people type it in, and it runs out then)
+          </label>
+        )}
         <div className="small">A new refresher changes everyone's status at once: status is worked out, never stored.</div>
         <Problem error={action.error} />
         <button type="submit" className="btn primary" disabled={action.busy}>Save</button>
       </form>
+      {competency.kind === "policy" && <PolicyVersions policy={competency} />}
       {competency.active
         ? <button type="button" className="btn danger" disabled={action.busy}
                   onClick={() => void done(() => api.post(`${path}/deactivate`))}>Deactivate: no longer asked of anyone</button>
         : <button type="button" className="btn" disabled={action.busy}
                   onClick={() => void done(() => api.post(`${path}/reactivate`))}>Reactivate</button>}
     </Drawer>
+  );
+}
+
+/** A policy's versions, newest first, and the next one. Each person signs the
+ * newest; a new version asks everyone to sign again. */
+function PolicyVersions({ policy }: { policy: Competency }) {
+  const path = `/v1/policies/${encodeURIComponent(policy.key)}/versions`;
+  const versions = useLoad(() => api.get<PolicyVersion[]>(path), [path]);
+  const [body, setBody] = useState("");
+  const [note, setNote] = useState("");
+  const action = useAction();
+  const next = (versions.data?.[0]?.version ?? 0) + 1;
+
+  async function publish(e: FormEvent) {
+    e.preventDefault();
+    if (await action.run(() => api.post(path, { body, note: note.trim() || null }))) {
+      setBody("");
+      setNote("");
+      versions.reload();
+    }
+  }
+
+  return (
+    <section className="flex flex-col gap-3" aria-label="Versions">
+      <div className="eyebrow">Versions</div>
+      <Problem error={versions.error} />
+      {versions.data?.length === 0 && <div className="small">No version yet: nobody can sign it until there is one.</div>}
+      {versions.data?.map((v, i) => (
+        <details key={v.id} className="card" open={i === 0}>
+          <summary className="text-sm"><b>Version {v.version}</b>{i === 0 && " · the one to sign"} · {formatDate(v.created_at.slice(0, 10))} by {v.published_by.name}</summary>
+          {v.note && <div className="small mt-2">What changed: {v.note}</div>}
+          <div className="text-sm mt-2" style={{ whiteSpace: "pre-wrap" }}>{v.body}</div>
+        </details>
+      ))}
+      <form className="card flex flex-col gap-3" onSubmit={publish}>
+        <div className="eyebrow">Publish version {next}</div>
+        <label className="label">The policy's text
+          <textarea className="field" style={{ height: 160 }} value={body} maxLength={50000} onChange={(e) => setBody(e.target.value)} required />
+        </label>
+        <label className="label">What changed (optional)
+          <input className="field" value={note} maxLength={500} onChange={(e) => setNote(e.target.value)} />
+        </label>
+        {next > 1 && <div className="small">Everyone asked for this policy will need to sign version {next}.</div>}
+        <Problem error={action.error} />
+        <button type="submit" className="btn primary" disabled={action.busy || !body.trim()}>Publish version {next}</button>
+      </form>
+    </section>
   );
 }
