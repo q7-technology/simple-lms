@@ -1,6 +1,7 @@
 import { BrowserRouter, Navigate, Outlet, Route, Routes } from "react-router-dom";
 import { SessionProvider, useSession } from "./auth/Session";
 import { MyTraining } from "./pages/MyTraining";
+import { SignPolicy } from "./pages/SignPolicy";
 import { SignIn } from "./pages/SignIn";
 
 function RequirePerson() {
@@ -14,6 +15,7 @@ export function AppRoutes() {
       <Route path="/sign-in" element={<SignIn />} />
       <Route element={<RequirePerson />}>
         <Route index element={<MyTraining />} />
+        <Route path="/sign/:key" element={<SignPolicy />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
