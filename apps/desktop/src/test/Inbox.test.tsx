@@ -34,6 +34,15 @@ describe("the inbox", () => {
     expect(within(drawer).getByRole("img", { name: "The back" })).toBeInTheDocument();
   });
 
+  it("opens a ticket with focus on the drawer, not on Approve", async () => {
+    stubApi((_m, url) => url === "/v1/tickets" ? json(200, [KIMS]) : photos(url));
+    renderApp("/inbox");
+    await userEvent.click(await screen.findByRole("button", { name: /Kim Lee/ }));
+    const drawer = await screen.findByRole("dialog", { name: "Forklift licence: Kim Lee" });
+    expect(drawer).toHaveFocus();
+    expect(within(drawer).getByRole("button", { name: "Approve" })).not.toHaveFocus();
+  });
+
   it("approves one, and it leaves the inbox", async () => {
     let waiting = [KIMS];
     const { calls } = stubApi((method, url) => {

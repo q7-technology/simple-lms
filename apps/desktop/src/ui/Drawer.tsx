@@ -4,9 +4,11 @@ const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), selec
   + 'textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
 /** A panel over the right of the screen. Escape or the dim closes it. Focus
- * moves in when it opens, stays in while it is open, and goes back after. */
-export function Drawer({ title, sub, onClose, children }: {
-  title: string; sub?: ReactNode; onClose: () => void; children: ReactNode;
+ * moves in when it opens (to its first field, or with `focus="dialog"` to the
+ * panel itself, for one whose first button does something that matters),
+ * stays in while it is open, and goes back after. */
+export function Drawer({ title, sub, onClose, children, focus = "first" }: {
+  title: string; sub?: ReactNode; onClose: () => void; children: ReactNode; focus?: "first" | "dialog";
 }) {
   const box = useRef<HTMLElement>(null);
   const heading = useId();
@@ -17,7 +19,8 @@ export function Drawer({ title, sub, onClose, children }: {
   }, [onClose]);
   useEffect(() => {
     const opener = document.activeElement as HTMLElement | null;
-    const first = box.current?.querySelector(".dbody")?.querySelector<HTMLElement>(FOCUSABLE);
+    const first = focus === "first"
+      ? box.current?.querySelector(".dbody")?.querySelector<HTMLElement>(FOCUSABLE) : null;
     (first ?? box.current)?.focus();
     return () => { if (opener?.isConnected) opener.focus(); };
   }, []);

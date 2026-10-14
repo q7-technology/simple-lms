@@ -78,7 +78,8 @@ function TicketDrawer({ ticket, onClose, onDecided, onTaken }: {
   }
 
   return (
-    <Drawer title={`${ticket.competency.name}: ${ticket.person.name}`} sub={`${ticket.person.code} · sent ${formatDate(ticket.created_at.slice(0, 10))}`} onClose={onClose}>
+    <Drawer title={`${ticket.competency.name}: ${ticket.person.name}`} sub={`${ticket.person.code} · sent ${formatDate(ticket.created_at.slice(0, 10))}`} onClose={onClose}
+            focus="dialog">
       <dl className="card grid grid-cols-2 gap-2 text-sm">
         <dt className="small">Number</dt><dd className="m-0"><b>{ticket.number}</b></dd>
         <dt className="small">Card good until</dt><dd className="m-0"><b>{ticket.expires_on ? formatDate(ticket.expires_on) : "Doesn't run out"}</b></dd>
