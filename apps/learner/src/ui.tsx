@@ -11,14 +11,28 @@ export function Logo({ size = 28 }: { size?: number }) {
   );
 }
 
+const SOMETHING = "Something went wrong. Try again.";
+const REFUSED = "That didn't work. Try again, or ask your manager.";
+const NOT_ANSWERING = "Simple LMS isn't answering right now. Try again in a moment.";
+
+/** A sentence: a capital first, one full stop (or ? or !) at the end. */
+function sentence(words: string): string {
+  const s = words.trim().replace(/\.+$/, "");
+  if (!s) return "";
+  return s.charAt(0).toUpperCase() + s.slice(1) + (/[?!]$/.test(s) ? "" : ".");
+}
+
 /** What went wrong, in plain words: never "Simple LMS answered 500". A field
- * error says what the field needs. */
+ * error says what the field needs; an answer with no reason, or anything else
+ * thrown, gets a plain sentence of its own. */
 export function plain(e: unknown): string {
-  if (!(e instanceof ApiError)) return (e as Error).message;
-  if (e.status >= 500) return "Simple LMS isn't answering right now. Try again in a moment.";
+  if (!(e instanceof ApiError)) return (e instanceof Error && sentence(e.message)) || SOMETHING;
+  if (e.status >= 500) return NOT_ANSWERING;
   const first = e.errors[0];
-  if (first) return first.message.charAt(0).toUpperCase() + first.message.slice(1) + ".";
-  return e.message.charAt(0).toUpperCase() + e.message.slice(1) + ".";
+  if (first) return sentence(first.message) || REFUSED;
+  // no detail and no errors: the client's own "Simple LMS answered 4xx"
+  if (e.message === `Simple LMS answered ${e.status}`) return REFUSED;
+  return sentence(e.message) || REFUSED;
 }
 
 /** The top of a screen reached from My training, with the way back. */

@@ -174,4 +174,10 @@ describe("the learner app", () => {
     renderApp(KIM);
     expect(await screen.findByRole("alert")).toHaveTextContent("Simple LMS isn't answering right now.");
   });
+
+  it("puts a refusal in plain words, never a bare status", async () => {
+    stubApi((method, url) => url === "/v1/people/LL042/training" ? json(403, {}) : answers(method, url));
+    renderApp(KIM);
+    expect(await screen.findByRole("alert")).toHaveTextContent("That didn't work. Try again, or ask your manager.");
+  });
 });

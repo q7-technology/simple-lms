@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { api, ApiError } from "../api/client";
+import { api } from "../api/client";
 import type { Training, TrainingItem } from "../api/types";
 import { useSession } from "../auth/Session";
 import { groupTraining, nextStep, whenLine } from "../lib/training";
-import { Logo } from "../ui";
+import { Logo, plain } from "../ui";
 
 function Group({ title, tone, items, empty }: { title: string; tone: string; items: TrainingItem[]; empty: string }) {
   return (
@@ -36,10 +36,7 @@ export function MyTraining() {
     try {
       setTraining(await api.get<Training>(`/v1/people/${encodeURIComponent(person!.code)}/training`));
     } catch (e) {
-      // plain words, never "Simple LMS answered 500"
-      setError(e instanceof ApiError && e.status >= 500
-        ? "Simple LMS isn't answering right now. Try again in a moment."
-        : (e as Error).message);
+      setError(plain(e));
     }
   }, [person]);
 
