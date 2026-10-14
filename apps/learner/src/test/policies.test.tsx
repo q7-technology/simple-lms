@@ -1,6 +1,7 @@
-import { fireEvent, screen } from "@testing-library/react";
+import { act, fireEvent, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { json, KIM, renderApp, stubApi } from "./harness";
+import { addInk, ENOUGH_INK } from "../pictures";
 
 vi.mock("../lib/picture", () => ({
   toBlob: async () => new Blob([new Uint8Array([0x89, 0x50, 0x4e, 0x47])], { type: "image/png" }),
@@ -56,7 +57,7 @@ describe("signing a policy", () => {
   });
 
   it("shows the new version when one came out while they read", async () => {
-    let policy: typeof WHS = { ...WHS, version: { ...V2, version: 1, body: "Wear your PPE on the floor." } };
+    let policy: typeof WHS = { ...WHS, version: { ...V2, id: 1, version: 1, body: "Wear your PPE on the floor." } };
     stubApi((method, url) => {
       if (url === "/v1/policies/whs-policy") return json(200, policy);
       if (method === "POST" && url.startsWith("/v1/uploads")) return json(201, { id: "sig-1" });
@@ -70,8 +71,52 @@ describe("signing a policy", () => {
     await userEvent.type(await screen.findByLabelText("Type your name"), "Kim Lee");
     signWithAFinger();
     await userEvent.click(screen.getByRole("button", { name: "Sign" }));
-    expect(await screen.findByRole("alert")).toHaveTextContent("A new version came out while you were reading.");
+    expect(await screen.findByRole("alert")).toHaveTextContent("The policy has changed: read the new version and sign again.");
     expect(await screen.findByRole("article", { name: "The policy" })).toHaveTextContent("hi-vis in the yard");
+    // the ink was for the old text: the pad is empty again and Sign waits for a new signature
+    expect(screen.getByRole("img", { name: "Signature pad: empty" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Sign" })).toBeDisabled();
+  });
+
+  it("doesn't take a smudge as a signature", async () => {
+    stubApi((_m, url) => url === "/v1/policies/whs-policy" ? json(200, WHS) : null);
+    renderApp(KIM, Date.now(), "/sign/whs-policy");
+    await userEvent.type(await screen.findByLabelText("Type your name"), "Kim Lee");
+    const pad = screen.getByRole("img", { name: "Signature pad: empty" });
+    fireEvent.pointerDown(pad, { clientX: 10, clientY: 10 });
+    fireEvent.pointerMove(pad, { clientX: 14, clientY: 13 });
+    fireEvent.pointerUp(pad);
+    expect(screen.getByRole("img", { name: "Signature pad: empty" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Sign" })).toBeDisabled();
+  });
+
+  it("clears the pad when the screen turns, and says to sign again", async () => {
+    let resized: () => void = () => {};
+    vi.stubGlobal("ResizeObserver", class {
+      constructor(cb: () => void) { resized = cb; }
+      observe() {}
+      disconnect() {}
+    });
+    stubApi((_m, url) => url === "/v1/policies/whs-policy" ? json(200, WHS) : null);
+    renderApp(KIM, Date.now(), "/sign/whs-policy");
+    await userEvent.type(await screen.findByLabelText("Type your name"), "Kim Lee");
+    signWithAFinger();
+    expect(screen.getByRole("button", { name: "Sign" })).toBeEnabled();
+    // the same size again (as when it is first watched) changes nothing
+    act(() => resized());
+    expect(screen.getByRole("img", { name: "Signature pad: signed" })).toBeInTheDocument();
+    vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockReturnValue(700);
+    act(() => resized());
+    expect(screen.getByRole("img", { name: "Signature pad: empty" })).toBeInTheDocument();
+    expect(screen.getByText("Sign again: the screen turned.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Sign" })).toBeDisabled();
+  });
+
+  it("says whose name to type", async () => {
+    stubApi((_m, url) => url === "/v1/policies/whs-policy" ? json(200, WHS) : null);
+    renderApp(KIM, Date.now(), "/sign/whs-policy");
+    expect(await screen.findByLabelText("Type your name")).toHaveAccessibleDescription(
+      "Type your name as it is on your record: Kim Lee");
   });
 
   it("says what the name needs, and keeps what was typed", async () => {
@@ -95,5 +140,18 @@ describe("signing a policy", () => {
     stubApi((_m, url) => url === "/v1/policies/whs-policy" ? json(404, { detail: "WHS policy has no version to sign yet" }) : null);
     renderApp(KIM, Date.now(), "/sign/whs-policy");
     expect(await screen.findByRole("alert")).toHaveTextContent("There's nothing to sign here yet. Ask your manager.");
+  });
+});
+
+describe("how much ink is a signature", () => {
+  it("adds up the length of the strokes", () => {
+    expect(addInk(0, [0, 0], [3, 4])).toBe(5);
+    expect(addInk(5, [3, 4], [6, 8])).toBe(10);
+  });
+
+  it("asks for a real stroke, not a dot", () => {
+    expect(ENOUGH_INK).toBe(40);
+    expect(addInk(0, [0, 0], [30, 0]) >= ENOUGH_INK).toBe(false);
+    expect(addInk(30, [30, 0], [40, 0]) >= ENOUGH_INK).toBe(true);
   });
 });

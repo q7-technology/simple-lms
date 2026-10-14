@@ -45,7 +45,9 @@ export function SignPolicy() {
       setDone(true);
     } catch (err) {
       if (err instanceof ApiError && err.code === "new_version") {
-        setError("A new version came out while you were reading. Read it, then sign again.");
+        // the ink was for the old text: the pad starts again with the new version
+        setSigned(false);
+        setError("The policy has changed: read the new version and sign again.");
         await load();
       } else if (err instanceof ApiError && err.code === "already_signed") {
         setDone(true);
@@ -82,11 +84,15 @@ export function SignPolicy() {
             {policy.version.note && <> · What changed: {policy.version.note}</>}</div>
           <article className="policy" aria-label="The policy">{policy.version.body}</article>
           <form onSubmit={sign} style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-            <label className="label">Type your name
-              <input className="input" autoComplete="off" value={name} onChange={(e) => setName(e.target.value)}
-                     placeholder={person?.name} required />
-            </label>
-            <SignaturePad canvas={canvas} onSigned={setSigned} />
+            <div className="label">
+              <label htmlFor="signed-name">Type your name</label>
+              {/* the API takes the name on their record, case and spacing aside */}
+              {person && <span id="signed-name-hint" className="small" style={{ fontWeight: 400, color: "var(--color-muted)" }}>
+                Type your name as it is on your record: {person.name}</span>}
+              <input id="signed-name" className="input" autoComplete="off" value={name} onChange={(e) => setName(e.target.value)}
+                     placeholder={person?.name} aria-describedby={person ? "signed-name-hint" : undefined} required />
+            </div>
+            <SignaturePad key={policy.version.id} canvas={canvas} onSigned={setSigned} />
             <p className="small" style={{ margin: 0, color: "var(--color-muted)" }}>
               Signing says you have read this policy and will follow it.</p>
             {error && <div className="msg r" role="alert">{error}</div>}

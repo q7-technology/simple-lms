@@ -40,12 +40,26 @@ export function PhotoPicker({ label, hint, file, onFile }: {
   );
 }
 
-/** Sign here: a canvas signed with a finger. `onSigned` says whether
- * anything has been drawn. */
+type Point = readonly [number, number];
+
+/** How far a finger must travel, in CSS pixels, before the pad counts as
+ * signed: a tap or a smudge is not a signature. */
+export const ENOUGH_INK = 40;
+
+/** The ink so far, plus one more piece of stroke. */
+export function addInk(total: number, from: Point, to: Point): number {
+  return total + Math.hypot(to[0] - from[0], to[1] - from[1]);
+}
+
+/** Sign here: a canvas signed with a finger. `onSigned` says whether enough
+ * has been drawn to count as a signature. */
 export function SignaturePad({ canvas, onSigned }: { canvas: RefObject<HTMLCanvasElement | null>; onSigned: (signed: boolean) => void }) {
   const drawing = useRef(false);
+  const last = useRef<Point>([0, 0]);
+  const ink = useRef(0);
   // a drawing can't be read out, so say what it is for and whether it holds one
   const [hasInk, setHasInk] = useState(false);
+  const [turned, setTurned] = useState(false);
 
   function context(): CanvasRenderingContext2D | null {
     return canvas.current?.getContext("2d") ?? null;
@@ -58,17 +72,23 @@ export function SignaturePad({ canvas, onSigned }: { canvas: RefObject<HTMLCanva
       ctx.fillStyle = "#fff";
       ctx.fillRect(0, 0, el.width, el.height);
     }
+    ink.current = 0;
     setHasInk(false);
+    setTurned(false);
     onSigned(false);
   }
 
-  useEffect(() => {
-    // as many pixels as the screen has, so the signature isn't blurred
-    const el = canvas.current;
-    if (!el) return;
+  /** As many pixels as the screen has, so the signature isn't blurred. */
+  function size(el: HTMLCanvasElement) {
     const ratio = window.devicePixelRatio || 1;
-    el.width = Math.round(el.clientWidth * ratio) || 600;
-    el.height = Math.round(el.clientHeight * ratio) || 300;
+    return [Math.round(el.clientWidth * ratio) || 600, Math.round(el.clientHeight * ratio) || 300, ratio] as const;
+  }
+
+  function fit(el: HTMLCanvasElement) {
+    const [width, height, ratio] = size(el);
+    // a new size wipes the canvas and how it draws
+    el.width = width;
+    el.height = height;
     const ctx = context();
     if (ctx) {
       ctx.scale(ratio, ratio);
@@ -77,13 +97,33 @@ export function SignaturePad({ canvas, onSigned }: { canvas: RefObject<HTMLCanva
       ctx.lineJoin = "round";
       ctx.strokeStyle = "#17202B";
     }
+  }
+
+  useEffect(() => {
+    const el = canvas.current;
+    if (!el) return;
+    fit(el);
     clear();
+    // the tablet turned or the window changed: a stretched drawing is no
+    // signature, and strokes would land away from the finger, so start again
+    if (typeof ResizeObserver === "undefined") return;
+    const watch = new ResizeObserver(() => {
+      const [width, height] = size(el);
+      if (width === el.width && height === el.height) return;
+      const had = ink.current > 0;
+      drawing.current = false;
+      fit(el);
+      clear();
+      setTurned(had);
+    });
+    watch.observe(el);
+    return () => watch.disconnect();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  function at(e: React.PointerEvent<HTMLCanvasElement>) {
+  function at(e: React.PointerEvent<HTMLCanvasElement>): Point {
     const r = e.currentTarget.getBoundingClientRect();
-    return [e.clientX - r.left, e.clientY - r.top] as const;
+    return [e.clientX - r.left, e.clientY - r.top];
   }
 
   return (
@@ -99,21 +139,27 @@ export function SignaturePad({ canvas, onSigned }: { canvas: RefObject<HTMLCanva
                 if (!ctx) return;
                 e.currentTarget.setPointerCapture?.(e.pointerId);
                 drawing.current = true;
-                const [x, y] = at(e);
+                setTurned(false);
+                const [x, y] = last.current = at(e);
                 ctx.beginPath();
                 ctx.moveTo(x, y);
               }}
               onPointerMove={(e) => {
                 const ctx = context();
                 if (!drawing.current || !ctx) return;
-                const [x, y] = at(e);
-                ctx.lineTo(x, y);
+                const point = at(e);
+                ctx.lineTo(point[0], point[1]);
                 ctx.stroke();
-                setHasInk(true);
-                onSigned(true);
+                ink.current = addInk(ink.current, last.current, point);
+                last.current = point;
+                if (!hasInk && ink.current >= ENOUGH_INK) {
+                  setHasInk(true);
+                  onSigned(true);
+                }
               }}
               onPointerUp={() => { drawing.current = false; }}
               onPointerCancel={() => { drawing.current = false; }} />
+      {turned && <div className="small" role="status" style={{ color: "var(--color-ink-2)" }}>Sign again: the screen turned.</div>}
       <span id="sign-how" className="sr-only">Sign with your finger (or the mouse).</span>
     </section>
   );
