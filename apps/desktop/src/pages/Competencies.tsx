@@ -123,11 +123,15 @@ function PolicyVersions({ policy }: { policy: Competency }) {
   const versions = useLoad(() => api.get<PolicyVersion[]>(path), [path]);
   const [body, setBody] = useState("");
   const [note, setNote] = useState("");
+  // it can't be undone and asks everyone to sign again: past version 1, ask once
+  const [confirming, setConfirming] = useState(false);
   const action = useAction();
   const next = (versions.data?.[0]?.version ?? 0) + 1;
 
   async function publish(e: FormEvent) {
     e.preventDefault();
+    if (next > 1 && !confirming) { setConfirming(true); return; }
+    setConfirming(false);
     if (await action.run(() => api.post(path, { body, note: note.trim() || null }))) {
       setBody("");
       setNote("");
@@ -147,7 +151,8 @@ function PolicyVersions({ policy }: { policy: Competency }) {
           <div className="text-sm mt-2" style={{ whiteSpace: "pre-wrap" }}>{v.body}</div>
         </details>
       ))}
-      <form className="card flex flex-col gap-3" onSubmit={publish}>
+      {!policy.active && <div className="small">Reactivate it to publish a new version.</div>}
+      {policy.active && <form className="card flex flex-col gap-3" onSubmit={publish}>
         <div className="eyebrow">Publish version {next}</div>
         <label className="label">The policy's text
           <textarea className="field" style={{ height: 160 }} value={body} maxLength={50000} onChange={(e) => setBody(e.target.value)} required />
@@ -157,8 +162,16 @@ function PolicyVersions({ policy }: { policy: Competency }) {
         </label>
         {next > 1 && <div className="small">Everyone asked for this policy will need to sign version {next}.</div>}
         <Problem error={action.error} />
-        <button type="submit" className="btn primary" disabled={action.busy || !body.trim()}>Publish version {next}</button>
-      </form>
+        {confirming ? (
+          <div className="flex flex-wrap items-center gap-3">
+            <span className="text-sm"><b>Publish version {next}? Everyone asked for this policy signs again.</b></span>
+            <button type="submit" className="btn primary" disabled={action.busy || !body.trim()}>Publish</button>
+            <button type="button" className="btn" autoFocus onClick={() => setConfirming(false)}>Cancel</button>
+          </div>
+        ) : (
+          <button type="submit" className="btn primary" disabled={action.busy || !body.trim()}>Publish version {next}</button>
+        )}
+      </form>}
     </section>
   );
 }

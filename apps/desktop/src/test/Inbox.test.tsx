@@ -91,6 +91,20 @@ describe("the inbox", () => {
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
+  it("doesn't end with two full stops when the reason has one", async () => {
+    stubApi((method, url) => {
+      if (url === "/v1/tickets") return json(200, [KIMS]);
+      if (method === "POST" && url === "/v1/tickets/7/approve") {
+        return json(409, { detail: "This ticket was approved already.", code: "decided" });
+      }
+      return photos(url);
+    });
+    renderApp("/inbox");
+    await userEvent.click(await screen.findByRole("button", { name: /Kim Lee/ }));
+    await userEvent.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Approve" }));
+    expect(await screen.findByText("Another manager got there first: This ticket was approved already.")).toBeInTheDocument();
+  });
+
   it("doesn't offer a manager their own", async () => {
     const own = { ...KIMS, person: { code: MEL.code, name: MEL.name } };
     stubApi((_m, url) => url === "/v1/tickets" ? json(200, [own]) : photos(url));

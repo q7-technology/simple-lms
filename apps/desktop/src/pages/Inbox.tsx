@@ -7,6 +7,9 @@ import { useAction, useLoad } from "../lib/useLoad";
 import { Drawer, Problem } from "../ui/Drawer";
 import { Picture } from "../ui/Picture";
 
+/** Ends with one full stop, whether or not the API's words had one. */
+const sentence = (s: string) => (/[.!?]$/.test(s) ? s : `${s}.`);
+
 /** Tickets waiting for a manager's check, oldest first. */
 export function Inbox() {
   const tickets = useLoad(() => api.get<Ticket[]>("/v1/tickets"), []);
@@ -65,7 +68,7 @@ function TicketDrawer({ ticket, onClose, onDecided, onTaken }: {
       } catch (e) {
         // 409 decided: another manager got there first
         if (!(e instanceof ApiError && e.status === 409 && e.code === "decided")) throw e;
-        taken = `Another manager got there first: ${e.message}.`;
+        taken = `Another manager got there first: ${sentence(e.message)}`;
       }
     });
     if (taken) onTaken(taken);

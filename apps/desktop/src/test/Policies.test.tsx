@@ -32,9 +32,61 @@ describe("competencies", () => {
     await userEvent.type(within(drawer).getByLabelText("The policy's text"), "Wear your PPE, and hi-vis in the yard.");
     await userEvent.type(within(drawer).getByLabelText("What changed (optional)"), "hi-vis in the yard");
     await userEvent.click(within(drawer).getByRole("button", { name: "Publish version 2" }));
+    // it can't be undone and everyone signs again: ask once first
+    expect(within(drawer).getByText("Publish version 2? Everyone asked for this policy signs again.")).toBeInTheDocument();
+    expect(calls.some((c) => c.method === "POST")).toBe(false);
+    await userEvent.click(within(drawer).getByRole("button", { name: "Publish" }));
     await waitFor(() => expect(calls.find((c) => c.method === "POST")?.body).toEqual({
       body: "Wear your PPE, and hi-vis in the yard.", note: "hi-vis in the yard" }));
     expect(await within(drawer).findByRole("button", { name: "Publish version 3" })).toBeInTheDocument();
+  });
+
+  it("publishes nothing when the manager thinks better of it", async () => {
+    const { calls } = stubApi((_m, url) => {
+      if (url === "/v1/competencies") return json(200, { items: [WHS], total: 1 });
+      if (url === "/v1/policies/whs-policy/versions") return json(200, [V1]);
+      return null;
+    });
+    renderApp("/competencies");
+    await userEvent.click(await screen.findByRole("button", { name: /WHS policy/ }));
+    const drawer = await screen.findByRole("dialog", { name: "WHS policy" });
+    await userEvent.type(await within(drawer).findByLabelText("The policy's text"), "Wear your PPE.");
+    await userEvent.click(within(drawer).getByRole("button", { name: "Publish version 2" }));
+    await userEvent.click(within(drawer).getByRole("button", { name: "Cancel" }));
+    expect(within(drawer).queryByText(/signs again/)).not.toBeInTheDocument();
+    expect(within(drawer).getByRole("button", { name: "Publish version 2" })).toBeInTheDocument();
+    expect(calls.some((c) => c.method === "POST")).toBe(false);
+  });
+
+  it("publishes the first version without asking", async () => {
+    const { calls } = stubApi((method, url) => {
+      if (url === "/v1/competencies") return json(200, { items: [WHS], total: 1 });
+      if (url === "/v1/policies/whs-policy/versions") return method === "POST" ? json(201, V1) : json(200, []);
+      return null;
+    });
+    renderApp("/competencies");
+    await userEvent.click(await screen.findByRole("button", { name: /WHS policy/ }));
+    const drawer = await screen.findByRole("dialog", { name: "WHS policy" });
+    await within(drawer).findByText(/No version yet/);
+    await userEvent.type(within(drawer).getByLabelText("The policy's text"), "Wear your PPE on the floor.");
+    await userEvent.click(within(drawer).getByRole("button", { name: "Publish version 1" }));
+    await waitFor(() => expect(calls.find((c) => c.method === "POST")?.body).toEqual({
+      body: "Wear your PPE on the floor.", note: null }));
+  });
+
+  it("asks for a deactivated policy to be reactivated before a new version", async () => {
+    stubApi((_m, url) => {
+      if (url === "/v1/competencies") return json(200, { items: [{ ...WHS, active: false }], total: 1 });
+      if (url === "/v1/policies/whs-policy/versions") return json(200, [V1]);
+      return null;
+    });
+    renderApp("/competencies");
+    await userEvent.click(await screen.findByRole("button", { name: /WHS policy/ }));
+    const drawer = await screen.findByRole("dialog", { name: "WHS policy" });
+    expect(await within(drawer).findByText("Wear your PPE on the floor.")).toBeInTheDocument();
+    expect(within(drawer).getByText("Reactivate it to publish a new version.")).toBeInTheDocument();
+    expect(within(drawer).queryByLabelText("The policy's text")).not.toBeInTheDocument();
+    expect(within(drawer).queryByRole("button", { name: /Publish version/ })).not.toBeInTheDocument();
   });
 
   it("says whether a ticket's card runs out", async () => {
