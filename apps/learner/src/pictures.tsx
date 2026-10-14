@@ -2,10 +2,16 @@
 import { useEffect, useRef, useState, type RefObject } from "react";
 import { forSending } from "./lib/picture";
 
+/** The most a ticket's file may be, as the API has it (20 MB). A photo is
+ * made small first; a PDF is sent as it is, so it is checked here. */
+export const TICKET_MOST = 20_000_000;
+
 /** A photo of the card (the phone offers its camera) or a PDF, made small on
  * the phone before it is kept. */
-export function PhotoPicker({ label, hint, file, onFile }: {
+export function PhotoPicker({ label, hint, file, onFile, removable = false }: {
   label: string; hint: string; file: Blob | null; onFile: (b: Blob | null) => void;
+  /** offer to take it away again (for a photo that is optional) */
+  removable?: boolean;
 }) {
   const [url, setUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -20,11 +26,15 @@ export function PhotoPicker({ label, hint, file, onFile }: {
   async function picked(chosen: File | undefined) {
     if (!chosen) return;
     setError(null);
+    let ready: Blob;
     try {
-      onFile(await forSending(chosen));
+      ready = await forSending(chosen);
     } catch {
       setError("That photo couldn't be read. Take it again.");
+      return;
     }
+    if (ready.size > TICKET_MOST) { setError("That file is too big: the most is 20 MB."); return; }
+    onFile(ready);
   }
 
   return (
@@ -35,6 +45,10 @@ export function PhotoPicker({ label, hint, file, onFile }: {
         <input type="file" accept="image/*,application/pdf" className="sr-only"
                onChange={(e) => { void picked(e.target.files?.[0]); e.target.value = ""; }} />
       </label>
+      {removable && file && (
+        <button type="button" className="link" onClick={() => { setError(null); onFile(null); }}
+                aria-label={`Remove the ${label.charAt(0).toLowerCase()}${label.slice(1)}`}>Remove</button>
+      )}
       {error && <div className="msg r" role="alert">{error}</div>}
     </div>
   );

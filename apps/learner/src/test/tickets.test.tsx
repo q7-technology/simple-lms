@@ -98,9 +98,94 @@ describe("adding a ticket", () => {
     const user = userEvent.setup();
     await user.upload(await screen.findByLabelText(/Photo of the front/), new File(["x"], "front.jpg", { type: "image/jpeg" }));
     await user.type(screen.getByLabelText("Number on the card"), "LF1");
-    await user.type(screen.getByLabelText("Good until (the date on the card)"), "2026-10-01");
+    await user.type(screen.getByLabelText("Good until (the date on the card)"), "2026-10-13");
     await user.click(screen.getByRole("button", { name: "Send for checking" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("This card has run out: send the new one.");
+  });
+
+  it("sends each photo once, however often the ticket is tried", async () => {
+    let uploads = 0;
+    let tries = 0;
+    const calls = stubApi((method, url) => {
+      if (url === "/v1/people/LL042/training") return json(200, training([ITEM]));
+      if (url === "/v1/people/LL042/tickets") return json(200, []);
+      if (method === "POST" && url === "/v1/uploads?purpose=ticket") return json(201, { id: `u-${++uploads}` });
+      if (method === "POST" && url === "/v1/tickets") {
+        return ++tries === 1
+          ? json(422, { errors: [{ field: "expires_on", message: "this card has run out: send the new one" }] })
+          : json(201, { id: 9, status: "pending" });
+      }
+      return null;
+    });
+    renderApp(KIM, Date.now(), "/ticket/forklift-licence");
+    const user = userEvent.setup();
+    await user.upload(await screen.findByLabelText(/Photo of the front/), new File(["x"], "front.jpg", { type: "image/jpeg" }));
+    await user.upload(screen.getByLabelText(/Photo of the back/), new File(["x"], "back.jpg", { type: "image/jpeg" }));
+    await user.type(screen.getByLabelText("Number on the card"), "LF1");
+    const date = screen.getByLabelText("Good until (the date on the card)");
+    // the API's day has moved on since the page loaded: it refuses tomorrow
+    await user.type(date, "2026-10-13");
+    await user.click(screen.getByRole("button", { name: "Send for checking" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("This card has run out");
+    await user.clear(date);
+    await user.type(date, "2031-03-01");
+    await user.click(screen.getByRole("button", { name: "Send for checking" }));
+    expect(await screen.findByRole("status", { name: "Sent" })).toBeInTheDocument();
+    expect(calls.filter((c) => c.url === "/v1/uploads?purpose=ticket")).toHaveLength(2);
+    expect(calls.filter((c) => c.url === "/v1/tickets").map((c) => c.body)).toEqual([
+      expect.objectContaining({ expires_on: "2026-10-13", front: "u-1", back: "u-2" }),
+      expect.objectContaining({ expires_on: "2031-03-01", front: "u-1", back: "u-2" }),
+    ]);
+  });
+
+  it("asks for a date after the API's today", async () => {
+    stubApi((_m, url) => {
+      if (url === "/v1/people/LL042/training") return json(200, training([ITEM]));
+      if (url === "/v1/people/LL042/tickets") return json(200, []);
+      return null;
+    });
+    renderApp(KIM, Date.now(), "/ticket/forklift-licence");
+    expect(await screen.findByLabelText("Good until (the date on the card)")).toHaveAttribute("min", "2026-10-13");
+  });
+
+  it("refuses a PDF over 20 MB before sending it", async () => {
+    const calls = stubApi((_m, url) => {
+      if (url === "/v1/people/LL042/training") return json(200, training([ITEM]));
+      if (url === "/v1/people/LL042/tickets") return json(200, []);
+      return null;
+    });
+    renderApp(KIM, Date.now(), "/ticket/forklift-licence");
+    const user = userEvent.setup();
+    const big = new File([new Uint8Array(20_000_001)], "card.pdf", { type: "application/pdf" });
+    await user.upload(await screen.findByLabelText(/Photo of the front/), big);
+    expect(await screen.findByRole("alert")).toHaveTextContent("That file is too big: the most is 20 MB.");
+    expect(screen.queryByText("PDF added · tap to change")).not.toBeInTheDocument();
+    expect(calls.some((c) => c.url.startsWith("/v1/uploads"))).toBe(false);
+  });
+
+  it("takes the back photo away again", async () => {
+    const calls = stubApi((method, url) => {
+      if (url === "/v1/people/LL042/training") return json(200, training([ITEM]));
+      if (url === "/v1/people/LL042/tickets") return json(200, []);
+      if (method === "POST" && url.startsWith("/v1/uploads")) return json(201, { id: "u-1" });
+      if (method === "POST" && url === "/v1/tickets") return json(201, { id: 10 });
+      return null;
+    });
+    renderApp(KIM, Date.now(), "/ticket/forklift-licence");
+    const user = userEvent.setup();
+    await user.upload(await screen.findByLabelText(/Photo of the front/), new File(["x"], "front.jpg", { type: "image/jpeg" }));
+    await user.upload(screen.getByLabelText(/Photo of the back/), new File(["x"], "back.jpg", { type: "image/jpeg" }));
+    expect(await screen.findByRole("img", { name: "Photo of the back" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Remove the photo of the front" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Remove the photo of the back" }));
+    expect(screen.queryByRole("img", { name: "Photo of the back" })).not.toBeInTheDocument();
+    expect(screen.getByText("If there's anything on the back")).toBeInTheDocument();
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:photo");
+    await user.type(screen.getByLabelText("Number on the card"), "LF1");
+    await user.type(screen.getByLabelText("Good until (the date on the card)"), "2031-03-01");
+    await user.click(screen.getByRole("button", { name: "Send for checking" }));
+    await waitFor(() => expect(calls.find((c) => c.url === "/v1/tickets")?.body).toEqual(expect.objectContaining({ back: null })));
+    expect(calls.filter((c) => c.url.startsWith("/v1/uploads"))).toHaveLength(1);
   });
 
   it("takes one already waiting as sent", async () => {
