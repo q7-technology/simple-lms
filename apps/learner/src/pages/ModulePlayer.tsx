@@ -188,15 +188,25 @@ function Quiz({ module, path, heading, onChanged, onBack, onReadAgain }: {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<Attempt | null>(null);
+  // after three goes in a row that didn't pass, when they may try again
+  const [retryAt, setRetryAt] = useState<string | null>(() => waiting(module.retry_at));
   // the form goes when the result comes (and back on another go), taking
   // focus with it: it goes to the result, so it is read out, or the quiz's top
   const said = useRef<HTMLElement>(null);
   const again = useRef(false);
 
   useEffect(() => {
-    if (result) said.current?.focus();
+    if (result || retryAt) said.current?.focus();
     else if (again.current) { again.current = false; heading.current?.focus(); }
-  }, [result, heading]);
+  }, [result, retryAt, heading]);
+
+  // the wait is over: the quiz again (a timer can't wait longer than about 24 days)
+  useEffect(() => {
+    if (!retryAt) return;
+    const timer = setTimeout(() => setRetryAt(null),
+      Math.min(Math.max(new Date(retryAt).getTime() - Date.now(), 0), 2 ** 31 - 1));
+    return () => clearTimeout(timer);
+  }, [retryAt]);
 
   async function handIn(e: FormEvent) {
     e.preventDefault();
@@ -205,7 +215,10 @@ function Quiz({ module, path, heading, onChanged, onBack, onReadAgain }: {
     try {
       setResult(await api.post<Attempt>(`${path}/attempts`, { version, answers }));
     } catch (err) {
+      const until = err instanceof ApiError && err.code === "cooldown"
+        ? waiting((err.body as { retry_at?: unknown })?.retry_at) : null;
       if (err instanceof ApiError && err.code === "new_version") await onChanged();
+      else if (until) setRetryAt(until);
       else setError(plain(err));
     } finally {
       setBusy(false);
@@ -220,6 +233,16 @@ function Quiz({ module, path, heading, onChanged, onBack, onReadAgain }: {
           <span>You passed {module.name} with {result.score}%.</span>
         </section>
         <Link to="/" className="big primary as-button">Back to My training</Link>
+      </>
+    );
+  }
+  if (retryAt) {
+    return (
+      <>
+        <section ref={said} tabIndex={-1} className="miss" role="status" aria-label="Wait to try again">
+          <span>Three tries in a row didn't pass. You can try again after {when(retryAt)}.</span>
+        </section>
+        <button type="button" className="big ghost" onClick={onReadAgain}>Read it again</button>
       </>
     );
   }
@@ -257,4 +280,17 @@ function Quiz({ module, path, heading, onChanged, onBack, onReadAgain }: {
       <button type="button" className="link" onClick={onBack}>Back to the pages</button>
     </form>
   );
+}
+
+/** The time, if it is still to come. */
+function waiting(at: unknown): string | null {
+  return typeof at === "string" && new Date(at).getTime() > Date.now() ? at : null;
+}
+
+/** A time as people say it: 2:15 pm, and the day too when it isn't today. */
+function when(at: string): string {
+  const d = new Date(at);
+  const time = d.toLocaleTimeString("en-AU", { hour: "numeric", minute: "2-digit" });
+  if (d.toDateString() === new Date().toDateString()) return time;
+  return `${time} on ${d.toLocaleDateString("en-AU", { weekday: "short", day: "numeric", month: "short" })}`;
 }
