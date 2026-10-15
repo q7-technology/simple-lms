@@ -9,6 +9,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from lms.models.base import Base, created_at_column
 from lms.models.catalogue import Competency
 from lms.models.evidence import PolicyVersion
+from lms.models.modules import QuizAttempt
 from lms.models.people import Person
 
 
@@ -74,8 +75,11 @@ class CompetencyRecord(Base):
     # a ticket a manager verified: the submission it came from
     ticket_submission_id: Mapped[int | None] = mapped_column(ForeignKey("ticket_submission.id"),
                                                              unique=True)
+    # a module passed: the quiz attempt that passed it
+    quiz_attempt_id: Mapped[int | None] = mapped_column(ForeignKey("quiz_attempt.id"), unique=True)
     created_at: Mapped[datetime] = created_at_column()
 
     competency: Mapped[Competency] = relationship()
     recorded_by: Mapped[Person] = relationship(foreign_keys=[recorded_by_id])
     policy_version: Mapped[PolicyVersion | None] = relationship()
+    quiz_attempt: Mapped[QuizAttempt | None] = relationship()

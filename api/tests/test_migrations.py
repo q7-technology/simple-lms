@@ -12,9 +12,12 @@ from conftest import TEST_DATABASE_URL
 MIGRATION_URL = TEST_DATABASE_URL.rsplit("/", 1)[0] + "/lms_migration_check"
 TABLES = {"person", "session", "role", "person_role", "competency", "role_requirement",
           "person_override", "competency_record", "upload", "policy_version",
-          "ticket_submission", "outbox", "alembic_version"}
+          "ticket_submission", "outbox", "module_version", "module_page", "quiz_question",
+          "quiz_attempt", "module_progress", "alembic_version"}
 TRIGGERS = {"competency_record_append_only", "person_override_append_only",
-            "policy_version_append_only", "upload_append_only", "ticket_submission_decide_once"}
+            "policy_version_append_only", "upload_append_only", "ticket_submission_decide_once",
+            "quiz_attempt_append_only", "module_version_publish_once", "module_page_draft_only",
+            "quiz_question_draft_only"}
 
 
 @pytest.fixture
