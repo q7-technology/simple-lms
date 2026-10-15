@@ -5,8 +5,8 @@ A failed try is tried again after 1 min, 5, 30 and 2 h. The try after the
 2 h wait is the last: if it fails too, the row is `failed` and stays, with
 its last error, for someone to look at.
 
-The daily job runs once a day from LMS_DAILY_HOUR in LMS_TIMEZONE, and
-again whenever the worker starts after that hour: each email it queues has
+The daily job runs once a day from the daily hour in the time zone (both
+in Settings, or .env), and again whenever the worker starts after that hour: each email it queues has
 its own key, so running it twice sends nothing twice.
 """
 from __future__ import annotations
@@ -22,7 +22,7 @@ from sqlalchemy.orm import Session
 from lms.config import get_settings
 from lms.db import get_sessionmaker
 from lms.models import Outbox
-from lms.services import daily, mail
+from lms.services import daily, mail, settings
 
 log = logging.getLogger("lms.worker")
 
@@ -101,11 +101,12 @@ class Daily:
         self.not_before: datetime | None = None   # set when it last failed
 
     def due(self, now: datetime) -> date | None:
-        """Today in LMS_TIMEZONE, if the job is due: past LMS_DAILY_HOUR, not
-        yet run today, and not failed in the last few minutes."""
-        settings = get_settings()
-        local = now.astimezone(ZoneInfo(settings.timezone))
-        if local.hour < settings.daily_hour or local.date() == self.last:
+        """Today in the time zone, if the job is due: past the daily hour,
+        not yet run today, and not failed in the last few minutes. Both are
+        read each time, so a change in Settings needs no restart."""
+        s = settings.current()
+        local = now.astimezone(ZoneInfo(s.timezone))
+        if local.hour < s.daily_hour or local.date() == self.last:
             return None
         if self.not_before is not None and now < self.not_before:
             return None
@@ -152,14 +153,16 @@ def wait_for_schema(session: Session, timeout: float = 120, poll: float = 2) -> 
 def main() -> None:
     logging.basicConfig(level=logging.INFO,
                         format="%(asctime)s %(levelname)s %(name)s %(message)s")
-    settings = get_settings()
+    poll = get_settings().worker_poll_seconds
     make_session = get_sessionmaker()
     with make_session() as session:
         wait_for_schema(session)
     if not mail.set_up():
-        log.warning("no LMS_SMTP_HOST and LMS_SMTP_FROM: emails wait in the outbox until set")
-    log.info("worker started, polling every %ss; daily job from %02d:00 %s",
-             settings.worker_poll_seconds, settings.daily_hour, settings.timezone)
+        log.warning("no email server (Settings, or LMS_SMTP_HOST and LMS_SMTP_FROM): emails "
+                    "wait in the outbox until one is set")
+    s = settings.current()
+    log.info("worker started, polling every %ss; daily job from %02d:00 %s", poll,
+             s.daily_hour, s.timezone)
     today = Daily()
     while True:
         try:
@@ -169,7 +172,7 @@ def main() -> None:
             log.exception("worker loop error")
             done = 0
         if done == 0:
-            time.sleep(settings.worker_poll_seconds)
+            time.sleep(poll)
 
 
 if __name__ == "__main__":

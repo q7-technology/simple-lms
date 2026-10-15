@@ -46,8 +46,8 @@ class ModuleOut(BaseModel):
     version: TakingOut
     # the page to open at, counting from 0; one past the last is the quiz
     resume_at: int
-    # when the caller may next try the quiz, after three goes in a row that
-    # didn't pass; null when they may try now
+    # when the caller may next try the quiz, after too many goes in a row
+    # that didn't pass (Settings); null when they may try now
     retry_at: datetime | None = None
 
 
@@ -145,7 +145,7 @@ def take_quiz(key: str, body: AttemptIn, db: DB, who: Principal = require("train
     wait_until = modules.retry_at(db, p.id, c)
     if wait_until is not None:
         now = clock.now()
-        raise Refused(429, "cooldown", "Three tries in a row didn't pass: try again after "
+        raise Refused(429, "cooldown", f"{modules.why_wait()}: try again after "
                       f"{modules.said_at(wait_until, now)}",
                       extra={"retry_at": wait_until.isoformat()},
                       headers={"Retry-After": str(math.ceil((wait_until - now).total_seconds()))})

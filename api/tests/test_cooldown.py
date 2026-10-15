@@ -1,7 +1,7 @@
 """Three tries in a row that didn't pass, and the learner waits
 LMS_QUIZ_COOLDOWN_MINUTES before the next go, worked out from the attempts
 themselves. A pass in between starts the count again; 0 turns it off."""
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -187,3 +187,46 @@ def test_the_time_is_said_in_the_business_timezone():
     assert said_at(datetime(2026, 10, 15, 12, 5, tzinfo=UTC), when) == "11:05 pm"
     # another day: the day too
     assert said_at(datetime(2026, 10, 15, 14, 0, tzinfo=UTC), when) == "1:00 am on Fri 16 Oct"
+
+
+@pytest.fixture
+def setting(db, admin):
+    from lms.services import settings
+
+    return lambda **changes: settings.save(db, changes, admin)
+
+
+def test_the_tries_before_the_wait_are_a_setting(client, learner_headers, kim, setting):
+    setting(quiz_cooldown_tries=2)
+    take(client, learner_headers, answers=WRONG)
+    assert take(client, learner_headers, answers=WRONG).status_code == 201
+    r = take(client, learner_headers)
+    assert r.status_code == 429
+    assert r.json()["detail"].startswith("Two tries in a row didn't pass")
+
+
+def test_the_wait_set_here_wins(client, learner_headers, kim, setting, later):
+    setting(quiz_cooldown_minutes=5)
+    three_fails(client, learner_headers)
+    later(6)
+    assert take(client, learner_headers).status_code == 201
+
+
+def test_the_time_is_said_in_the_zone_set_here(db, admin):
+    from lms.services import settings
+    from lms.services.modules import said_at
+
+    settings.save(db, {"timezone": "Australia/Perth"}, admin)
+    when = datetime(2026, 10, 15, 3, 15, tzinfo=UTC)  # 11:15 am in Perth
+    assert said_at(when, when) == "11:15 am"
+
+
+def test_today_is_in_the_zone_set_here(db, admin, monkeypatch):
+    from lms.services import clock, settings
+
+    monkeypatch.undo()   # the real clock.today, not the tests' fixed day
+    settings.save(db, {"timezone": "Pacific/Kiritimati"}, admin)   # UTC+14
+    late = datetime(2026, 10, 15, 11, 0, tzinfo=UTC)
+    monkeypatch.setattr(clock, "datetime", type("D", (datetime,), {
+        "now": staticmethod(lambda tz=None: late.astimezone(tz))}))
+    assert clock.today() == date(2026, 10, 16)

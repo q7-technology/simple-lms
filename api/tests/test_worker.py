@@ -211,3 +211,40 @@ def test_a_failing_daily_job_does_not_hold_up_the_emails(db, mailbox, monkeypatc
     worker.run_once(db, today, now=morning + timedelta(minutes=4))
     worker.run_once(db, today, now=morning + timedelta(minutes=5))
     assert runs == [morning, morning + timedelta(minutes=5)]
+
+
+def test_the_email_server_set_here_is_used_without_a_restart(db, admin, monkeypatch):
+    from lms.services import mail, settings
+
+    queued(db)
+    assert worker.send_emails(db, now=T0) == 0     # nothing set up yet
+    servers = []
+
+    class Server:
+        def __enter__(self): return self
+        def __exit__(self, *exc): return False
+        def login(self, user, password): servers.append(("login", user, password))
+        def send_message(self, msg): servers.append(("sent", msg["From"]))
+
+    monkeypatch.setattr(mail, "connect", lambda s: servers.append((s.smtp_host, s.smtp_port))
+                        or Server())
+    settings.save(db, {"smtp_host": "smtp.example.com.au", "smtp_port": 2525,
+                       "smtp_from": "Training <training@example.com.au>",
+                       "smtp_user": "u", "smtp_password": "p"}, admin)
+    assert worker.send_emails(db, now=T0) == 1
+    assert servers == [("smtp.example.com.au", 2525), ("login", "u", "p"),
+                       ("sent", "Training <training@example.com.au>")]
+
+
+def test_the_daily_hour_and_zone_set_here_are_used_without_a_restart(db, admin):
+    from lms.services import settings
+
+    today = worker.Daily()
+    seven_am_melbourne = datetime(2026, 10, 11, 20, 0, tzinfo=UTC)
+    assert today.due(seven_am_melbourne) == date(2026, 10, 12)
+    settings.save(db, {"daily_hour": 8}, admin)
+    assert today.due(seven_am_melbourne) is None
+    settings.save(db, {"timezone": "Australia/Perth", "daily_hour": 4}, admin)
+    # 4 am in Perth (UTC+8) is 8 pm UTC the day before
+    assert today.due(datetime(2026, 10, 11, 19, 59, tzinfo=UTC)) is None
+    assert today.due(datetime(2026, 10, 11, 20, 0, tzinfo=UTC)) == date(2026, 10, 12)
