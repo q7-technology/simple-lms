@@ -105,7 +105,9 @@ The first admin is made on the command line:
   is `409 { "code": "has_team" }`: give their team another supervisor first.
 - `PUT /v1/people/{code}/roles` — `{ "roles": [keys] }`, in full.
 - `POST /v1/people/{code}/pin` — `{ "pin" }`: a new PIN, which also unlocks
-  a locked one. Their PIN sessions end.
+  a locked one. Their PIN sessions end. Every PIN set (here, or with a new
+  person) is kept with who set it, append-only: whoever set it knows it, so
+  they don't sign that person off for a week (see Signing off).
 - `POST /v1/people/{code}/password` — `{ "password" }`: a new password,
   which also lifts a lock. Their password sessions end.
 - `POST /v1/people/{code}/deactivate`, `/reactivate` — deactivating ends
@@ -195,10 +197,13 @@ practicals are signed off on a supervisor's phone (below).
   app; `ticket` is the ticket's id when a manager approved one; `quiz` is
   `{ "version", "score", "pass_mark" }` when the person passed a module's
   quiz (recorded as theirs); `signoff` is `{ "version", "ticked", "note",
-  "photo", "supervisor_signature", "learner_signature" }` when a practical
-  was signed off on the phone (recorded by whoever signed it off): the
-  checklist version, the text of each item ticked in order, and upload ids
-  for the photo (or `null`) and both signatures.
+  "photo", "supervisor_signature", "learner_signature", "learner_pin_set_at",
+  "learner_pin_set_by" }` when a practical was signed off on the phone
+  (recorded by whoever signed it off): the checklist version, the text of
+  each item ticked in order, upload ids for the photo (or `null`) and both
+  signatures, and when the learner's PIN was last set and by whom (`{ "code",
+  "name" }`), as it was at the sign-off: both `null` for a PIN set before
+  PIN changes were kept.
 - `POST /v1/people/{code}/records` (`records:write`) — `{ "competency",
   "granted_on", "expires_on"?, "note"? }` → `201`. `granted_on` can't be in
   the future; `expires_on` (the last good day, e.g. a ticket's card date)
@@ -516,8 +521,12 @@ signs off anyone. Nobody signs off themselves, admins included.
   it is ticked again. Signing off yourself is `403 { "code": "own_signoff"
   }`; someone a supervisor may not sign off is `404`; a learner (no
   `signoffs:write`) is `403`. A competency that is not a practical is `422`
-  on `competency`, one with no checklist yet `404`, and a deactivated
-  practical or person `409 { "code": "inactive" }`.
+  on `competency`, one with no checklist yet `404`,
+  and a deactivated practical or person `409 { "code": "inactive" }`. The
+  caller who set the learner's PIN in the last 7 days knows it, so their
+  sign-off is `409 { "code": "you_set_their_pin" }` ("You set Kim Lee's PIN
+  this week: ask another supervisor or manager to sign them off"), checked
+  before the PIN so it costs no try; anyone else may sign them off.
 
 A sign-off is put right like any grant: revoke it with a note
 (`POST /v1/people/{code}/records/revoke`).

@@ -188,3 +188,19 @@ def test_a_signoff_photo_is_one_kind_of_upload(db, yard):
                   size_bytes=3, sha256="0" * 64, path="ab/s.png"))
     with pytest.raises(IntegrityError, match="ck_upload_purpose"):
         db.commit()
+
+
+@pytest.mark.parametrize("change", ["update", "delete"])
+def test_a_pin_change_is_kept_as_it_was(db, yard, change):
+    from lms.models import PinChange
+
+    boss, sam, kim, forklift, one = yard
+    db.add(PinChange(person_id=kim.id, changed_by_id=boss.id))
+    db.commit()
+    with pytest.raises(DBAPIError, match="append-only"):
+        if change == "update":
+            db.execute(update(PinChange).values(changed_by_id=sam.id))
+        else:
+            db.execute(delete(PinChange))
+        db.commit()
+

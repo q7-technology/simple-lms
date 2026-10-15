@@ -14,7 +14,7 @@ TABLES = {"person", "session", "role", "person_role", "competency", "role_requir
           "person_override", "competency_record", "upload", "policy_version",
           "ticket_submission", "outbox", "module_version", "module_page", "quiz_question",
           "quiz_attempt", "module_progress", "setting", "practical_version", "practical_item",
-          "signoff", "signoff_item", "alembic_version"}
+          "signoff", "signoff_item", "pin_change", "alembic_version"}
 TRIGGERS = {"competency_record_append_only", "person_override_append_only",
             "policy_version_append_only", "upload_append_only", "ticket_submission_decide_once",
             "quiz_attempt_append_only", "module_version_publish_once", "module_page_draft_only",
@@ -22,7 +22,7 @@ TRIGGERS = {"competency_record_append_only", "person_override_append_only",
             "competency_record_quiz_pass", "practical_version_append_only",
             "practical_item_append_only", "signoff_append_only", "signoff_item_append_only",
             "practical_item_written_with_version", "signoff_item_written_with_signoff",
-            "competency_record_signoff"}
+            "competency_record_signoff", "pin_change_append_only"}
 
 
 @pytest.fixture

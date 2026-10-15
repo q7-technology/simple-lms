@@ -258,3 +258,47 @@ def test_a_signoff_put_right_by_a_revoke(client, sam, manager_headers, learner_h
                     json={"competency": "forklift-practical", "note": "Signed off the wrong Kim"})
     assert r.status_code == 201
     assert forklift(client, learner_headers)["status"] == "missing"
+
+
+def test_whoever_set_their_pin_this_week_does_not_sign_them_off(client, sam, manager_headers,
+                                                                 checklist):
+    """Mel sets Kim a new PIN and knows it, so her typing it is no
+    confirmation from Kim: someone else signs Kim off."""
+    r = client.post("/v1/people/LL042/pin", headers=manager_headers, json={"pin": "1122"})
+    assert r.status_code == 200
+    r = sign_off(client, manager_headers, pin="1122")
+    assert r.status_code == 409 and r.json() == {
+        "code": "you_set_their_pin",
+        "detail": "You set Kim Lee's PIN this week: ask another supervisor or manager to sign "
+                  "them off"}
+    r = sign_off(client, sam, pin="1122")
+    assert r.status_code == 201, r.text
+
+
+def test_a_pin_set_over_a_week_ago_is_no_bar(client, db, manager, manager_headers, learner,
+                                             checklist):
+    from datetime import UTC, datetime, timedelta
+
+    from lms.models import PinChange
+
+    db.add(PinChange(person_id=learner.id, changed_by_id=manager.id,
+                     created_at=datetime.now(UTC) - timedelta(days=7, minutes=1)))
+    db.commit()
+    assert sign_off(client, manager_headers).status_code == 201
+
+
+def test_the_signoff_says_when_and_by_whom_their_pin_was_last_set(
+        client, sam, manager_headers, learner_headers, checklist):
+    client.post("/v1/people/LL042/pin", headers=manager_headers, json={"pin": "1122"})
+    s = sign_off(client, sam, pin="1122").json()["signoff"]
+    assert s["learner_pin_set_by"] == {"code": "MG001", "name": "Mel Grant"}
+    assert s["learner_pin_set_at"].startswith("20")
+    # as it was then: a PIN set afterwards doesn't change it
+    client.post("/v1/people/LL042/pin", headers=manager_headers, json={"pin": "3344"})
+    record = client.get("/v1/people/LL042/records", headers=manager_headers).json()[0]
+    assert record["signoff"] == s
+
+
+def test_a_pin_from_before_any_was_recorded_is_unknown(client, sam, checklist):
+    s = sign_off(client, sam).json()["signoff"]
+    assert (s["learner_pin_set_at"], s["learner_pin_set_by"]) == (None, None)

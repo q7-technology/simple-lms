@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 
 from sqlalchemy import (
-    CheckConstraint, ForeignKey, ForeignKeyConstraint, Index, Integer, String, UniqueConstraint,
+    CheckConstraint, DateTime, ForeignKey, ForeignKeyConstraint, Index, Integer, String, UniqueConstraint,
     text,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -82,6 +82,8 @@ class Signoff(Base):
         CheckConstraint("supervisor_signature_upload_id <> learner_signature_upload_id",
                         name="two_signatures"),
         CheckConstraint("note is null or length(trim(note)) > 0", name="note"),
+        CheckConstraint("(learner_pin_set_at is null) = (learner_pin_set_by_id is null)",
+                        name="learner_pin_set"),
         # a photo or a signature goes on one sign-off only
         Index("uq_signoff_photo_upload_id", "photo_upload_id", unique=True,
               postgresql_where=text("photo_upload_id is not null")),
@@ -104,6 +106,11 @@ class Signoff(Base):
     supervisor_signature_upload_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("upload.id"))
     # the learner's own, drawn on the supervisor's device once their PIN said it was them
     learner_signature_upload_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("upload.id"))
+    # when the learner's PIN was last set, and by whom, as it was at the
+    # sign-off: whoever set it knew it. Unknown for a PIN set before PIN
+    # changes were kept.
+    learner_pin_set_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    learner_pin_set_by_id: Mapped[int | None] = mapped_column(ForeignKey("person.id"))
     created_at: Mapped[datetime] = created_at_column()
 
     competency: Mapped[Competency] = relationship()
@@ -111,6 +118,7 @@ class Signoff(Base):
         primaryjoin="PracticalVersion.id == Signoff.practical_version_id",
         foreign_keys=[practical_version_id])
     supervisor: Mapped[Person] = relationship(foreign_keys=[supervisor_id])
+    learner_pin_set_by: Mapped[Person | None] = relationship(foreign_keys=[learner_pin_set_by_id])
     ticked: Mapped[list[SignoffItem]] = relationship(
         primaryjoin="Signoff.id == SignoffItem.signoff_id", foreign_keys="SignoffItem.signoff_id",
         order_by="SignoffItem.practical_item_id")

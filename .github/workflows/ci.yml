@@ -104,9 +104,10 @@ jobs:
           # draft, attempts only at a published version, a quiz's grant only
           # from that person's own passing attempt. And the practical's: a
           # checklist's items and a sign-off's ticks written with them and
-          # never after, a sign-off's grant only by its supervisor
+          # never after, a sign-off's grant only by its supervisor; and every
+          # PIN set, kept with who set it
           docker compose exec -T db psql -U lms -d lms -tAc \
-            "select count(*) from pg_trigger where tgname like '%_append_only'" | grep -qx 9
+            "select count(*) from pg_trigger where tgname like '%_append_only'" | grep -qx 10
           docker compose exec -T db psql -U lms -d lms -tAc \
             "select count(*) from pg_trigger where tgname like '%_written_with_%' or tgname = 'competency_record_signoff'" | grep -qx 3
           docker compose exec -T db psql -U lms -d lms -tAc \

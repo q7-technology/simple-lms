@@ -93,10 +93,13 @@ export interface CompetencyRecord {
   /** a module passed in the learner app: the version, the score and the pass mark */
   quiz: { version: number; score: number; pass_mark: number } | null;
   /** a practical signed off on the phone: what was ticked, and upload ids
-   * for the photo and both signatures. The supervisor is `recorded_by`. */
+   * for the photo and both signatures. The supervisor is `recorded_by`.
+   * When the learner's PIN was last set, and by whom, as it was then (null
+   * for one set before PIN changes were kept). */
   signoff: {
     version: number; ticked: string[]; note: string | null; photo: string | null;
     supervisor_signature: string; learner_signature: string;
+    learner_pin_set_at: string | null; learner_pin_set_by: PersonRef | null;
   } | null;
   created_at: string;
 }

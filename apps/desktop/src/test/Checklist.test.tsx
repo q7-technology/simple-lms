@@ -104,7 +104,8 @@ describe("a practical signed off", () => {
       recorded_by: { code: "SV001", name: "Sam Vu" }, policy_version: null, signed_name: null, signature: null,
       ticket: null, quiz: null, created_at: "2026-10-12T01:00:00Z",
       signoff: { version: 1, ticked: ["Checks the forks, chains and tyres", "Lifts a pallet to the top rack"],
-                 note: "Smooth on the ramp", photo: "p-1", supervisor_signature: "s-1", learner_signature: "s-2" },
+                 note: "Smooth on the ramp", photo: "p-1", supervisor_signature: "s-1", learner_signature: "s-2",
+                 learner_pin_set_at: "2026-10-03T02:15:00Z", learner_pin_set_by: { code: "MG001", name: "Mel Grant" } },
     };
     stubApi((_m, url) => {
       if (url.startsWith("/v1/matrix")) return json(200, matrix);
@@ -123,6 +124,7 @@ describe("a practical signed off", () => {
     expect(within(drawer).getByRole("img", { name: "Sam Vu's signature" })).toBeInTheDocument();
     expect(within(drawer).getByRole("img", { name: "Kim Lee's signature" })).toBeInTheDocument();
     expect(within(drawer).getByText("Kim Lee signed too, and confirmed it with their PIN.")).toBeInTheDocument();
+    expect(within(drawer).getByText("PIN last set 3 Oct 2026 by Mel Grant")).toBeInTheDocument();
     expect(within(drawer).getByText(/by Sam Vu/)).toBeInTheDocument();
   });
 });

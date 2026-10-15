@@ -1,4 +1,5 @@
-"""practicals: checklist versions and their items, sign-offs and what they ticked
+"""practicals: checklist versions and their items, sign-offs and what they ticked,
+and every PIN set
 
 Revision ID: 0004
 Revises: 0003b
@@ -17,7 +18,7 @@ depends_on: Union[str, Sequence[str], None] = None
 PURPOSES_BEFORE = "purpose in ('ticket', 'signature', 'page-image', 'page-pdf', 'page-video')"
 PURPOSES_NOW = ("purpose in ('ticket', 'signature', 'page-image', 'page-pdf', 'page-video', "
                 "'signoff-photo')")
-APPEND_ONLY = ("practical_version", "practical_item", "signoff", "signoff_item")
+APPEND_ONLY = ("practical_version", "practical_item", "signoff", "signoff_item", "pin_change")
 # a row written with its parent, in the same transaction, and never after
 WRITTEN_WITH = {"practical_item": ("practical_version", "practical_version_id", "version"),
                 "signoff_item": ("signoff", "signoff_id", "signoff")}
@@ -32,6 +33,21 @@ def upgrade() -> None:
     # a sign-off's photo is a file sent like any other
     op.drop_constraint(op.f("ck_upload_purpose"), "upload", type_="check")
     op.create_check_constraint(op.f("ck_upload_purpose"), "upload", PURPOSES_NOW)
+
+    # every PIN set, and who set it: they know it
+    op.create_table(
+        "pin_change",
+        sa.Column("id", sa.Integer(), nullable=False),
+        sa.Column("person_id", sa.Integer(), nullable=False),
+        sa.Column("changed_by_id", sa.Integer(), nullable=False),
+        _created_at(),
+        sa.ForeignKeyConstraint(["person_id"], ["person.id"],
+                                name=op.f("fk_pin_change_person_id_person")),
+        sa.ForeignKeyConstraint(["changed_by_id"], ["person.id"],
+                                name=op.f("fk_pin_change_changed_by_id_person")),
+        sa.PrimaryKeyConstraint("id", name=op.f("pk_pin_change")),
+    )
+    op.create_index(op.f("ix_pin_change_person_id"), "pin_change", ["person_id"])
 
     op.create_table(
         "practical_version",
@@ -87,6 +103,8 @@ def upgrade() -> None:
         sa.Column("photo_upload_id", sa.Uuid(), nullable=True),
         sa.Column("supervisor_signature_upload_id", sa.Uuid(), nullable=False),
         sa.Column("learner_signature_upload_id", sa.Uuid(), nullable=False),
+        sa.Column("learner_pin_set_at", sa.DateTime(timezone=True), nullable=True),
+        sa.Column("learner_pin_set_by_id", sa.Integer(), nullable=True),
         _created_at(),
         # nobody signs off their own practical
         sa.CheckConstraint("supervisor_id <> person_id", name=op.f("ck_signoff_not_own")),
@@ -94,6 +112,8 @@ def upgrade() -> None:
                            name=op.f("ck_signoff_two_signatures")),
         sa.CheckConstraint("note is null or length(trim(note)) > 0",
                            name=op.f("ck_signoff_note")),
+        sa.CheckConstraint("(learner_pin_set_at is null) = (learner_pin_set_by_id is null)",
+                           name=op.f("ck_signoff_learner_pin_set")),
         sa.ForeignKeyConstraint(["person_id"], ["person.id"],
                                 name=op.f("fk_signoff_person_id_person")),
         sa.ForeignKeyConstraint(["competency_id"], ["competency.id"],
@@ -110,6 +130,8 @@ def upgrade() -> None:
                                 name=op.f("fk_signoff_supervisor_signature_upload_id_upload")),
         sa.ForeignKeyConstraint(["learner_signature_upload_id"], ["upload.id"],
                                 name=op.f("fk_signoff_learner_signature_upload_id_upload")),
+        sa.ForeignKeyConstraint(["learner_pin_set_by_id"], ["person.id"],
+                                name=op.f("fk_signoff_learner_pin_set_by_id_person")),
         sa.PrimaryKeyConstraint("id", name=op.f("pk_signoff")),
         # what a ticked item names as its sign-off's version agrees
         sa.UniqueConstraint("id", "practical_version_id",
@@ -237,5 +259,7 @@ def downgrade() -> None:
     op.drop_table("practical_item")
     op.drop_index(op.f("ix_practical_version_competency_id"), table_name="practical_version")
     op.drop_table("practical_version")
+    op.drop_index(op.f("ix_pin_change_person_id"), table_name="pin_change")
+    op.drop_table("pin_change")
     op.drop_constraint(op.f("ck_upload_purpose"), "upload", type_="check")
     op.create_check_constraint(op.f("ck_upload_purpose"), "upload", PURPOSES_BEFORE)

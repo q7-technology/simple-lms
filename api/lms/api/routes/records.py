@@ -48,13 +48,17 @@ class QuizOut(BaseModel):
 class SignoffOut(BaseModel):
     """A practical signed off on the phone: the checklist version, what was
     ticked, the note and photo, and both signatures (GET /v1/uploads/{id}).
-    The supervisor is the record's recorded_by."""
+    The supervisor is the record's recorded_by. When the learner's PIN was
+    last set, and by whom, as it was then: unknown for one set before PIN
+    changes were kept."""
     version: int
     ticked: list[str]
     note: str | None
     photo: uuid.UUID | None
     supervisor_signature: uuid.UUID
     learner_signature: uuid.UUID
+    learner_pin_set_at: datetime | None
+    learner_pin_set_by: PersonRef | None
 
 
 class RecordOut(BaseModel):
@@ -84,7 +88,10 @@ def signoff_out(s: Signoff) -> SignoffOut:
                       ticked=[t.item.text for t in sorted(s.ticked, key=lambda t: t.item.position)],
                       note=s.note, photo=s.photo_upload_id,
                       supervisor_signature=s.supervisor_signature_upload_id,
-                      learner_signature=s.learner_signature_upload_id)
+                      learner_signature=s.learner_signature_upload_id,
+                      learner_pin_set_at=s.learner_pin_set_at,
+                      learner_pin_set_by=person_ref(s.learner_pin_set_by)
+                      if s.learner_pin_set_by else None)
 
 
 def record_out(r: CompetencyRecord) -> RecordOut:

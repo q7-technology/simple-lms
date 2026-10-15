@@ -65,3 +65,19 @@ class Session(Base):
     last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class PinChange(Base):
+    """A PIN set for someone, and by whom: append-only (a trigger says so).
+    Whoever set a learner's PIN knows it, so their typing it is no
+    confirmation from the learner (`practicals.set_their_pin()`)."""
+
+    __tablename__ = "pin_change"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    person_id: Mapped[int] = mapped_column(ForeignKey("person.id"), index=True)
+    changed_by_id: Mapped[int] = mapped_column(ForeignKey("person.id"))
+    created_at: Mapped[datetime] = created_at_column()
+
+    person: Mapped[Person] = relationship(foreign_keys=[person_id])
+    changed_by: Mapped[Person] = relationship(foreign_keys=[changed_by_id])

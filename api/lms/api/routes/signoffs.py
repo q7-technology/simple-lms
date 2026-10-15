@@ -135,6 +135,9 @@ def sign_off(code: str, body: SignoffIn, db: DB, who: Principal = require("signo
         raise NotFound(f"no person {code}")
     if not p.active:
         raise Conflict("inactive", f"{p.code} is deactivated")
+    if practicals.set_their_pin(db, who.person, p):
+        raise Conflict("you_set_their_pin", f"You set {p.name}'s PIN this week: ask another "
+                                            "supervisor or manager to sign them off")
     c = get_competency(db, body.competency)
     if c.kind != "practical":
         raise FieldError("competency", f"{c.key} is not a practical")
@@ -162,11 +165,14 @@ def sign_off(code: str, body: SignoffIn, db: DB, who: Principal = require("signo
             raise FieldError(field, "this signature is already on a record: sign again")
     # last, so nothing else wastes one of the learner's tries
     learner_confirms(db, p, body.learner_pin)
+    pin = practicals.last_pin_change(db, p)
     s = Signoff(person_id=p.id, competency=c, practical_version_id=v.id,
                 supervisor_id=who.person.id, note=body.note or None,
                 photo_upload_id=photo.id if photo else None,
                 supervisor_signature_upload_id=theirs.id,
-                learner_signature_upload_id=learners.id)
+                learner_signature_upload_id=learners.id,
+                learner_pin_set_at=pin.created_at if pin else None,
+                learner_pin_set_by_id=pin.changed_by_id if pin else None)
     db.add(s)
     db.flush()
     db.add_all([SignoffItem(signoff_id=s.id, practical_item_id=i, practical_version_id=v.id)
