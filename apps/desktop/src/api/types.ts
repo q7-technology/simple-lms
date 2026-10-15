@@ -169,3 +169,13 @@ export interface Settings {
   smtp_security: SettingValue<"starttls" | "ssl" | "none">;
   public_url: SettingValue<string>;
 }
+
+/** A practical's checklist: the items a supervisor ticks, frozen once published. */
+export interface Checklist {
+  id: number;
+  version: number;
+  items: { id: number; text: string }[];
+  note: string | null;
+  published_by: PersonRef;
+  created_at: string;
+}

@@ -5,6 +5,7 @@ import { formatDate } from "../lib/status";
 import { useAuth } from "../auth/AuthContext";
 import { useAction, useLoad } from "../lib/useLoad";
 import { Drawer, Problem } from "../ui/Drawer";
+import { ChecklistEditor } from "./ChecklistEditor";
 import { ModuleEditor } from "./ModuleEditor";
 
 const KINDS: { kind: Kind; label: string }[] = [
@@ -17,7 +18,8 @@ const kindLabel = (k: Kind) => KINDS.find((x) => x.kind === k)?.label ?? k;
 const months = (n: number | null) => (n ? `Every ${n} months` : "None");
 
 /** Competencies: what each is called, its kind and its refresher; a
- * policy's versions, a ticket's card expiry, and a module's pages and quiz. */
+ * policy's versions, a ticket's card expiry, a module's pages and quiz, and
+ * a practical's checklist. */
 export function Competencies() {
   const { can } = useAuth();
   const list = useLoad(() => api.get<Page<Competency>>("/v1/competencies"), []);
@@ -110,6 +112,7 @@ function CompetencyDrawer({ competency, onClose, onChanged }: {
       </form>
       {competency.kind === "policy" && <PolicyVersions policy={competency} />}
       {competency.kind === "module" && <ModuleEditor module={competency} />}
+      {competency.kind === "practical" && <ChecklistEditor practical={competency} />}
       {competency.active
         ? <button type="button" className="btn danger" disabled={action.busy}
                   onClick={() => void done(() => api.post(`${path}/deactivate`))}>Deactivate: no longer asked of anyone</button>
