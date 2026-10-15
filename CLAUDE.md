@@ -102,19 +102,41 @@ docker-compose.yml   api, worker, db, caddy
   PIN, which counts against their five tries and is never stored or logged;
   never give the learner a session on someone else's device.
 - Sister apps: nothing in Simple WMS or Simple TMS changes for Simple LMS. It
-  publishes signed events and a competency API (build step 6).
+  publishes signed events and a competency API.
+- Events: queued by `lms/services/events.py` in the same transaction as the
+  change, one outbox row per webhook, signed by the worker with
+  `X-LMS-Signature` exactly as Simple WMS signs its own. Anything new that
+  grants or revokes a competency calls `events.granted` or `events.revoked`;
+  anything that changes what another system keeps about a person calls
+  `events.person_updated` (how they sign in, a PIN, a password or a
+  Microsoft account, is not that). The daily job's expiring and lapsed go
+  through `events.once`, so each fires once. The catalogue is in
+  `docs/api.md`.
+- Webhooks: public addresses only (`lms/services/webhooks.py` checks where
+  the connection is made; `LMS_WEBHOOK_ALLOW_PRIVATE`, in `.env` only, lets
+  one in), no redirects followed, and every send by the worker (webhook,
+  print job or email) held to `LMS_WORKER_SEND_DEADLINE_SECONDS`. Each kind
+  has a loop of its own in `lms/worker.py`, so a slow receiver never holds
+  up email.
+- API keys: for systems, not people; shown once, only the hash kept. A key
+  opens the competency API and nothing else. Webhooks and keys are an
+  admin's (`settings:write`), on the Settings screen; a webhook's secret is
+  shown once too.
 - Settings: everyday settings (sign-in methods, the quiz wait, reminder
-  days, the daily hour and time zone, the email server, the web address)
-  are read only through `lms/services/settings.py` (`settings.current()`),
-  never from `lms.config` directly: a value set on the Settings screen wins
-  over `.env`, which wins over the default, and changes reach every
-  process within seconds. A new everyday setting goes there, with its
-  `.env` fallback if it has one. What is needed before the app starts or
-  could lock everyone out (database, ports, domain, upload folder, Caddy)
-  stays in `.env` only. A secret is write-only: never sent back. Their
-  table, `setting`, came in migration `0003b`; practicals came in `0004`,
-  Entra sign-in in `0005`, the outward links (webhooks, API keys, events
-  seen) in `0006`, and the next migration (`0007`) goes after it.
+  days, the daily hour and time zone, the email server, the web address,
+  Platen's address, key and printers, the upload limits) are read only
+  through `lms/services/settings.py` (`settings.current()`), never from
+  `lms.config` directly: a value set on the Settings screen wins over
+  `.env`, which wins over the default, and changes reach every process
+  within seconds. A new everyday setting goes there, with its `.env`
+  fallback if it has one. What is needed before the app starts or could
+  lock everyone out (database, ports, domain, upload folder, Caddy) stays
+  in `.env` only, as do the worker's limits and whether a webhook may be
+  internal. A secret (the email password, Platen's key) is write-only:
+  never sent back. Their table, `setting`, came in migration `0003b`;
+  practicals came in `0004`, Entra sign-in in `0005`, the outward links
+  (webhooks, API keys, events seen) in `0006`, and the next migration
+  (`0007`) goes after it.
 - Printing: Simple LMS never renders a document. Certificates and skills
   cards go to Platen (or any print service) as `template` + JSON `data`
   through the queue.

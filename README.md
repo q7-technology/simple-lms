@@ -6,21 +6,21 @@ and licences, and signed policies. It answers one question for a business and
 its auditors: is each person current for everything their job needs? It sits
 beside Simple WMS, Simple TMS and Platen and works without any of them.
 
-Status: **build steps 1 to 5 and 7 (Game Mode) are done.** People sign in
-with a code and PIN, an email and password, or their Microsoft work account;
-roles and the competencies each requires, extras and waivers, completions
-recorded by hand on the desktop, the matrix (with a CSV export), and a
-learner app that shows each person's training. People take online modules
-(pages, then a quiz), sign policies and send in their tickets from the
-learner app; a supervisor signs off practicals on their phone, with the
-learner beside them; a manager checks each ticket in the desktop's Inbox;
-the worker emails reminders and a Monday digest. The desktop opens on a
+Status: **all seven build steps are done.** People sign in with a code
+and PIN, an email and password, or their Microsoft work account; roles and
+the competencies each requires, extras and waivers, completions recorded by
+hand on the desktop, the matrix (with a CSV export), and a learner app that
+shows each person's training. People take online modules (pages, then a
+quiz), sign policies and send in their tickets from the learner app; a
+supervisor signs off practicals on their phone, with the learner beside
+them; a manager checks each ticket in the desktop's Inbox; the worker
+emails reminders and a Monday digest. Other systems hear what happens
+through signed webhooks and read who is current with an API key, and
+certificates and skills cards print through Platen. The desktop opens on a
 classroom, a desk for each role with its people sitting at it in green,
 amber or red, and every screen in a drawer over it; the learner app shows a
-ring for how much is done and says Ding! out loud. Build step 6, the
-outward links, has its API (signed webhooks, API keys and the competency
-API, printing through Platen) and its Settings screens still to come, as
-`docs/plans/2026-10-12-simple-lms-design.md` sets out.
+ring for how much is done and says Ding! out loud.
+`docs/plans/2026-10-12-simple-lms-design.md` is the design.
 
 ## What is in this repo
 
@@ -55,10 +55,11 @@ admin unless you give `--permission`.
 **Settings** screen, and they take effect within a few seconds, with no
 restart: sign-in methods (code and PIN, email and password, Microsoft), the quiz wait,
 the reminder days, the daily job's hour and the time zone, the email server
-(with **Send a test email**), the web address for links in emails, and
-how much a learner can send of their own in a day (30 files and 200 MB by
-default; supervisors, managers and admins, who send two signatures and a
-photo for every sign-off, have 200 files and 2 GB).
+(with **Send a test email**), the web address for links in emails,
+printing through Platen, and how much a learner can send of their own in a
+day (30 files and 200 MB by default; supervisors, managers and admins, who
+send two signatures and a photo for every sign-off, have 200 files and
+2 GB); below them, the webhooks and API keys.
 Each says where its value comes from: set there, from `.env`, or the
 default; a value set there wins over `.env`, so an install that only has
 `.env` keeps working. What has to be known before Simple LMS starts, or
@@ -167,6 +168,51 @@ Each is sent once. A failed email is tried again after 1 minute, 5, 30 and
 2 hours, then left `failed`. To queue them now:
 `docker compose exec worker lms daily-job` (add `--on YYYY-MM-DD` to run it
 as if today were that date, to try it out).
+
+**Webhooks.** An admin adds one under **Settings** for each system that
+should hear what happens: its address, and which of `competency.granted`,
+`competency.revoked`, `competency.expiring`, `competency.lapsed` and
+`person.updated` it wants (or everything). Its secret is shown once (its
+drawer makes a new one): the receiver checks each event's `X-LMS-Signature`
+with it, as it would Simple WMS's `X-WMS-Signature`, and keeps the
+`event_id`s it has had. Each event is queued with the change that caused
+it: `competency.granted` for every grant, by hand, a ticket approved, a
+policy signed, a module passed or a practical signed off; `person.updated`
+when a person is added, their details or roles change, or they are
+deactivated or back, but never for a PIN, a password or a Microsoft
+account linked or unlinked. Expiring and lapsed come from the daily job,
+each once. The worker sends them, and tries a refusal or no answer again
+after 1 minute, 5, 30 and 2 hours; the webhook's drawer shows how each went
+and sends a failed one again. A send has 15 seconds in all, however slowly
+the other end answers (`LMS_WORKER_SEND_DEADLINE_SECONDS` in `.env`), and
+emails, webhooks and print jobs each go out in a lane of their own, so one
+slow receiver never holds up the email. `docs/api.md` has the catalogue and
+how to check a signature.
+
+A webhook goes to a public address only, and the worker follows no
+redirect. To reach a receiver on this machine but outside Compose
+(`http://host.docker.internal:<port>/…` to the worker) or on the local
+network, set `LMS_WEBHOOK_ALLOW_PRIVATE=true` in `.env` (it is not on the
+Settings screen) and `docker compose up -d worker`.
+
+**API keys.** Under **Settings** an admin makes a key for a system that
+reads who is current (Simple TMS, say). It is shown once, and only its hash
+is kept; revoke it when it is done with. A key reads
+`GET /v1/people/{code}/competencies` and `/{key}` (status and last good
+day) and nothing else.
+
+**Printing.** Under **Settings**, *Printing*, an admin gives Platen's
+intake address (`https://<platen>/intake/jobs`), a key made in Platen for
+Simple LMS (kept, never shown again) and the printers certificates and
+skills cards go to (or `LMS_PLATEN_*` in `.env`). In Platen, make and
+publish page templates with the ids `lms-certificate` and
+`lms-skills-card`; the fields each binds to are in `docs/api.md`. A manager
+prints a certificate from the history of the completion that counts now
+(click a cell on the matrix) and a skills card, of everything the person is
+current for, from their drawer under **People**. Simple LMS sends the
+template name and the data, and never draws a page itself. Platen on this
+machine, outside Compose, is `http://host.docker.internal:<port>/intake/jobs`
+to the worker; Platen's address isn't held to public ones.
 
 The learner app is at `https://<LMS_DOMAIN>/learn/`. A person signs in with
 their code and PIN (set when they are added, or reset by a manager under
@@ -281,7 +327,9 @@ back: `docker compose exec api lms clear-setting sign_in_password`.
 | Record or revoke a completion (never their own) | | | ✓ | ✓ |
 | Approve or reject a ticket (never their own) | | | ✓ | ✓ |
 | Unlink someone's Microsoft account | | | ✓ | ✓ |
+| Print a certificate or a skills card | | | ✓ | ✓ |
 | Add or change a manager or an admin | | | | ✓ |
+| Settings, webhooks and API keys | | | | ✓ |
 
 A supervisor's team is the people whose supervisor they are, and only
 someone with the supervisor, manager or admin permission can be one. Someone
@@ -302,7 +350,7 @@ export LMS_DATABASE_URL=postgresql+psycopg://lms:<POSTGRES_PASSWORD>@127.0.0.1:5
 .venv/bin/alembic upgrade head
 .venv/bin/lms create-user --code AD001 --name "Your Name" --email you@example.com
 .venv/bin/uvicorn lms.api.app:app --reload --port 8033
-.venv/bin/python -m lms.worker   # in another terminal, for email and the daily job
+.venv/bin/python -m lms.worker   # in another terminal: email, webhooks, printing, the daily job
 ```
 
 Outside Docker, set `LMS_UPLOAD_DIR` to a folder of your own (the default
