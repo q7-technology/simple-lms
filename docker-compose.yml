@@ -12,6 +12,10 @@ x-lms-settings: &lms-settings
   LMS_SMTP_PASSWORD: ${LMS_SMTP_PASSWORD:-}
   LMS_SMTP_FROM: ${LMS_SMTP_FROM:-}
   LMS_SMTP_SECURITY: ${LMS_SMTP_SECURITY:-starttls}
+  LMS_PLATEN_URL: ${LMS_PLATEN_URL:-}
+  LMS_PLATEN_KEY: ${LMS_PLATEN_KEY:-}
+  LMS_CERTIFICATE_PRINTER: ${LMS_CERTIFICATE_PRINTER:-office}
+  LMS_SKILLS_CARD_PRINTER: ${LMS_SKILLS_CARD_PRINTER:-}
 
 services:
   db:
@@ -59,9 +63,10 @@ services:
       retries: 10
       start_period: 20s
 
-  # Sends the emails in the outbox with backoff, and runs the daily job
-  # (reminders, and the managers' Monday digest). Waits for the api's
-  # migrations. Later steps give it the webhooks and print jobs.
+  # Sends what is in the outbox with backoff: emails, events to the
+  # webhooks and print jobs to Platen. Runs the daily job (reminders, the
+  # managers' Monday digest, the expiring and lapsed events). Waits for the
+  # api's migrations.
   worker:
     build: ./api
     restart: unless-stopped
@@ -69,6 +74,14 @@ services:
     environment:
       <<: *lms-settings
       LMS_DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-lms}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-lms}
+      # how long it waits for a webhook or Platen to answer, and whether a
+      # webhook may be on this machine or the local network (.env only)
+      LMS_WORKER_HTTP_TIMEOUT_SECONDS: ${LMS_WORKER_HTTP_TIMEOUT_SECONDS:-10}
+      LMS_WEBHOOK_ALLOW_PRIVATE: ${LMS_WEBHOOK_ALLOW_PRIVATE:-false}
+    # a webhook or Platen on this machine, outside Compose, is
+    # http://host.docker.internal:<port>/… from in here (Linux too)
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
       db:
         condition: service_healthy

@@ -114,6 +114,9 @@ jobs:
           # the settings an admin changes on the Settings screen
           docker compose exec -T db psql -U lms -d lms -tAc \
             "select count(*) from information_schema.tables where table_name = 'setting'" | grep -qx 1
+          # the outward links: webhooks, API keys, and the events fired once
+          docker compose exec -T db psql -U lms -d lms -tAc \
+            "select count(*) from information_schema.tables where table_name in ('webhook', 'api_key', 'event_seen')" | grep -qx 3
           for i in $(seq 1 30); do
             if docker compose logs worker | grep -q "worker started"; then up=1; break; fi
             sleep 2
