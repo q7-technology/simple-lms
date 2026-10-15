@@ -78,6 +78,10 @@ class PageOut(BaseModel):
 class QuestionOut(BaseModel):
     prompt: str
     options: list[str]
+
+
+class AnsweredQuestionOut(QuestionOut):
+    # which answer is right, counting from 0: only for those who write it
     correct: int
 
 
@@ -92,6 +96,10 @@ class VersionOut(BaseModel):
     created_at: datetime
 
 
+class AnsweredVersionOut(VersionOut):
+    questions: list[AnsweredQuestionOut]
+
+
 def page_out(p: ModulePage, session: Session) -> PageOut:
     file = None
     if p.upload is not None:
@@ -100,13 +108,20 @@ def page_out(p: ModulePage, session: Session) -> PageOut:
     return PageOut(kind=p.kind, title=p.title, body=p.body, url=p.url, file=file)
 
 
-def version_out(v: ModuleVersion, session: Session) -> VersionOut:
-    return VersionOut(id=v.id, version=v.version, pass_mark=v.pass_mark,
-                      published_at=v.published_at, published_by=person_ref(v.published_by),
-                      pages=[page_out(p, session) for p in v.pages],
-                      questions=[QuestionOut(prompt=q.prompt, options=q.options, correct=q.correct)
-                                 for q in v.questions],
-                      created_at=v.created_at)
+def version_out(v: ModuleVersion, session: Session) -> AnsweredVersionOut:
+    """The editor's view, with the right answers."""
+    return AnsweredVersionOut(
+        id=v.id, version=v.version, pass_mark=v.pass_mark,
+        published_at=v.published_at, published_by=person_ref(v.published_by),
+        pages=[page_out(p, session) for p in v.pages],
+        questions=[AnsweredQuestionOut(prompt=q.prompt, options=q.options, correct=q.correct)
+                   for q in v.questions],
+        created_at=v.created_at)
+
+
+def unanswered(v: AnsweredVersionOut) -> VersionOut:
+    """The same without the right answers, for someone who may yet sit it."""
+    return VersionOut.model_validate(v.model_dump(exclude={"questions": {"__all__": {"correct"}}}))
 
 
 def get_module(db, key: str) -> Competency:
@@ -164,23 +179,28 @@ def _page(db, i: int, p: PageIn) -> ModulePage:
                       upload_id=p.file, url=p.url)
 
 
-@router.get("/modules/{key}/versions", response_model=list[VersionOut])
+@router.get("/modules/{key}/versions",
+            response_model=list[AnsweredVersionOut] | list[VersionOut])
 def list_versions(key: str, db: DB, who: Principal = require("competencies:read")):
     """Newest first: a draft (if there is one), then what has been published.
-    With the right answers: this is the editor's view."""
+    The right answers only for its editors: a supervisor may have to sit it."""
     c = get_module(db, key)
     rows = db.execute(select(ModuleVersion).where(ModuleVersion.competency_id == c.id)
                       .order_by(ModuleVersion.version.desc())).scalars().all()
-    return [version_out(v, who.session) for v in rows]
+    out = [version_out(v, who.session) for v in rows]
+    if who.has_scope("competencies:write"):
+        return out
+    return [unanswered(v) for v in out]
 
 
-@router.post("/modules/{key}/draft", status_code=201, response_model=VersionOut)
+@router.post("/modules/{key}/draft", status_code=201, response_model=AnsweredVersionOut)
 def start_draft(key: str, db: DB, who: Principal = require("competencies:write")):
     """The next version, a copy of the newest published one (or empty)."""
     c = get_module(db, key)
-    _active(c)
-    # one at a time per module, so two at once don't both start one
+    # one at a time per module, so two at once don't both start one, and
+    # still active once it's ours: deactivating waits for us, or we for it
     db.refresh(c, with_for_update=True)
+    _active(c)
     existing = modules.draft(db, c)
     if existing is not None:
         raise Conflict("draft_exists", f"version {existing.version} is being written already")
@@ -190,7 +210,7 @@ def start_draft(key: str, db: DB, who: Principal = require("competencies:write")
     return JSONResponse(status_code=201, content=out.model_dump(mode="json"))
 
 
-@router.put("/modules/{key}/draft", response_model=VersionOut)
+@router.put("/modules/{key}/draft", response_model=AnsweredVersionOut)
 def save_draft(key: str, body: DraftIn, db: DB, who: Principal = require("competencies:write")):
     """The draft in full: its pass mark, its pages and its questions, in
     order. Whatever was there before is replaced."""
@@ -214,11 +234,14 @@ def save_draft(key: str, body: DraftIn, db: DB, who: Principal = require("compet
     return version_out(v, who.session)
 
 
-@router.post("/modules/{key}/draft/publish", response_model=VersionOut)
+@router.post("/modules/{key}/draft/publish", response_model=AnsweredVersionOut)
 def publish(key: str, db: DB, who: Principal = require("competencies:write")):
     """Frozen from now on, and the one people take. Their passes so far
     still count: a new version doesn't ask anyone to take it again."""
     c = get_module(db, key)
+    # checked once the module is locked, so one deactivated meanwhile isn't
+    # published: deactivating waits for us, or we for it
+    db.refresh(c, with_for_update=True)
     _active(c)
     v = _draft(db, c)
     if not v.pages or not v.questions:

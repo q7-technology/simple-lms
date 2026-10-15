@@ -147,8 +147,21 @@ def test_only_an_editor_writes_one(client, learner_headers, supervisor_headers, 
                                    induction):
     for headers in (learner_headers, supervisor_headers):
         assert client.post(f"{INDUCTION}/draft", headers=headers).status_code == 403
-    assert client.get(f"{INDUCTION}/versions", headers=supervisor_headers).status_code == 200
     assert client.get(f"{INDUCTION}/versions", headers=learner_headers).status_code == 403
+
+
+def test_a_supervisor_sees_the_quiz_but_not_its_answers(client, supervisor_headers,
+                                                        manager_headers, induction):
+    # a supervisor may sit the module too: the answers are for its editors
+    written(client, manager_headers)
+    client.post(f"{INDUCTION}/draft/publish", headers=manager_headers)
+    client.post(f"{INDUCTION}/draft", headers=manager_headers)
+    r = client.get(f"{INDUCTION}/versions", headers=supervisor_headers)
+    assert r.status_code == 200, r.text
+    assert len(r.json()) == 2 and "correct" not in r.text
+    assert [q["prompt"] for q in r.json()[1]["questions"]] == [q["prompt"] for q in QUESTIONS]
+    editors = client.get(f"{INDUCTION}/versions", headers=manager_headers).json()
+    assert [v["questions"] for v in editors] == [QUESTIONS, QUESTIONS]
 
 
 def test_a_deactivated_module_gets_no_new_version(client, manager_headers, induction):
