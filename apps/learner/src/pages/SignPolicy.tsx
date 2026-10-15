@@ -4,6 +4,7 @@ import { api, ApiError } from "../api/client";
 import type { Policy } from "../api/types";
 import { useSession } from "../auth/Session";
 import { toBlob } from "../lib/picture";
+import { useDing } from "../lib/sound";
 import { SignaturePad } from "../pictures";
 import { Back, plain } from "../ui";
 
@@ -19,6 +20,7 @@ export function SignPolicy() {
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState(false);
   const canvas = useRef<HTMLCanvasElement>(null);
+  const { wake, ding } = useDing();
 
   const load = useCallback(async () => {
     setTrouble(null);
@@ -35,6 +37,7 @@ export function SignPolicy() {
   async function sign(e: FormEvent) {
     e.preventDefault();
     if (!policy || !canvas.current) return;
+    wake();
     setBusy(true);
     setError(null);
     try {
@@ -42,6 +45,7 @@ export function SignPolicy() {
       await api.post(`/v1/policies/${encodeURIComponent(key)}/sign`, {
         version: policy.version.version, signed_name: name.trim(), signature: signature.id,
       });
+      ding();
       setDone(true);
     } catch (err) {
       if (err instanceof ApiError && err.code === "new_version") {

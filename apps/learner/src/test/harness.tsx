@@ -40,3 +40,22 @@ export function renderApp(who: Me | null = null, activeAt = Date.now(), path = "
     </MemoryRouter>,
   );
 }
+
+/** An AudioContext that counts the notes it is asked to play. */
+export function listen() {
+  const heard = { notes: 0, woken: 0 };
+  class FakeAudioContext {
+    state = "suspended";
+    currentTime = 0;
+    destination = {};
+    resume() { heard.woken += 1; this.state = "running"; return Promise.resolve(); }
+    createOscillator() {
+      return { type: "", frequency: { setValueAtTime() {} }, connect: (n: unknown) => n, start() { heard.notes += 1; }, stop() {} };
+    }
+    createGain() {
+      return { gain: { setValueAtTime() {}, exponentialRampToValueAtTime() {} }, connect: (n: unknown) => n };
+    }
+  }
+  vi.stubGlobal("AudioContext", FakeAudioContext);
+  return heard;
+}

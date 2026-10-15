@@ -79,6 +79,13 @@
   .choice input { width: 22px; height: 22px; flex: none; }
 }
 
+/* Ding! pops in, unless the viewer asked their phone for less movement. */
+@keyframes lms-pop { 0% { transform: scale(0.6); opacity: 0; } 70% { transform: scale(1.12); opacity: 1; } 100% { transform: scale(1); } }
+.ding b { display: inline-block; animation: lms-pop 0.45s ease-out; }
+@media (prefers-reduced-motion: reduce) {
+  .ding b { animation: none; }
+}
+
 /* read aloud, not shown */
 .sr-only {
   position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;

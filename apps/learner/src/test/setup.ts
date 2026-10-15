@@ -1,4 +1,6 @@
 import "@testing-library/jest-dom/vitest";
+import { reloadGamePrefs } from "../lib/game";
+import { forgetSound } from "../lib/sound";
 
 // jsdom draws nothing: a canvas has no context unless a test gives it one
 HTMLCanvasElement.prototype.getContext = (() => null) as typeof HTMLCanvasElement.prototype.getContext;
@@ -18,6 +20,9 @@ if (typeof window.PointerEvent === "undefined") {
 
 afterEach(() => {
   window.localStorage.clear();
+  // game touches are this device's own: every test starts with the default, and no sound of its own
+  reloadGamePrefs();
+  forgetSound();
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });

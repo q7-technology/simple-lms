@@ -1,6 +1,6 @@
 import { act, fireEvent, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { json, KIM, renderApp, stubApi } from "./harness";
+import { json, KIM, listen, renderApp, stubApi } from "./harness";
 import { addInk, ENOUGH_INK } from "../pictures";
 
 vi.mock("../lib/picture", () => ({
@@ -54,6 +54,22 @@ describe("signing a policy", () => {
     expect(calls.find((c) => c.url === "/v1/uploads?purpose=signature")?.contentType).toBe("image/png");
     expect(calls.find((c) => c.url === "/v1/policies/whs-policy/sign")?.body).toEqual({
       version: 2, signed_name: "Kim Lee", signature: "sig-1" });
+  });
+
+  it("says Ding! out loud once it is signed, woken by the tap on Sign", async () => {
+    const heard = listen();
+    stubApi((method, url) => {
+      if (url === "/v1/policies/whs-policy") return json(200, WHS);
+      if (method === "POST" && url === "/v1/uploads?purpose=signature") return json(201, { id: "sig-1" });
+      if (method === "POST" && url === "/v1/policies/whs-policy/sign") return json(201, { kind: "granted" });
+      return null;
+    });
+    renderApp(KIM, Date.now(), "/sign/whs-policy");
+    await userEvent.type(await screen.findByLabelText("Type your name"), "Kim Lee");
+    signWithAFinger();
+    await userEvent.click(screen.getByRole("button", { name: "Sign" }));
+    await screen.findByRole("status", { name: "Signed" });
+    expect(heard).toEqual({ notes: 2, woken: 1 });
   });
 
   it("shows the new version when one came out while they read", async () => {

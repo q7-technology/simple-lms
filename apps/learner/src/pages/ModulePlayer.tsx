@@ -3,6 +3,7 @@ import { Link, useParams } from "react-router-dom";
 import { api, ApiError } from "../api/client";
 import type { Attempt, Module, ModulePage } from "../api/types";
 import { useSession } from "../auth/Session";
+import { useDing } from "../lib/sound";
 import { Back, plain } from "../ui";
 
 const CHANGED = "The module has changed: start the new version.";
@@ -194,6 +195,7 @@ function Quiz({ module, path, heading, onChanged, onBack, onReadAgain }: {
   // focus with it: it goes to the result, so it is read out, or the quiz's top
   const said = useRef<HTMLElement>(null);
   const again = useRef(false);
+  const { wake, ding } = useDing();
 
   useEffect(() => {
     if (result || retryAt) said.current?.focus();
@@ -210,10 +212,13 @@ function Quiz({ module, path, heading, onChanged, onBack, onReadAgain }: {
 
   async function handIn(e: FormEvent) {
     e.preventDefault();
+    wake();
     setBusy(true);
     setError(null);
     try {
-      setResult(await api.post<Attempt>(`${path}/attempts`, { version, answers }));
+      const attempt = await api.post<Attempt>(`${path}/attempts`, { version, answers });
+      if (attempt.passed) ding();
+      setResult(attempt);
     } catch (err) {
       const until = err instanceof ApiError && err.code === "cooldown"
         ? waiting((err.body as { retry_at?: unknown })?.retry_at) : null;
