@@ -43,3 +43,25 @@ def test_the_worker_waits_some_time_between_polls():
     for bad in (0, -1):
         with pytest.raises(ValidationError):
             Settings(worker_poll_seconds=bad)
+
+
+TENANT = "6f1c2a4e-7b3d-4e8f-9a01-2b3c4d5e6f70"
+CLIENT = "0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d"
+
+
+@pytest.mark.parametrize("tenant", ["common", "organizations", "example.com.au", "6f1c2a4e"])
+def test_the_tenant_is_one_tenant_by_its_id(tenant):
+    with pytest.raises(ValidationError, match="must be your Directory \\(tenant\\) ID"):
+        Settings(entra_tenant_id=tenant)
+
+
+def test_the_ids_are_kept_lower_case():
+    s = Settings(entra_tenant_id=TENANT.upper(), entra_client_id=f" {CLIENT.upper()} ")
+    assert (s.entra_tenant_id, s.entra_client_id) == (TENANT, CLIENT)
+    with pytest.raises(ValidationError, match="Application \\(client\\) ID"):
+        Settings(entra_client_id="simple-lms")
+
+
+def test_microsofts_address_is_the_usual_one_unless_told():
+    assert Settings().entra_authority == "https://login.microsoftonline.com"
+    assert Settings(entra_authority="http://10.0.0.5:8099/").entra_authority == "http://10.0.0.5:8099"
