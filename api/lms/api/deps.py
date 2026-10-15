@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session as Db
 from lms.api.errors import Forbidden, Unauthorised
 from lms.db import get_sessionmaker
 from lms.models import Person, Session
-from lms.services import sessions
+from lms.services import api_keys, sessions
 
 
 def get_db():
@@ -59,6 +59,10 @@ def get_principal(db: DB, authorization: Annotated[str | None, Header()] = None)
     raw = bearer_token(authorization)
     if raw is None:
         raise Unauthorised("missing bearer token")
+    if raw.startswith(api_keys.PREFIX):
+        if api_keys.find(db, raw) is None:
+            raise Unauthorised("API key unknown or revoked")
+        raise Forbidden("an API key opens the competency API only", "key_not_allowed")
     row = sessions.find(db, raw)
     person = db.get(Person, row.person_id) if row else None
     if row is None or person is None or not person.active:
