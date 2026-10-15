@@ -4,6 +4,7 @@ import type { Me, Settings as All, SettingSource } from "../api/types";
 import { useAuth } from "../auth/AuthContext";
 import { useAction, useLoad } from "../lib/useLoad";
 import { Problem } from "../ui/Drawer";
+import { ApiKeys } from "./ApiKeys";
 import { Webhooks } from "./Webhooks";
 
 type Key = keyof All;
@@ -184,6 +185,7 @@ export function Settings() {
           <WebAddress all={all} onSaved={setAll} />
           <Uploads all={all} onSaved={setAll} />
           <Webhooks />
+          <ApiKeys />
         </>
       )}
     </main>
