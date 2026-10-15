@@ -91,6 +91,24 @@ def test_a_file_is_shown_to_its_owner_their_supervisor_and_a_manager(
         assert r.headers["x-content-type-options"] == "nosniff"
 
 
+def test_a_file_is_sent_from_disk_without_being_read_whole(
+        client, learner_headers, manager_headers, monkeypatch):
+    from pathlib import Path
+
+    file_id = sent(client, learner_headers)
+    video = sent(client, manager_headers, "page-video", MP4, "video/mp4")
+
+    def read_bytes(self):
+        raise AssertionError("a stored file is streamed, not read whole")
+    monkeypatch.setattr(Path, "read_bytes", read_bytes)
+    r = client.get(f"/v1/uploads/{file_id}", headers=learner_headers)
+    assert r.status_code == 200 and r.content == JPEG
+    assert r.headers["content-length"] == str(len(JPEG))
+    r = client.get(f"/v1/uploads/{video}", headers=manager_headers)
+    assert r.status_code == 200 and r.content == MP4
+    assert r.headers["content-type"] == "video/mp4"
+
+
 def test_anyone_else_finds_nothing(client, db, learner_headers):
     file_id = sent(client, learner_headers)
     make_person(db, "LL099", "Pat Other", pin="1357")
@@ -184,6 +202,9 @@ def test_a_file_whose_row_cannot_be_saved_is_not_kept_either(
     ("page-video", MP4, "video/mp4"),
     ("page-video", ftyp(b"isom"), "video/mp4"),
     ("page-video", WEBM, "video/webm"),
+    # the DocType wherever it is in the header, its size written long
+    ("page-video", b"\x1a\x45\xdf\xa3\x90\x42\xf2\x81\x04\x42\xf3\x81\x08"
+                   b"\x42\x82\x40\x04webm" + b"frames" * 40, "video/webm"),
 ])
 def test_an_editor_sends_a_module_pages_files(client, manager_headers, upload_dir, purpose, data,
                                               content_type):
@@ -197,6 +218,12 @@ def test_an_editor_sends_a_module_pages_files(client, manager_headers, upload_di
 
 @pytest.mark.parametrize("data", [
     MOV, PDF, b"\x1a\x45\xdf\xa3\x42\x82\x88matroska" + b"x" * 40,
+    # a Matroska .mkv that says webm somewhere else in its first bytes
+    b"\x1a\x45\xdf\xa3\x8b\x42\x82\x88matroska" + b"webm" * 10,
+    b"\x1a\x45\xdf\xa3\x93\xec\x86webmxx\x42\x82\x88matroska" + b"x" * 40,
+    # a DocType that only starts with webm, and a header cut short
+    b"\x1a\x45\xdf\xa3\x88\x42\x82\x85webmx" + b"x" * 40,
+    b"\x1a\x45\xdf\xa3\x9f\x42\x82\x84web",
     # an iPhone photo, and the other pictures and sound that start the same way
     ftyp(b"heic"), ftyp(b"mif1"), ftyp(b"avif"), ftyp(b"M4A "),
 ])

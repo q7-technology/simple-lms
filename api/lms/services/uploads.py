@@ -49,6 +49,44 @@ MP4_BRANDS = {b"isom", b"iso2", b"iso4", b"iso5", b"iso6", b"mp41", b"mp42", b"a
               b"M4V "}
 
 
+EBML = b"\x1a\x45\xdf\xa3"
+DOCTYPE = b"\x42\x82"
+
+
+def _vint(data: bytes, at: int) -> tuple[int, int] | None:
+    """An EBML variable-length size at `at`: (its value, where it ends)."""
+    if at >= len(data) or data[at] == 0:
+        return None
+    width = 9 - data[at].bit_length()  # the leading zeros, plus one
+    if at + width > len(data):
+        return None
+    value = data[at] & (0xFF >> width)
+    for byte in data[at + 1:at + width]:
+        value = value << 8 | byte
+    return value, at + width
+
+
+def _doctype(data: bytes) -> bytes | None:
+    """The DocType in a Matroska file's EBML header ("webm" or "matroska"),
+    read element by element; None if the header isn't all in `data`."""
+    if not data.startswith(EBML) or (size := _vint(data, len(EBML))) is None:
+        return None
+    end = size[1] + size[0]
+    at = size[1]
+    while at < min(end, len(data)):
+        # an element ID keeps its length marker: 1 to 4 bytes
+        width = 9 - data[at].bit_length() if data[at] else 9
+        if width > 4 or (size := _vint(data, at + width)) is None:
+            return None
+        element, (length, start) = data[at:at + width], size
+        if start + length > end or start + length > len(data):
+            return None
+        if element == DOCTYPE:
+            return data[start:start + length].rstrip(b"\x00")
+        at = start + length
+    return None
+
+
 def sniff(data: bytes) -> str | None:
     for content_type, magic in MAGIC.items():
         if data.startswith(magic):
@@ -56,7 +94,7 @@ def sniff(data: bytes) -> str | None:
     if data[4:8] == b"ftyp" and data[8:12] in MP4_BRANDS:
         return "video/mp4"
     # a WebM is a Matroska file whose header says webm (an .mkv says matroska)
-    if data.startswith(b"\x1a\x45\xdf\xa3") and b"webm" in data[:HEAD]:
+    if _doctype(data[:HEAD]) == b"webm":
         return "video/webm"
     return None
 

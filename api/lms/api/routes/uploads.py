@@ -9,7 +9,7 @@ from datetime import datetime
 from typing import Literal
 
 from fastapi import APIRouter, Depends, Query, Request
-from fastapi.responses import JSONResponse, Response
+from fastapi.responses import FileResponse, JSONResponse, Response
 from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
@@ -89,20 +89,21 @@ def get_file(upload_id: uuid.UUID, db: DB, who: Who):
     row = db.get(Upload, upload_id)
     if row is None or not who.sees(db.get(Person, row.person_id)):
         raise NotFound(f"no file {upload_id}")
+    path = uploads.full_path(row)
     try:
-        content = uploads.full_path(row).read_bytes()
+        stat = path.stat()
     except FileNotFoundError:
         # the row is there but the file is not: a volume lost or restored
         # without it. Not found to the caller; someone should look.
-        log.warning("upload %s is recorded but missing from disk at %s",
-                    upload_id, uploads.full_path(row))
+        log.warning("upload %s is recorded but missing from disk at %s", upload_id, path)
         raise NotFound(f"no file {upload_id}") from None
     # a PDF under the sandbox shows blank in the browser, so it is saved instead
     shown = "attachment" if row.content_type == "application/pdf" else "inline"
-    return Response(content=content, media_type=row.content_type,
-                    headers={"Cache-Control": "private, no-store",
-                             # opened on its own, it runs nothing and reaches nothing
-                             "Content-Security-Policy": "default-src 'none'; sandbox",
-                             "Content-Disposition":
-                                 f'{shown}; filename="{row.id}.{uploads.EXT[row.content_type]}"',
-                             "X-Content-Type-Options": "nosniff"})
+    # sent from disk a piece at a time: a page's video can be 200 MB
+    return FileResponse(path, media_type=row.content_type, stat_result=stat,
+                        filename=f"{row.id}.{uploads.EXT[row.content_type]}",
+                        content_disposition_type=shown,
+                        headers={"Cache-Control": "private, no-store",
+                                 # opened on its own, it runs nothing and reaches nothing
+                                 "Content-Security-Policy": "default-src 'none'; sandbox",
+                                 "X-Content-Type-Options": "nosniff"})
