@@ -35,6 +35,8 @@ export interface Person {
   has_pin: boolean;
   pin_locked: boolean;
   has_password: boolean;
+  /** has signed in with Microsoft: their account is kept */
+  entra_linked: boolean;
 }
 
 export interface Role {
@@ -157,6 +159,8 @@ export interface SettingValue<T> { value: T; source: SettingSource }
 export interface Settings {
   sign_in_pin: SettingValue<boolean>;
   sign_in_password: SettingValue<boolean>;
+  /** `set_up`: LMS_ENTRA_* and a web address are there, so its button shows when it is on */
+  sign_in_entra: SettingValue<boolean> & { set_up: boolean };
   quiz_cooldown_tries: SettingValue<number>;
   quiz_cooldown_minutes: SettingValue<number>;
   reminder_days: SettingValue<number[]>;

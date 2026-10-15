@@ -5,7 +5,7 @@ import { MEL, json, renderApp, stubApi } from "./harness";
 
 const SAM: Person = {
   id: 3, code: "SV001", name: "Sam Vu", email: "sam@example.com.au", permission: "supervisor", supervisor: null,
-  roles: [], active: true, has_pin: true, pin_locked: false, has_password: true,
+  roles: [], active: true, has_pin: true, pin_locked: false, has_password: true, entra_linked: false,
 };
 const KIM: Person = {
   ...SAM, id: 4, code: "LL042", name: "Kim Lee", email: null, permission: "learner",

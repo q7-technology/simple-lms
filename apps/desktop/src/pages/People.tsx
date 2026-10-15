@@ -55,7 +55,7 @@ export function People() {
               <td className="small">{p.roles.map((r) => r.name).join(", ")}</td>
               <td className="small">{p.supervisor?.name ?? ""}</td>
               <td className="small">
-                {[p.has_pin && "PIN", p.has_password && "password"].filter(Boolean).join(" and ") || "none"}
+                {[p.has_pin && "PIN", p.has_password && "password", p.entra_linked && "Microsoft"].filter(Boolean).join(" and ") || "none"}
                 {p.pin_locked && <span className="pill t-red ml-2">PIN locked</span>}
               </td>
             </tr>
@@ -223,6 +223,15 @@ function PersonDrawer({ code, supervisors, onClose, onChanged }: {
                   signsMeOut={endsMine("pin")} onSave={(pin) => secret("pin", "PIN set.", { pin })} />
           <Secret label="New password" kind="password" busy={action.busy}
                   signsMeOut={endsMine("password")} onSave={(password) => secret("password", "Password set.", { password })} />
+          {p.entra_linked && (
+            <div className="card flex items-center gap-3">
+              <span className="small flex-1">Signs in with Microsoft. Unlink it if it is the wrong account: the next
+                Microsoft sign-in is matched by their email again.</span>
+              <button type="button" className="btn" disabled={action.busy}
+                      onClick={() => void change("Microsoft account unlinked.", () => api.post(`${path}/entra/unlink`))}>
+                Unlink Microsoft</button>
+            </div>
+          )}
           {self && <div className="small">You can't change your own permission or deactivate yourself.</div>}
           {!self && <div>
             {p.active
