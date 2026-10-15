@@ -86,7 +86,11 @@ const EMPTY: Desk[] = ["a", "b", "c", "d", "e", "f"].map((key) => ({
 }));
 
 /** Behind a screen's drawer: the classroom with its desks and nobody at
- * them, so nothing of anyone's shows through. */
+ * them, so nothing of anyone's shows through. Placeholder desks, not the
+ * real ones: the real layout needs the matrix, and loading it behind every
+ * screen would be a second request for a picture that is dimmed and hidden
+ * from screen readers, and would show a supervisor's team behind screens
+ * that are about something else. */
 export function ClassroomBackdrop() {
   return <div className="backdrop" aria-hidden="true"><ClassroomPicture desks={EMPTY} /></div>;
 }

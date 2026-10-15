@@ -184,3 +184,34 @@ describe("screens over the classroom", () => {
     expect(screen.queryByRole("link", { name: "Back to the classroom" })).not.toBeInTheDocument();
   });
 });
+
+describe("the address keeps up with what is open", () => {
+  it("drops the person from the address when their drawer closes", async () => {
+    stubRoom();
+    renderApp("/people?person=LL042");
+    const kim = await screen.findByRole("dialog", { name: "Kim Lee" });
+    await userEvent.click(within(kim).getByRole("button", { name: "Close" }));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(screen.getByTestId("search")).toBeEmptyDOMElement();
+  });
+
+  it("puts a person opened from the list in the address", async () => {
+    stubRoom();
+    renderApp("/people");
+    await userEvent.click(await screen.findByRole("button", { name: "Kim Lee" }));
+    expect(await screen.findByRole("dialog", { name: "Kim Lee" })).toBeInTheDocument();
+    expect(screen.getByTestId("search")).toHaveTextContent("?person=LL042");
+  });
+
+  it("keeps the matrix's role in the address", async () => {
+    stubRoom();
+    renderApp("/matrix?role=picker");
+    const role = await screen.findByLabelText("Role");
+    await screen.findByRole("option", { name: "Picker" });
+    expect(role).toHaveValue("picker");
+    await userEvent.selectOptions(role, "");
+    expect(screen.getByTestId("search")).toBeEmptyDOMElement();
+    await userEvent.selectOptions(role, "picker");
+    expect(screen.getByTestId("search")).toHaveTextContent("?role=picker");
+  });
+});

@@ -22,8 +22,8 @@ export function Classroom() {
   const { me, can } = useAuth();
   const matrix = useLoad(() => api.get<Matrix>("/v1/matrix"), []);
   const desks = useMemo(() => (matrix.data ? deskList(matrix.data) : null), [matrix.data]);
-  const standing = matrix.data ? unseated(matrix.data) : [];
-  const all = matrix.data ? everyone(matrix.data) : null;
+  const standing = useMemo(() => (matrix.data ? unseated(matrix.data) : []), [matrix.data]);
+  const all = useMemo(() => (matrix.data ? everyone(matrix.data) : null), [matrix.data]);
   const headcount = matrix.data?.people.length ?? 0;
   const seesPeople = can("people:read");
 

@@ -13,9 +13,16 @@ const SUPERVISES: Permission[] = ["supervisor", "manager", "admin"];
 /** People down the side, what they are asked for across the top. */
 export function Matrix() {
   const { me } = useAuth();
-  // a desk in the classroom opens the matrix at its role
-  const [params] = useSearchParams();
-  const [role, setRole] = useState(() => params.get("role") ?? "");
+  // the role is in the address, so a desk in the classroom opens the matrix
+  // at its role, and a refresh or a link keeps it
+  const [params, setParams] = useSearchParams();
+  const role = params.get("role") ?? "";
+  const setRole = (key: string) => {
+    const next = new URLSearchParams(params);
+    if (key) next.set("role", key);
+    else next.delete("role");
+    setParams(next, { replace: true });
+  };
   const [supervisor, setSupervisor] = useState("");
   const [status, setStatus] = useState<"" | Status>("");
   // the row and competency as they were when opened: a filter can hide them after a change

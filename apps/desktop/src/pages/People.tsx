@@ -12,11 +12,20 @@ const SUPERVISES: Permission[] = ["supervisor", "manager", "admin"];
 /** People: added, changed, deactivated. Never deleted. */
 export function People() {
   const { can } = useAuth();
-  // a person in the classroom opens People at their drawer
-  const [params] = useSearchParams();
+  // whoever is open is in the address, so a person in the classroom opens
+  // People at their drawer, and closing it takes them out again
+  const [params, setParams] = useSearchParams();
   const [q, setQ] = useState("");
   const [showInactive, setShowInactive] = useState(false);
-  const [open, setOpen] = useState<string | "new" | null>(() => params.get("person"));
+  const [adding, setAdding] = useState(false);
+  const open: string | "new" | null = adding ? "new" : params.get("person");
+  const setOpen = (what: string | "new" | null) => {
+    setAdding(what === "new");
+    const next = new URLSearchParams(params);
+    if (what && what !== "new") next.set("person", what);
+    else next.delete("person");
+    if (next.toString() !== params.toString()) setParams(next, { replace: true });
+  };
   const people = useLoad(() => api.get<Page<Person>>("/v1/people", { q, active: showInactive ? undefined : true }),
                          [q, showInactive]);
   const everyone = useLoad(() => api.get<Page<Person>>("/v1/people", { active: true }), []);

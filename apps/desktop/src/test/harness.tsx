@@ -77,7 +77,8 @@ export function stubApi(more: Handler = () => null, me: Me = MEL) {
 }
 
 function Where() {
-  return <output data-testid="where">{useLocation().pathname}</output>;
+  const { pathname, search } = useLocation();
+  return <><output data-testid="where">{pathname}</output><output data-testid="search">{search}</output></>;
 }
 
 export function renderApp(path: string, signedIn = true) {
