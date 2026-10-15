@@ -8,7 +8,9 @@ in UTC. Interactive docs are at `/docs`.
 - **Auth:** `Authorization: Bearer <token>`. A token comes from
   `POST /v1/auth/login` (email and password) or `POST /v1/auth/pin-login`
   (code and PIN). The desktop and the learner app use these endpoints and
-  nothing else: the API is the only door.
+  nothing else: the API is the only door. Another system calls with an
+  **API key** (`lms_k.…`) as its bearer token instead: a key opens the
+  competency API and nothing else (below).
 - **Errors:** a missing, ended or unknown token is `401`. Signed in but not
   allowed is `403` with `{ "detail", "code" }`. Validation problems are
   `422` with `{ "errors": [{ "field", "message" }] }`. Something that is not
@@ -28,8 +30,8 @@ in UTC. Interactive docs are at `/docs`.
 | --- | --- |
 | `learner` | `training:read`, `training:write` |
 | `supervisor` | `training:read`, `training:write`, `matrix:read`, `roles:read`, `competencies:read` |
-| `manager` | the supervisor's, plus `people:read`, `people:write`, `roles:write`, `competencies:write`, `records:write`, `tickets:verify` |
-| `admin` | `*` (everything, `settings:write` among it) |
+| `manager` | the supervisor's, plus `people:read`, `people:write`, `roles:write`, `competencies:write`, `records:write`, `tickets:verify`, `printing:write` |
+| `admin` | `*` (everything, `settings:write` among it: Settings, webhooks and API keys) |
 
 `training:write` is doing your own training: sending a file, signing a
 policy, sending in a ticket, reading a module and taking its quiz. A
@@ -263,6 +265,39 @@ person is asked for and not let off, by name:
 `card_expires` is `null` for anything but a ticket.
 The learner app shows it as Overdue (`lapsed`, `missing`), Due soon
 (`expiring`) and Done (`current`).
+
+## The competency API
+
+For other systems (Simple TMS checking a driver before a run, say) with an
+API key carrying `competencies:read`, and for anyone signed in with
+`competencies:read` who may see the person (a supervisor their team, a
+manager or admin everyone; anyone else is `404`). A learner's own is
+`GET /v1/people/{code}/training`. Status is worked out today, as for the
+matrix.
+
+### GET /v1/people/{code}/competencies
+Everything their roles and extras ask of them, waived or not, by name:
+```json
+{
+  "person": { "code": "LL042", "name": "Kim Lee", "active": true },
+  "today": "2026-10-12",
+  "competencies": [
+    { "key": "forklift-licence", "name": "Forklift licence", "kind": "ticket",
+      "status": "expiring", "granted_on": "2025-01-01", "expires_on": "2026-11-11" }
+  ]
+}
+```
+
+### GET /v1/people/{code}/competencies/{key}
+One competency, whether it is asked of them or not:
+`{ "person": { "code", "name", "active" }, "today", "key", "name", "kind", "status", "granted_on", "expires_on" }`.
+`status` is `not_required` when it isn't asked of them, or the competency
+is deactivated. An unknown code or key is `404`.
+
+`expires_on` is the last good day (`null` when it doesn't run out, or there
+is no grant). Someone deactivated has left: `active` is `false` and their
+status is still worked out from their records. A revoked or unknown key is
+`401`; a key used anywhere else is `403 { "code": "key_not_allowed" }`.
 
 ## Files
 
@@ -508,6 +543,54 @@ Each ticket:
   "status": "pending", "reason": null, "decided_by": null, "decided_at": null, "created_at": "…" }
 ```
 
+## Printing
+
+Certificates of completion and skills cards go to Platen (or any print
+service that takes the same job): Simple LMS renders nothing. It queues a
+template's name and the JSON it binds to, and the worker hands the job to
+Platen's `/intake/jobs` with `Authorization: Bearer
+<platen_key>` and `X-LMS-Job-Id`, retried after 1 minute, 5, 30 and 2
+hours. Platen's address, key and printers are Settings (`platen_url`,
+`platen_key`, `certificate_printer`, `skills_card_printer`, below), or
+`LMS_PLATEN_*` in `.env`. Platen's answer that it has the job is the end of
+it here; Platen's own screens say whether it printed. Both are
+`printing:write`, for someone who may see the person, and answer
+`202 { "job_id", "template", "printer" }` once queued. Until Platen's
+address is set both are `409 { "code": "printing_not_set_up" }`.
+
+- `POST /v1/people/{code}/records/{id}/certificate` — for the completion
+  that counts now: one recorded again since, or revoked, is
+  `409 { "code": "not_current" }`; another person's record is `404`.
+  Printed on `certificate_printer`.
+- `POST /v1/people/{code}/skills-card` — what they are current for today
+  (`current` or `expiring`, asked of them or not), by name; nothing is
+  `409 { "code": "nothing_current" }`. Printed on `skills_card_printer`,
+  or the certificates' printer.
+
+What Platen is sent (make a page template in Platen with each id and
+publish it; every value is text, never null, and `good_until` is empty for
+what doesn't run out):
+```json
+{ "job_id": "…", "template": "lms-certificate", "version": "v1", "printer": "office", "copies": 1,
+  "reference": { "type": "record", "ref": "12" },
+  "data": { "certificate_no": "12", "person_name": "Kim Lee", "person_code": "LL042",
+            "competency": "Forklift licence", "kind": "Ticket or licence",
+            "completed_on": "1 Jan 2025", "good_until": "11 Nov 2026",
+            "recorded_by": "Mel Grant", "issued_on": "12 Oct 2026" } }
+```
+```json
+{ "job_id": "…", "template": "lms-skills-card", "version": "v1", "printer": "office", "copies": 1,
+  "reference": { "type": "person", "ref": "LL042" },
+  "data": { "person_name": "Kim Lee", "person_code": "LL042", "roles": "Forklift operator",
+            "issued_on": "12 Oct 2026", "count": 2,
+            "lines": [{ "competency": "Forklift licence", "kind": "Ticket or licence",
+                        "completed_on": "1 Jan 2025", "good_until": "11 Nov 2026" },
+                      { "competency": "Site induction", "kind": "Online module",
+                        "completed_on": "1 Jan 2026", "good_until": "1 Jan 2028" }] } }
+```
+Platen gives a page template a row for each entry in `lines`, with the
+rest beside it.
+
 ## Emails and the daily job
 
 The worker sends email through the email server in Settings (or
@@ -527,11 +610,13 @@ queues:
   reminder for the same expiry (change 14 to 10, and someone with 10 days
   left who had the 14-day email gets the 10-day one too);
 - on Mondays, a digest for each active manager and admin with an email of
-  what is lapsed and what is expiring, for everyone (none when nothing is).
+  what is lapsed and what is expiring, for everyone (none when nothing is);
+- `competency.expiring` and `competency.lapsed` for the webhooks (below),
+  each once.
 
 `lms daily-job [--on YYYY-MM-DD]` queues them now (as if today were that
-date); nothing is queued twice. A date it can't read is refused with exit
-code 2.
+date) and says how many reminders, digests and events it queued; nothing
+is queued twice. A date it can't read is refused with exit code 2.
 
 ## Settings
 
@@ -557,12 +642,16 @@ the domain, the upload folder, Caddy) is in `.env` only.
 | `smtp_from` | e.g. `Simple LMS <lms@example.com.au>` | `LMS_SMTP_FROM` | `""` |
 | `smtp_security` | `starttls`, `ssl` or `none` | `LMS_SMTP_SECURITY` | `"starttls"` |
 | `public_url` | `https://…` (or `http://`), no trailing slash, or `""` | `LMS_PUBLIC_URL` | `""` |
+| `platen_url` | Platen's intake, `https://…/intake/jobs` (or `http://`), or `""`: nothing prints | `LMS_PLATEN_URL` | `""` |
+| `platen_key` | write-only: a key made in Platen for Simple LMS | `LMS_PLATEN_KEY` | `""` |
+| `certificate_printer` | a Platen printer's id or name | `LMS_CERTIFICATE_PRINTER` | `"office"` |
+| `skills_card_printer` | the same, or `""` for the certificates' printer | `LMS_SKILLS_CARD_PRINTER` | `""` |
 | `upload_files_per_day` | files a person can send of their own (tickets, signatures) in 24 hours, 1 to 100000 | | `30` |
 | `upload_mb_per_day` | megabytes of them, 1 to 1000000 | | `200` |
 
 ### GET /v1/settings
 → `200`, every key: `{ "value", "source" }`, where `source` is `here`,
-`env` (`.env` gives a value other than the default) or `default`. The password is never sent: `"smtp_password": { "set":
+`env` (`.env` gives a value other than the default) or `default`. The password and Platen's key are never sent: `"smtp_password": { "set":
 true, "source": "env" }`.
 ```json
 { "daily_hour": { "value": 6, "source": "default" },
@@ -592,6 +681,117 @@ Queues an email to the caller's own address through the outbox → `202 {
 "to" }`; the worker sends it within a few seconds. No email address is
 `409 { "code": "no_email" }`; no email server (host and from address) is
 `409 { "code": "no_mail_server" }`. Each press sends one.
+
+## Webhooks and events
+
+Simple LMS tells other systems what happens by posting an event to each
+webhook that wants it, as Simple WMS does: the same envelope and the same
+signature, with `X-LMS-` headers where Simple WMS has `X-WMS-`. Events are
+queued in the same transaction as the change (nothing is told of a change
+that wasn't kept), sent by the worker, and a refusal (anything but `2xx`)
+or no answer within 10 seconds is tried again after 1 minute, 5, 30 and 2
+hours, then left `failed` for an admin to send again. At least once: a
+receiver keeps the `event_id`s it has had and ignores one it has seen.
+
+### What is sent
+`POST <the webhook's url>` with the envelope as the body:
+```json
+{ "event_id": "1b4e28ba-2fa1-41d2-883f-0016d3cca427", "event_type": "competency.granted",
+  "occurred_at": "2026-10-12T01:30:00Z", "data": { … } }
+```
+and the headers `Content-Type: application/json`, `User-Agent:
+simple-lms/0.1`, `X-LMS-Event-Id`, `X-LMS-Event-Type` and
+`X-LMS-Signature: sha256=<hex>`, the HMAC-SHA256 of the exact bytes of the
+body, keyed with the webhook's secret.
+
+### Checking the signature
+Check it against the raw body, before parsing it, in constant time:
+```python
+import hashlib, hmac
+
+def verify(secret: str, body: bytes, header: str | None) -> bool:
+    expected = "sha256=" + hmac.new(secret.encode(), body, hashlib.sha256).hexdigest()
+    return header is not None and hmac.compare_digest(expected, header.strip())
+```
+
+### The events
+`person` is `{ "code", "name" }` and `competency` is `{ "key", "name",
+"kind" }`. `status` is the person's status for it as the change leaves it
+(it may be `not_required`, or `waived`), and `expires_on` the last good day
+(`null` when it doesn't run out).
+
+| Event | When | `data` |
+| --- | --- | --- |
+| `competency.granted` | a grant by hand, a ticket checked, a policy signed, a module passed, a practical signed off | `person`, `competency`, `record_id`, `granted_on`, `expires_on`, `status`, `recorded_by` |
+| `competency.revoked` | a grant revoked | `person`, `competency`, `record_id`, `note`, `status`, `recorded_by` |
+| `competency.expiring` | the daily job first finds it within 30 days of its last good day: once for each last good day, so a renewal is told afresh | `person`, `competency`, `status` (`expiring`), `granted_on`, `expires_on`, `days_left` |
+| `competency.lapsed` | the daily job first finds its last good day has passed: once for each last good day | `person`, `competency`, `status` (`lapsed`), `granted_on`, `expires_on` |
+| `person.updated` | a person added, their details or roles changed, deactivated or back; never a PIN or password | `person`: `{ "code", "name", "email", "permission", "active", "supervisor": { "code", "name" } \| null, "roles": [{ "key", "name" }] }` |
+
+Expiring and lapsed are fired once whoever was listening: a webhook added
+later isn't told of what went before (the competency API says how things
+stand now). Waivers, extras and role requirements change what is asked of
+people without an event of their own.
+
+### Managing them
+`settings:write` (admins), on the desktop's Settings screen:
+
+- `GET /v1/webhooks` — by name: `[{ "id", "name", "url", "events", "active",
+  "waiting", "failed", "created_at" }]`, where `waiting` and `failed` count
+  its deliveries still to go and given up on. `GET /v1/webhooks/{id}`.
+- `POST /v1/webhooks` — `{ "name", "url" (http:// or https://), "events":
+  ["competency.granted", …] or ["*"] }` → `201`, the webhook with its
+  `secret` (`whsec_…`), **shown this once**. A name already taken is `422`.
+- `PATCH /v1/webhooks/{id}` — any of `name`, `url`, `events`, `active`.
+  Deliveries still waiting go to the new address; turned off, it gets
+  nothing more and what was waiting for it is given up on.
+- `POST /v1/webhooks/{id}/secret` — a new secret, shown this once: everything
+  sent from now on (what is waiting included) is signed with it.
+- `GET /v1/webhooks/{id}/deliveries?status=pending|done|failed` — the latest
+  50, newest first: `[{ "id", "event_id", "event_type", "status", "attempts",
+  "next_attempt_at", "last_error", "done_at", "created_at" }]`.
+- `POST /v1/webhooks/{id}/deliveries/{delivery_id}/retry` — a failed
+  delivery sent again from the start of the backoff, the same event with
+  the same id. One that hasn't failed is `409 { "code": "not_failed" }`; a
+  webhook turned off is `409 { "code": "inactive" }`.
+
+### Where a webhook may point
+A webhook goes to a public address. The worker won't connect to an
+internal one for it: loopback (`127.0.0.1`, `::1`, `localhost`), private
+(`10/8`, `172.16/12`, `192.168/16`, `fc00::/7`), link-local (`169.254/16`,
+a cloud's metadata service among them), shared (`100.64/10`) or otherwise
+reserved, nor ever to an unspecified or multicast one. The address a name
+resolves to is checked where the connection is made, each time an event is
+sent, so a name pointed inside later is refused too (the delivery fails
+with `ConnectError: refused: … is an internal address` and is tried again
+as any failure is). `POST` and `PATCH /v1/webhooks` refuse an address that
+is plainly internal (`localhost`, an internal IP) with a `422` on `url`.
+
+To send to a receiver on the same machine (`http://host.docker.internal:<port>/…`
+from Compose) or the local network, whoever runs the server sets
+`LMS_WEBHOOK_ALLOW_PRIVATE=true` in `.env`: it is not on the Settings
+screen. Platen's address is not held to this (it is often on the same
+machine), but no redirect is followed for it either.
+
+The worker also follows no redirect (a `3xx` is a refusal like any other),
+takes no proxy from the environment, waits at most
+`LMS_WORKER_HTTP_TIMEOUT_SECONDS` (10) for each step of an answer, and keeps
+only the start of a refusal's body as its `last_error`.
+
+## API keys
+
+For other systems, not people. `settings:write` (admins), on the desktop's
+Settings screen:
+
+- `GET /v1/api-keys` — by name: `[{ "id", "name", "prefix", "scopes",
+  "created_by": { "code", "name" }, "created_at", "last_used_at",
+  "revoked_at" }]`. `prefix` is the key's first ten characters, to tell
+  which is which; `last_used_at` is to the minute.
+- `POST /v1/api-keys` — `{ "name", "scopes": ["competencies:read"] }` →
+  `201`, the key with `key` (`lms_k.…`), **shown this once**: only its
+  SHA-256 is kept. `competencies:read` is the one scope a key can have.
+- `POST /v1/api-keys/{id}/revoke` — it stops working at once, for good
+  (`409 { "code": "revoked" }` the second time). Keys are never deleted.
 
 ## System
 
