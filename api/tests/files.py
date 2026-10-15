@@ -10,6 +10,11 @@ WEBM = b"\x1a\x45\xdf\xa3\x9f\x42\x86\x81\x01\x42\xf7\x81\x01\x42\x82\x84webm" +
 MOV = b"\x00\x00\x00\x14ftypqt  \x00\x00\x00\x00qt  " + b"frames" * 40
 
 
+def ftyp(brand: bytes) -> bytes:
+    """A file in an ftyp box of this major brand: an MP4, a HEIC photo, an M4A …"""
+    return b"\x00\x00\x00\x14ftyp" + brand + b"\x00\x00\x00\x00" + brand + b"data" * 40
+
+
 def send(client, headers, purpose="ticket", data=JPEG, content_type="image/jpeg"):
     return client.post("/v1/uploads", params={"purpose": purpose}, content=data,
                        headers={**headers, "Content-Type": content_type})

@@ -7,7 +7,7 @@ import uuid
 import pytest
 
 from conftest import bearer, make_person, pin_login
-from files import JPEG, MOV, MP4, PDF, PNG, WEBM, send, sent
+from files import JPEG, MOV, MP4, PDF, PNG, WEBM, ftyp, send, sent
 from lms.services import uploads
 
 
@@ -182,6 +182,7 @@ def test_a_file_whose_row_cannot_be_saved_is_not_kept_either(
     ("page-image", PNG, "image/png"),
     ("page-pdf", PDF, "application/pdf"),
     ("page-video", MP4, "video/mp4"),
+    ("page-video", ftyp(b"isom"), "video/mp4"),
     ("page-video", WEBM, "video/webm"),
 ])
 def test_an_editor_sends_a_module_pages_files(client, manager_headers, upload_dir, purpose, data,
@@ -194,7 +195,11 @@ def test_an_editor_sends_a_module_pages_files(client, manager_headers, upload_di
         f"{out['id']}.{uploads.EXT[content_type]}"]
 
 
-@pytest.mark.parametrize("data", [MOV, PDF, b"\x1a\x45\xdf\xa3\x42\x82\x88matroska" + b"x" * 40])
+@pytest.mark.parametrize("data", [
+    MOV, PDF, b"\x1a\x45\xdf\xa3\x42\x82\x88matroska" + b"x" * 40,
+    # an iPhone photo, and the other pictures and sound that start the same way
+    ftyp(b"heic"), ftyp(b"mif1"), ftyp(b"avif"), ftyp(b"M4A "),
+])
 def test_a_video_is_an_mp4_or_a_webm(client, manager_headers, upload_dir, data):
     r = send(client, manager_headers, "page-video", data, "video/quicktime")
     assert r.status_code == 415 and r.json() == {

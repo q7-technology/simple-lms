@@ -42,15 +42,18 @@ EXT = {"image/png": "png", "image/jpeg": "jpg", "application/pdf": "pdf",
        "video/mp4": "mp4", "video/webm": "webm"}
 # enough of the start of a file to say what it is
 HEAD = 64
+# an MP4 video's ftyp box names one of these as its major brand. A HEIC or
+# AVIF photo, an M4A sound and a QuickTime .mov (which most browsers won't
+# play) start the same way under brands of their own.
+MP4_BRANDS = {b"isom", b"iso2", b"iso4", b"iso5", b"iso6", b"mp41", b"mp42", b"avc1", b"dash",
+              b"M4V "}
 
 
 def sniff(data: bytes) -> str | None:
     for content_type, magic in MAGIC.items():
         if data.startswith(magic):
             return content_type
-    # an MP4 starts with its ftyp box; QuickTime's own brand is a .mov, which
-    # most browsers won't play
-    if data[4:8] == b"ftyp" and data[8:12] != b"qt  ":
+    if data[4:8] == b"ftyp" and data[8:12] in MP4_BRANDS:
         return "video/mp4"
     # a WebM is a Matroska file whose header says webm (an .mkv says matroska)
     if data.startswith(b"\x1a\x45\xdf\xa3") and b"webm" in data[:HEAD]:
