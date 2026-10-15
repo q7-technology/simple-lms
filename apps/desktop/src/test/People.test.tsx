@@ -1,4 +1,4 @@
-import { screen, within } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { Person } from "../api/types";
 import { MEL, json, renderApp, stubApi } from "./harness";
@@ -72,6 +72,67 @@ describe("people", () => {
     expect(await within(drawer).findByText("You can't change your own permission or deactivate yourself.")).toBeInTheDocument();
     expect(within(drawer).queryByLabelText("Permission")).not.toBeInTheDocument();
     expect(within(drawer).queryByRole("button", { name: "Deactivate" })).not.toBeInTheDocument();
+  });
+
+  it("warns before a new password of your own signs you out, then signs you out", async () => {
+    const me = { ...MEL, code: "AD001", name: "Ada Admin", permission: "admin" as const };
+    const ada: Person = { ...SAM, id: 1, code: "AD001", name: "Ada Admin", permission: "admin" };
+    const { calls } = stubApi((method, url) => {
+      if (url.startsWith("/v1/people?")) return json(200, { items: [ada], total: 1 });
+      if (url === "/v1/people/AD001") return json(200, ada);
+      if (url === "/v1/people/AD001/overrides") return json(200, []);
+      if (url === "/v1/people/AD001/password" && method === "POST") return json(200, ada);
+      if (url === "/v1/roles" || url.startsWith("/v1/competencies")) return json(200, { items: [], total: 0 });
+      return null;
+    }, me);
+    renderApp("/people");
+    await userEvent.click(await screen.findByRole("button", { name: "Ada Admin" }));
+    const drawer = await screen.findByRole("dialog", { name: "Ada Admin" });
+    await userEvent.type(await within(drawer).findByLabelText("New password"), "a long enough password");
+    await userEvent.click(within(drawer).getByRole("button", { name: "Set password" }));
+    expect(within(drawer).getByText("Setting a new password signs you out here: sign in again with the new one."))
+      .toBeInTheDocument();
+    expect(calls.some((c) => c.url.endsWith("/password"))).toBe(false);
+
+    await userEvent.click(within(drawer).getByRole("button", { name: "Cancel" }));
+    expect(within(drawer).queryByText(/signs you out here/)).not.toBeInTheDocument();
+    await userEvent.click(within(drawer).getByRole("button", { name: "Set password" }));
+    await userEvent.click(within(drawer).getByRole("button", { name: "Set password and sign out" }));
+    await waitFor(() => expect(screen.getByTestId("where")).toHaveTextContent("/sign-in"));
+    expect(calls.find((c) => c.url === "/v1/people/AD001/password")?.body).toEqual({ password: "a long enough password" });
+    expect(calls.some((c) => c.url === "/v1/auth/logout")).toBe(true);
+  });
+
+  it("warns before a new PIN only when you signed in with your PIN", async () => {
+    const ada: Person = { ...SAM, id: 1, code: "AD001", name: "Ada Admin", permission: "admin" };
+    const stub = (method: string, url: string) => {
+      if (url.startsWith("/v1/people?")) return json(200, { items: [ada], total: 1 });
+      if (url === "/v1/people/AD001") return json(200, ada);
+      if (url === "/v1/people/AD001/overrides") return json(200, []);
+      if (url === "/v1/people/AD001/pin" && method === "POST") return json(200, ada);
+      if (url === "/v1/roles" || url.startsWith("/v1/competencies")) return json(200, { items: [], total: 0 });
+      return null;
+    };
+    // signed in with a password: a new PIN leaves this session be
+    stubApi(stub, { ...MEL, code: "AD001", name: "Ada Admin", permission: "admin" });
+    const first = renderApp("/people");
+    await userEvent.click(await screen.findByRole("button", { name: "Ada Admin" }));
+    let drawer = await screen.findByRole("dialog", { name: "Ada Admin" });
+    await userEvent.type(await within(drawer).findByLabelText("New PIN"), "2468");
+    await userEvent.click(within(drawer).getByRole("button", { name: "Set PIN" }));
+    expect(await within(drawer).findByText("PIN set.")).toBeInTheDocument();
+    first.unmount();
+
+    stubApi(stub, { ...MEL, code: "AD001", name: "Ada Admin", permission: "admin", method: "pin" });
+    renderApp("/people");
+    await userEvent.click(await screen.findByRole("button", { name: "Ada Admin" }));
+    drawer = await screen.findByRole("dialog", { name: "Ada Admin" });
+    await userEvent.type(await within(drawer).findByLabelText("New PIN"), "2468");
+    await userEvent.click(within(drawer).getByRole("button", { name: "Set PIN" }));
+    expect(within(drawer).getByText("Setting a new PIN signs you out here: sign in again with the new one."))
+      .toBeInTheDocument();
+    await userEvent.click(within(drawer).getByRole("button", { name: "Set PIN and sign out" }));
+    await waitFor(() => expect(screen.getByTestId("where")).toHaveTextContent("/sign-in"));
   });
 
   it("keeps a PIN and a note typed in until they save", async () => {
