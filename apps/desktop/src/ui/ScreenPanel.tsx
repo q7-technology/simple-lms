@@ -1,4 +1,4 @@
-import { useEffect, useRef, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useRef, type ReactNode } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { noteDrawerClosed } from "./focusReturn";
 import { screenTitle } from "./screens";
@@ -30,8 +30,10 @@ export function ScreenPanel({ children }: { children: ReactNode }) {
     return () => document.removeEventListener("keydown", onKey);
   }, [navigate]);
 
-  // keyboard users start in the drawer; the classroom takes focus back on close
-  useEffect(() => {
+  // keyboard users start in the drawer; the classroom takes focus back on close.
+  // Before any effect inside: a screen that opens with its own drawer (People
+  // at ?person=) then takes focus from here, and gives it back here on close.
+  useLayoutEffect(() => {
     close.current?.focus();
     return () => noteDrawerClosed();
   }, []);

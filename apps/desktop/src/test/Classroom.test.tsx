@@ -78,7 +78,12 @@ describe("the classroom", () => {
     const desk = await screen.findByRole("list", { name: "At the Picker desk" });
     await userEvent.click(within(desk).getByRole("link", { name: "Kim Lee: need training" }));
     expect(screen.getByTestId("where")).toHaveTextContent("/people");
-    expect(await screen.findByRole("dialog", { name: "Kim Lee" })).toBeInTheDocument();
+    const kim = await screen.findByRole("dialog", { name: "Kim Lee" });
+    // her drawer keeps focus: the screen's way back is behind it
+    expect(kim).toContainElement(document.activeElement as HTMLElement);
+    // and gives it back to the way back to the classroom when it closes
+    await userEvent.click(within(kim).getByRole("button", { name: "Close" }));
+    expect(screen.getByRole("link", { name: "Back to the classroom" })).toHaveFocus();
   });
 
   it("seats six at a desk and counts the rest", async () => {
