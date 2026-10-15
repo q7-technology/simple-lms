@@ -160,6 +160,10 @@ def take_quiz(key: str, body: AttemptIn, db: DB, who: Principal = require("train
     # locked first, so goes sent at once are counted one after the other
     p = one_at_a_time(db, who.person.code)
     c = get_module(db, key)
+    # then the module, shared: a deactivation on its way (which locks only
+    # the module) is seen before the go is kept, never after. Person, then
+    # module, as everywhere else, so neither waits on the other in a ring.
+    db.refresh(c, with_for_update={"read": True})
     in_use(c)
     wait_until = modules.retry_at(db, p.id, c)
     if wait_until is not None:

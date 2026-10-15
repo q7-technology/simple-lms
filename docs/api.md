@@ -426,7 +426,8 @@ Each version, as its editors see it (`correct` is only there for them):
   says when it runs out; it also starts the module from the top next time.
   Not one answer per question is `422` on `answers`, and one out of range
   on that answer (e.g. `answers.3`); a deactivated module is `409 {
-  "code": "inactive" }`.
+  "code": "inactive" }`, checked once the module is locked (after the
+  person), so a go sent while it is being deactivated is refused too.
 - `GET /v1/people/{code}/attempts?competency=` (`training:read`; your own,
   your team's, or anyone's for a manager; anyone else is `404`) — every
   attempt, newest first, in the shape above.

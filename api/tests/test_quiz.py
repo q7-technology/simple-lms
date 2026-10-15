@@ -3,10 +3,14 @@ the learner's own (the one thing anybody earns alone), and the refresher
 saying when it runs out. Try again after a fail."""
 from datetime import date
 
+import time
+from concurrent.futures import ThreadPoolExecutor
+
 import pytest
+from sqlalchemy import text
 
 import yard
-from conftest import bearer, make_person, pin_login
+from conftest import bearer, fresh_client, make_person, pin_login
 from course import INDUCTION, QUESTIONS, RIGHT, published
 
 ATTEMPTS = f"{INDUCTION}/attempts"
@@ -164,4 +168,25 @@ def test_a_deactivated_module_is_not_taken(client, manager_headers, learner_head
     published(client, manager_headers)
     client.post("/v1/competencies/site-induction/deactivate", headers=manager_headers)
     r = take(client, learner_headers)
+    assert r.status_code == 409 and r.json()["code"] == "inactive"
+
+
+def test_a_go_waits_for_a_deactivation_on_its_way(client, engine, manager_headers,
+                                                  learner_headers, kim):
+    """A deactivation not yet committed holds the module's row: a go sent
+    meanwhile waits to see it, and is refused, rather than slipping in."""
+    published(client, manager_headers)
+    with engine.connect() as deactivating, ThreadPoolExecutor(1) as pool:
+        deactivating.execute(text("update competency set active = false "
+                                  "where key = 'site-induction'"))
+        going = pool.submit(lambda: take(fresh_client(), learner_headers))
+        deadline = time.monotonic() + 5
+        while not going.done() and time.monotonic() < deadline:
+            with engine.connect() as look:
+                if look.execute(text("select count(*) from pg_stat_activity "
+                                     "where wait_event_type = 'Lock'")).scalar():
+                    break
+            time.sleep(0.05)
+        deactivating.commit()
+        r = going.result(timeout=10)
     assert r.status_code == 409 and r.json()["code"] == "inactive"
