@@ -24,7 +24,7 @@ from lms.api.routes.practicals import to_tick
 from lms.api.routes.records import RecordOut, record_out
 from lms.api.schemas import PIN
 from lms.models import CompetencyRecord, Person, Signoff, SignoffItem
-from lms.services import access, clock, policies, practicals, standing, uploads
+from lms.services import access, clock, events, policies, practicals, standing, uploads
 
 router = APIRouter(tags=["signoffs"])
 
@@ -180,5 +180,6 @@ def sign_off(code: str, body: SignoffIn, db: DB, who: Principal = require("signo
     r = CompetencyRecord(person_id=p.id, competency=c, kind="granted", granted_on=clock.today(),
                          recorded_by=who.person, signoff=s)
     db.add(r)
+    events.granted(db, r)
     db.commit()
     return JSONResponse(status_code=201, content=record_out(r).model_dump(mode="json"))

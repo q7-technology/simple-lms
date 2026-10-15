@@ -881,7 +881,7 @@ def verify(secret: str, body: bytes, header: str | None) -> bool:
 | `competency.revoked` | a grant revoked | `person`, `competency`, `record_id`, `note`, `status`, `recorded_by` |
 | `competency.expiring` | the daily job first finds it within 30 days of its last good day: once for each last good day, so a renewal is told afresh | `person`, `competency`, `status` (`expiring`), `granted_on`, `expires_on`, `days_left` |
 | `competency.lapsed` | the daily job first finds its last good day has passed: once for each last good day | `person`, `competency`, `status` (`lapsed`), `granted_on`, `expires_on` |
-| `person.updated` | a person added, their details or roles changed, deactivated or back; never a PIN or password | `person`: `{ "code", "name", "email", "permission", "active", "supervisor": { "code", "name" } \| null, "roles": [{ "key", "name" }] }` |
+| `person.updated` | a person added, their details or roles changed, deactivated or back; never a PIN, a password or a Microsoft account linked or unlinked (how they sign in is not what another system keeps) | `person`: `{ "code", "name", "email", "permission", "active", "supervisor": { "code", "name" } \| null, "roles": [{ "key", "name" }] }` |
 
 Expiring and lapsed are fired once whoever was listening: a webhook added
 later isn't told of what went before (the competency API says how things

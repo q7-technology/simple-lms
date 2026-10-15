@@ -82,11 +82,6 @@ def status_now(db: Db, person_id: int, competency_id: int) -> Status:
     return st.status(person_id, competency_id)
 
 
-# TODO(step 4): fire competency.granted for a sign-off grant. Where step 4's
-# sign-off route adds the CompetencyRecord for a practical signed off, call
-# events.granted(db, r) after db.add(r) and before db.commit(), as records.py,
-# tickets.py, policies.py and learning.py do, and add its test to
-# tests/test_competency_events.py (the TODO there).
 def granted(db: Db, r: CompetencyRecord) -> uuid.UUID:
     """competency.granted, for a grant just added: by hand, a ticket checked,
     a policy signed, a module passed or a practical signed off. Call it
@@ -120,7 +115,8 @@ def revoked(db: Db, r: CompetencyRecord) -> uuid.UUID:
 def person_updated(db: Db, p: Person) -> uuid.UUID:
     """person.updated: what another system keeps about a person, as it is
     now. Added, details changed, roles changed, deactivated or back; never
-    a PIN or password."""
+    a PIN, a password or a Microsoft account linked or unlinked (step 5's
+    entra_oid is how they sign in, not part of what is sent)."""
     return emit(db, "person.updated", {"person": {
         "code": p.code, "name": p.name, "email": p.email, "permission": p.permission,
         "active": p.active,

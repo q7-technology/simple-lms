@@ -3,7 +3,9 @@ or a revoke is made, in the same transaction, with the status it leaves."""
 import pytest
 
 import yard
-from conftest import make_person
+from checklist import FORKLIFT, practical
+from checklist import published as checklist_published
+from conftest import PIN, bearer, make_person, pin_login
 from course import INDUCTION, RIGHT, published
 from files import PNG, sent
 from lms.models import Outbox, Webhook
@@ -121,9 +123,38 @@ def test_each_event_has_its_own_id(client, db, manager_headers, kim):
     assert len(set(ids)) == 2
 
 
-# TODO(step 4): a practical signed off fires competency.granted too. With
-# step 4's helpers, have Sam sign off one of Kim's practicals, then:
-#     [event] = fired(db)
-#     assert (event["data"]["competency"]["kind"], event["data"]["status"],
-#             event["data"]["recorded_by"]) == ("practical", "current",
-#                                               {"code": "SV001", "name": "Sam Vu"})
+def test_a_practical_signed_off(client, db, manager_headers, supervisor, kim):
+    """Sam signs off Kim's forklift practical on his phone: one grant, told once."""
+    practical(client, manager_headers)
+    client.put("/v1/roles/forklift-operator/requirements", headers=manager_headers,
+               json={"competencies": ["site-induction", "forklift-licence",
+                                      "forklift-practical"]})
+    checklist_published(client, manager_headers)
+    sam = bearer(pin_login(client, "SV001")["token"])
+    ticked = [i["id"] for i in client.get(FORKLIFT, headers=sam).json()["version"]["items"]]
+    r = client.post("/v1/people/LL042/signoffs", headers=sam, json={
+        "competency": "forklift-practical", "version": 1, "ticked": ticked,
+        "supervisor_signature": sent(client, sam, "signature", PNG, "image/png"),
+        "learner_signature": sent(client, sam, "signature", PNG, "image/png"),
+        "learner_pin": PIN})
+    assert r.status_code == 201, r.text
+    [event] = fired(db)
+    assert event["event_type"] == "competency.granted"
+    assert event["data"] == {
+        "person": KIM,
+        "competency": {"key": "forklift-practical", "name": "Forklift practical",
+                       "kind": "practical"},
+        # refreshed every 12 months from today
+        "record_id": r.json()["id"], "granted_on": "2026-10-12", "expires_on": "2027-10-12",
+        "status": "current", "recorded_by": {"code": "SV001", "name": "Sam Vu"}}
+
+
+def test_a_signed_off_practical_revoked(client, db, manager_headers, supervisor, kim):
+    test_a_practical_signed_off(client, db, manager_headers, supervisor, kim)
+    r = client.post("/v1/people/LL042/records/revoke", headers=manager_headers,
+                    json={"competency": "forklift-practical", "note": "signed off too soon"})
+    assert r.status_code == 201, r.text
+    [event] = fired(db, "competency.revoked")
+    assert (event["data"]["competency"]["key"], event["data"]["record_id"],
+            event["data"]["status"], event["data"]["recorded_by"]) == (
+        "forklift-practical", r.json()["id"], "missing", MEL)
