@@ -16,6 +16,9 @@ x-lms-settings: &lms-settings
   LMS_PLATEN_KEY: ${LMS_PLATEN_KEY:-}
   LMS_CERTIFICATE_PRINTER: ${LMS_CERTIFICATE_PRINTER:-office}
   LMS_SKILLS_CARD_PRINTER: ${LMS_SKILLS_CARD_PRINTER:-}
+  # .env only: the api refuses a plainly internal webhook address when one is
+  # added, and the worker when it connects, so both must agree
+  LMS_WEBHOOK_ALLOW_PRIVATE: ${LMS_WEBHOOK_ALLOW_PRIVATE:-false}
 
 services:
   db:
@@ -87,10 +90,8 @@ services:
     environment:
       <<: *lms-settings
       LMS_DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-lms}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-lms}
-      # how long it waits for a webhook or Platen to answer, and whether a
-      # webhook may be on this machine or the local network (.env only)
+      # how long it waits for a webhook or Platen to answer
       LMS_WORKER_HTTP_TIMEOUT_SECONDS: ${LMS_WORKER_HTTP_TIMEOUT_SECONDS:-10}
-      LMS_WEBHOOK_ALLOW_PRIVATE: ${LMS_WEBHOOK_ALLOW_PRIVATE:-false}
       LMS_WORKER_SEND_DEADLINE_SECONDS: ${LMS_WORKER_SEND_DEADLINE_SECONDS:-15}
     # a webhook or Platen on this machine, outside Compose, is
     # http://host.docker.internal:<port>/… from in here (Linux too)
