@@ -270,3 +270,48 @@ def test_a_refused_file_leaves_nothing_behind(client, learner_headers, upload_di
                     headers={**learner_headers, "Content-Type": "image/jpeg"})
     assert r.status_code == 413
     assert not [p for p in upload_dir.rglob("*") if p.is_file()]
+
+
+@pytest.mark.parametrize("data, content_type", [(JPEG, "image/jpeg"), (PNG, "image/png")],
+                         ids=["jpeg", "png"])
+def test_a_supervisor_sends_a_signoffs_photo(client, supervisor_headers, data, content_type):
+    r = send(client, supervisor_headers, "signoff-photo", data, "application/octet-stream")
+    assert r.status_code == 201, r.text
+    assert (r.json()["purpose"], r.json()["content_type"]) == ("signoff-photo", content_type)
+
+
+def test_a_signoffs_photo_is_a_picture_of_20_mb_at_most(client, supervisor_headers):
+    assert uploads.PURPOSES["signoff-photo"][1] == 20_000_000
+    r = send(client, supervisor_headers, "signoff-photo", PDF, "application/pdf")
+    assert r.status_code == 415 and r.json() == {
+        "detail": "a signoff-photo file must be one of: JPG, PNG", "code": "unsupported_type"}
+
+
+def test_only_someone_who_signs_off_sends_a_signoffs_photo(client, learner_headers):
+    r = send(client, learner_headers, "signoff-photo", JPEG, "image/jpeg")
+    assert r.status_code == 403 and r.json()["detail"] == "you do not have the signoffs:write scope"
+
+
+def test_a_signoffs_files_are_shown_to_the_learner_too(
+        client, db, learner, supervisor, supervisor_headers, learner_headers):
+    """Sent from Sam's phone, so they are Sam's; but Kim may see what signed her off."""
+    from lms.models import Competency, PracticalVersion, Signoff
+
+    photo = sent(client, supervisor_headers, "signoff-photo", JPEG)
+    signatures = [sent(client, supervisor_headers, "signature", PNG, "image/png") for _ in "ab"]
+    forklift = Competency(key="forklift-practical", name="Forklift practical", kind="practical")
+    db.add(forklift)
+    db.flush()
+    v = PracticalVersion(competency_id=forklift.id, version=1, published_by_id=supervisor.id)
+    db.add(v)
+    db.flush()
+    db.add(Signoff(person_id=learner.id, competency_id=forklift.id, practical_version_id=v.id,
+                   supervisor_id=supervisor.id, photo_upload_id=uuid.UUID(photo),
+                   supervisor_signature_upload_id=uuid.UUID(signatures[0]),
+                   learner_signature_upload_id=uuid.UUID(signatures[1])))
+    db.commit()
+    for file_id in (photo, *signatures):
+        assert client.get(f"/v1/uploads/{file_id}", headers=learner_headers).status_code == 200
+    make_person(db, "LL099", "Pat Other", pin="1357", supervisor=supervisor)
+    pat = bearer(pin_login(client, "LL099", "1357")["token"])
+    assert client.get(f"/v1/uploads/{photo}", headers=pat).status_code == 404

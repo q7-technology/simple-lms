@@ -16,7 +16,7 @@ from lms.api.errors import Conflict, FieldError, Forbidden, NotFound, commit_uni
 from lms.api.schemas import (
     CODE, EMAIL, PIN, Page, PersonRef, RoleRef, normal_code, normal_key, person_ref, role_ref,
 )
-from lms.models import Person, PersonRole, Role
+from lms.models import Person, PersonRole, PinChange, Role
 from lms.services import access, sessions
 
 router = APIRouter(tags=["people"])
@@ -158,6 +158,15 @@ def _email_taken(email: str | None) -> FieldError:
     return FieldError("email", f"{email} is already taken")
 
 
+def set_pin(db, p: Person, pin: str, by: Person) -> None:
+    """A PIN, and who set it, kept (`pin_change`): whoever set it knows it,
+    so a sign-off they make for this person this week is refused."""
+    p.pin_hash = access.hash_password(pin)
+    p.pin_failed_attempts = 0
+    p.pin_locked = False
+    db.add(PinChange(person=p, changed_by=by))
+
+
 @router.post("/people", status_code=201, response_model=PersonOut)
 def create_person(body: PersonIn, db: DB, who: Principal = require("people:write")):
     may_manage(who, None, body.permission)
@@ -167,13 +176,14 @@ def create_person(body: PersonIn, db: DB, who: Principal = require("people:write
         raise code_taken
     _email_free(db, body.email)
     p = Person(code=code, name=body.name, email=body.email, permission=body.permission,
-               pin_hash=access.hash_password(body.pin) if body.pin else None,
                password_hash=access.hash_password(body.password) if body.password else None,
                pin_failed_attempts=0, pin_locked=False, password_failed_attempts=0, active=True)
     if body.supervisor:
         p.supervisor = _supervisor(db, body.supervisor)
     p.roles = _roles(db, body.roles)
     db.add(p)
+    if body.pin:
+        set_pin(db, p, body.pin, who.person)
     commit_unique(db, {"uq_person_code": code_taken,
                        "uq_person_email": _email_taken(body.email)})
     db.refresh(p)
@@ -245,9 +255,7 @@ def reset_pin(code: str, body: PinIn, db: DB, who: Principal = require("people:w
     PIN sessions end."""
     p = get_person(db, code)
     may_manage(who, p.permission)
-    p.pin_hash = access.hash_password(body.pin)
-    p.pin_failed_attempts = 0
-    p.pin_locked = False
+    set_pin(db, p, body.pin, who.person)
     sessions.end_all(db, p, "pin")
     db.commit()
     return person_out(p)
