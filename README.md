@@ -84,7 +84,10 @@ ever sent to those who may edit modules. In the learner app a person reads
 one page at a time (where they are is kept by Simple LMS, so they can carry
 on from any device), then takes the quiz: a pass says Ding! and counts as
 current until the refresher runs out; a fail gives the score and another
-go. Every attempt is kept. A video that is playing counts as a tap, so a
+go. After three goes in a row that didn't pass, they wait before the next:
+an hour by default, or `LMS_QUIZ_COOLDOWN_MINUTES` (e.g. 1440 for a day; 0
+for no wait), and the player says when they can try again. Every attempt
+is kept. A video that is playing counts as a tap, so a
 PIN session doesn't end in the middle of it.
 
 **Tickets.** A competency of kind *Ticket or licence* says whether its card
