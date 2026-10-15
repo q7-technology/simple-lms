@@ -847,6 +847,10 @@ that wasn't kept), sent by the worker, and a refusal (anything but `2xx`)
 or no answer in time (10 seconds for any step, 15 in all) is tried again after 1 minute, 5, 30 and 2
 hours, then left `failed` for an admin to send again. At least once: a
 receiver keeps the `event_id`s it has had and ignores one it has seen.
+Events, emails and print jobs each go out in a loop of their own, so a
+receiver that hangs holds up no email; and once a webhook gives no answer
+in time, the rest of its events wait for the worker's next pass rather
+than each waiting out the deadline in turn.
 
 ### What is sent
 `POST <the webhook's url>` with the envelope as the body:

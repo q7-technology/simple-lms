@@ -5,20 +5,30 @@ A failed try is tried again after 1 min, 5, 30 and 2 h. The try after the
 2 h wait is the last: if it fails too, the row is `failed` and stays, with
 its last error, for someone to look at.
 
-Each kind takes its turn, a row at a time, so a Monday's pile of reminders
-doesn't hold up an event another system is waiting on, nor the other way
-round; and a row that fails waits for its next try without holding up the
-rows after it.
+Each kind (email, webhook, print) has a loop and a thread of its own, each
+claiming its own rows, so a Monday's pile of reminders doesn't hold up an
+event another system is waiting on, nor a receiver that hangs the emails;
+and a row that fails waits for its next try without holding up the rows
+after it. Every send is done within the deadline (LMS_WORKER_SEND_DEADLINE_
+SECONDS), and after a webhook gives no answer in time its other events wait
+for the next pass, so one dead receiver costs the others one deadline a
+pass, not one each.
 
-The daily job runs once a day from the daily hour in the time zone (both
-in Settings, or .env), and again whenever the worker starts after that
-hour: each email it queues has its own key, and each event it fires is
-fired once, so running it twice sends nothing twice.
+The daily job runs in the main thread, once a day from the daily hour in
+the time zone (both in Settings, or .env), and again whenever the worker
+starts after that hour: each email it queues has its own key, and each
+event it fires is fired once, so running it twice sends nothing twice.
+
+SIGTERM or SIGINT stops it: each loop finishes the send it is on (within
+the deadline) and the worker exits.
 """
 from __future__ import annotations
 
 import logging
+import signal
+import threading
 import time
+from collections.abc import Callable, Collection
 from datetime import UTC, date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -55,14 +65,18 @@ def retry_later(row: Outbox, now: datetime, error: str) -> None:
         row.next_attempt_at = now + timedelta(seconds=BACKOFF[row.attempts - 1])
 
 
-def _claim(session: Session, kind: str, now: datetime) -> Outbox | None:
-    """The next row of this kind that is due, locked so a second worker
-    passes it by. One row per transaction, so a slow mail server or
-    receiver holds up only that row."""
+def _claim(session: Session, kind: str, now: datetime,
+           passed_by: Collection[int] = ()) -> Outbox | None:
+    """The next row of this kind that is due, locked so a second worker (or
+    loop) passes it by, and not for a webhook `passed_by` this pass. One row
+    per transaction, so a slow mail server or receiver holds up only that
+    row."""
+    query = select(Outbox).where(Outbox.kind == kind, Outbox.status == "pending",
+                                 Outbox.next_attempt_at <= now)
+    if passed_by:
+        query = query.where(Outbox.webhook_id.not_in(passed_by))
     return session.execute(
-        select(Outbox)
-        .where(Outbox.kind == kind, Outbox.status == "pending", Outbox.next_attempt_at <= now)
-        .order_by(Outbox.next_attempt_at, Outbox.id)
+        query.order_by(Outbox.next_attempt_at, Outbox.id)
         .limit(1)
         .with_for_update(skip_locked=True)
     ).scalar_one_or_none()
@@ -90,9 +104,11 @@ def _send(kind: str, clients: Clients, row: Outbox) -> str | None:
     return webhooks.deliver(clients["webhook"], row)
 
 
-def _send_one(session: Session, kind: str, clients: Clients, now: datetime | None) -> bool:
-    """Send the next row of this kind that is due, if there is one."""
-    row = _claim(session, kind, now or clock())
+def _send_one(session: Session, kind: str, clients: Clients, now: datetime | None,
+              passed_by: set[int]) -> bool:
+    """Send the next row of this kind that is due, if there is one. A
+    webhook that gives no answer in time goes into `passed_by`."""
+    row = _claim(session, kind, now or clock(), passed_by)
     if row is None:
         return False
     give_up = False
@@ -104,6 +120,8 @@ def _send_one(session: Session, kind: str, clients: Clients, now: datetime | Non
         error = f"{type(e).__name__}: {e}"
     # after the answer, not before: a slow server would date it in the past
     answered = now or clock()
+    if isinstance(error, webhooks.TimedOut):
+        passed_by.add(row.webhook_id)
     row.attempts += 1
     if error is None:
         # At least once: a crash between the send and the commit sends it
@@ -127,9 +145,10 @@ def _send_one(session: Session, kind: str, clients: Clients, now: datetime | Non
 def _drain(session: Session, clients: Clients, now: datetime | None, limit: int,
            kinds: list[str]) -> int:
     tried = dict.fromkeys(kinds, 0)
+    passed_by: set[int] = set()   # webhooks that gave no answer in time, this pass
     while kinds:
         for kind in list(kinds):
-            if tried[kind] < limit and _send_one(session, kind, clients, now):
+            if tried[kind] < limit and _send_one(session, kind, clients, now, passed_by):
                 tried[kind] += 1
             else:
                 kinds.remove(kind)
@@ -175,10 +194,8 @@ class Daily:
         return local.date()
 
 
-def run_once(session: Session, today: Daily, now: datetime | None = None,
-             http: httpx.Client | None = None, print_http: httpx.Client | None = None) -> int:
-    """The daily job if it is due, then whatever is due in the outbox.
-    Returns how many rows were tried."""
+def run_daily(session: Session, today: Daily, now: datetime | None = None) -> None:
+    """The daily job, if it is due."""
     day = today.due(now or clock())
     if day is not None:
         try:
@@ -193,6 +210,13 @@ def run_once(session: Session, today: Daily, now: datetime | None = None,
             today.not_before = None
             log.info("daily job for %s: %d reminders, %d digests, %d events queued", day,
                      queued["reminders"], queued["digests"], queued["events"])
+
+
+def run_once(session: Session, today: Daily, now: datetime | None = None,
+             http: httpx.Client | None = None, print_http: httpx.Client | None = None) -> int:
+    """The daily job if it is due, then whatever is due in the outbox, in
+    one pass. Returns how many rows were tried."""
+    run_daily(session, today, now)
     return send_due(session, http, now, print_http=print_http)
 
 
@@ -213,9 +237,55 @@ def wait_for_schema(session: Session, timeout: float = 120, poll: float = 2) -> 
             time.sleep(poll)
 
 
+MakeSession = Callable[[], Session]
+
+
+def _loop(kind: str, stop: threading.Event, make_session: MakeSession, poll: float) -> None:
+    """Send this kind until told to stop, with a client of its own."""
+    with webhooks.client() as hooks, printing.client() as platen:
+        clients: Clients = {"webhook": hooks, "print": platen}
+        while not stop.is_set():
+            try:
+                with make_session() as session:
+                    ready = [kind] if _ready(kind) else []
+                    done = _drain(session, clients, None, 50, ready)
+            except Exception:  # keep the loop alive; log and back off
+                log.exception("%s loop error", kind)
+                done = 0
+            if done == 0:
+                stop.wait(poll)
+
+
+def serve(stop: threading.Event, make_session: MakeSession | None = None,
+          poll: float | None = None, daily: bool = True) -> None:
+    """A loop per kind, each in its own thread, and the daily job (unless
+    `daily` is False) in this one, until `stop` is set; then wait for the
+    loops to finish what they are sending."""
+    make_session = make_session or get_sessionmaker()
+    poll = get_settings().worker_poll_seconds if poll is None else poll
+    loops = [threading.Thread(target=_loop, args=(kind, stop, make_session, poll),
+                              name=f"worker-{kind}") for kind in KINDS]
+    for t in loops:
+        t.start()
+    today = Daily()
+    try:
+        while not stop.is_set():
+            if daily:
+                try:
+                    with make_session() as session:
+                        run_daily(session, today)
+                except Exception:
+                    log.exception("daily loop error")
+            stop.wait(poll)
+    finally:
+        stop.set()
+        for t in loops:
+            t.join()
+
+
 def main() -> None:
     logging.basicConfig(level=logging.INFO,
-                        format="%(asctime)s %(levelname)s %(name)s %(message)s")
+                        format="%(asctime)s %(levelname)s %(name)s %(threadName)s %(message)s")
     poll = get_settings().worker_poll_seconds
     make_session = get_sessionmaker()
     with make_session() as session:
@@ -229,19 +299,16 @@ def main() -> None:
     s = settings.current()
     log.info("worker started, polling every %ss; daily job from %02d:00 %s", poll,
              s.daily_hour, s.timezone)
-    today = Daily()
-    # events only to public addresses (unless LMS_WEBHOOK_ALLOW_PRIVATE);
-    # Platen wherever its address in Settings says
-    with webhooks.client() as http, printing.client() as print_http:
-        while True:
-            try:
-                with make_session() as session:
-                    done = run_once(session, today, http=http, print_http=print_http)
-            except Exception:  # keep the loop alive; log and back off
-                log.exception("worker loop error")
-                done = 0
-            if done == 0:
-                time.sleep(poll)
+    stop = threading.Event()
+
+    def stopping(signum, frame):
+        log.info("stopping: finishing what is being sent")
+        stop.set()
+
+    signal.signal(signal.SIGTERM, stopping)
+    signal.signal(signal.SIGINT, stopping)
+    serve(stop, make_session, poll)
+    log.info("worker stopped")
 
 
 if __name__ == "__main__":
