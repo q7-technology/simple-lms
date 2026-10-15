@@ -504,7 +504,9 @@ queues:
   being the last good day itself), each once; a day missed still gets the
   reminder it owed, and each says the real days left. Its outbox key is
   `reminder:<person id>:<competency id>:<last good day>:<reminder day>`,
-  so changing the reminder days never sends one twice;
+  so each reminder day sends at most once. Adding a day can send a second
+  reminder for the same expiry (change 14 to 10, and someone with 10 days
+  left who had the 14-day email gets the 10-day one too);
 - on Mondays, a digest for each active manager and admin with an email of
   what is lapsed and what is expiring, for everyone (none when nothing is).
 
