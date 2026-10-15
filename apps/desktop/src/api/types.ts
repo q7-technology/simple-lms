@@ -174,6 +174,9 @@ export interface Settings {
   smtp_from: SettingValue<string>;
   smtp_security: SettingValue<"starttls" | "ssl" | "none">;
   public_url: SettingValue<string>;
+  /** how much a person can send of their own (tickets, signatures) in 24 hours */
+  upload_files_per_day: SettingValue<number>;
+  upload_mb_per_day: SettingValue<number>;
 }
 
 /** A practical's checklist: the items a supervisor ticks, frozen once published. */

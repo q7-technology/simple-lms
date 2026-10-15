@@ -306,6 +306,22 @@ random id, and written to disk as they arrive (never held in memory whole).
   read. In front of the API, Caddy refuses a body over 210 MB on
   `/v1/uploads` (and over 16 MB anywhere else in `/v1`) with its own `413`,
   before the API sees it.
+
+  Each person may send so much in any 24 hours, counted from the files kept
+  (a file refused isn't counted): of their own (`ticket` and `signature`
+  together), 30 files and 200 MB by default (`upload_files_per_day` and
+  `upload_mb_per_day` in Settings); a supervisor's, manager's or admin's
+  own (`ticket`, `signature` and `signoff-photo` together: a sign-off is
+  two signatures and a photo), 200 files and 2 GB; of module files (the
+  `page-` purposes together), 200 files and 5 GB. Past that is `429 { "code":
+  "too_many_uploads", "detail": "You've sent 30 files in the last 24
+  hours, the most for a day. You can send more after 2:15 pm." }` (the time
+  in the Settings time zone, with the day when it isn't today; a
+  `Retry-After` header in seconds), before the body is read: a body whose
+  `Content-Length` would go past the day's megabytes too ("That would take
+  you past the 200 MB a person can send in a day. …"; one bigger than a
+  whole day's has no time to wait for). Checked again, with the sender
+  locked, once the body is in, so files sent at once can't slip past.
 - `GET /v1/uploads/{id}` — the file. Any signed-in session may ask (a PIN
   one too), but only someone who may see the file's owner gets it: that
   person, their supervisor, and managers and admins. A sign-off's photo and
@@ -408,11 +424,15 @@ Each version, as its editors see it (`correct` is only there for them):
   that didn't pass (below), or `null` when they may try now;
   `retry_at_text` is the same ready to show, in the time zone in Settings
   (`"2:15 pm"`, or `"1:00 am on Fri 16 Oct"` when it isn't today). `404`
-  until a version is published.
+  until a version is published. A deactivated module is `409 { "code":
+  "inactive", "detail": "Site induction isn't in use any more" }`, here,
+  for progress and for attempts; its editors still see its versions, and
+  the place a learner was at comes back if it is reactivated.
 - `PUT /v1/modules/{key}/progress` (`training:write`) — `{ "version",
   "page" }` → `204`: where the caller is now, theirs alone. Kept on the
   server, so nothing of theirs stays on a shared tablet. A page past the
   quiz is `422`. Only the newest published version takes progress (below).
+  A deactivated module is `409 { "code": "inactive" }`.
 - `POST /v1/modules/{key}/attempts` (`training:write`) — your own go at the
   quiz: `{ "version", "answers": [ … ] }`, one answer per question in order,
   counting from 0 → `201 { "id", "competency", "version", "correct",
@@ -435,7 +455,8 @@ Each version, as its editors see it (`correct` is only there for them):
   says when it runs out; it also starts the module from the top next time.
   Not one answer per question is `422` on `answers`, and one out of range
   on that answer (e.g. `answers.3`); a deactivated module is `409 {
-  "code": "inactive" }`.
+  "code": "inactive" }`, checked once the module is locked (after the
+  person), so a go sent while it is being deactivated is refused too.
 - `GET /v1/people/{code}/attempts?competency=` (`training:read`; your own,
   your team's, or anyone's for a manager; anyone else is `404`) — every
   attempt, newest first, in the shape above.
@@ -607,6 +628,8 @@ the domain, the upload folder, Caddy) is in `.env` only.
 | `smtp_from` | e.g. `Simple LMS <lms@example.com.au>` | `LMS_SMTP_FROM` | `""` |
 | `smtp_security` | `starttls`, `ssl` or `none` | `LMS_SMTP_SECURITY` | `"starttls"` |
 | `public_url` | `https://…` (or `http://`), no trailing slash, or `""` | `LMS_PUBLIC_URL` | `""` |
+| `upload_files_per_day` | files a person can send of their own (tickets, signatures) in 24 hours, 1 to 100000 | | `30` |
+| `upload_mb_per_day` | megabytes of them, 1 to 1000000 | | `200` |
 
 ### GET /v1/settings
 → `200`, every key: `{ "value", "source" }`, where `source` is `here`,

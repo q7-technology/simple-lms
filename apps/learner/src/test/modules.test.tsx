@@ -180,6 +180,23 @@ describe("the module player", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("There's nothing to do here yet. Ask your manager.");
   });
 
+  it("says plainly when the module isn't in use any more", async () => {
+    stubApi((_m, url) => url === "/v1/modules/site-induction"
+      ? json(409, { code: "inactive", detail: "Site induction isn't in use any more" }) : null);
+    renderApp(KIM, Date.now(), "/module/site-induction");
+    expect(await screen.findByRole("alert")).toHaveTextContent("This module isn't in use any more.");
+  });
+
+  it("says so when it stops being in use at the quiz", async () => {
+    stubModule({ ...INDUCTION, resume_at: 5 }, [json(409, { code: "inactive", detail: "Site induction isn't in use any more" })]);
+    renderApp(KIM, Date.now(), "/module/site-induction");
+    const handIn = await screen.findByRole("button", { name: "Hand it in" });
+    await userEvent.click(screen.getByRole("radio", { name: "The gatehouse" }));
+    await userEvent.click(screen.getByRole("radio", { name: "Your PPE" }));
+    await userEvent.click(handIn);
+    expect(await screen.findByRole("alert")).toHaveTextContent("This module isn't in use any more.");
+  });
+
   it("hands in the answers and says Ding! on a pass", async () => {
     const calls = stubModule({ ...INDUCTION, resume_at: 5 });
     renderApp(KIM, Date.now(), "/module/site-induction");

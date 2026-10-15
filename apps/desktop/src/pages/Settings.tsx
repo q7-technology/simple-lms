@@ -15,6 +15,7 @@ const KINDS: Record<Key, Kind> = {
   reminder_days: "days", timezone: "text", daily_hour: "int",
   smtp_host: "text", smtp_port: "int", smtp_user: "text", smtp_password: "secret",
   smtp_from: "text", smtp_security: "text", public_url: "text",
+  upload_files_per_day: "int", upload_mb_per_day: "int",
 };
 
 const FROM: Record<SettingSource, string> = { here: "Set here", env: "From .env", default: "Default" };
@@ -180,6 +181,7 @@ export function Settings() {
           <Reminders all={all} onSaved={setAll} />
           <Email all={all} onSaved={setAll} />
           <WebAddress all={all} onSaved={setAll} />
+          <Uploads all={all} onSaved={setAll} />
         </>
       )}
     </main>
@@ -327,6 +329,27 @@ function WebAddress({ all, onSaved }: Props) {
         {(id) => <input id={id} className="field" type="url" value={String(s.draft.public_url)}
                         onChange={(e) => s.set("public_url")(e.target.value)} />}
       </Field>
+    </Section>
+  );
+}
+
+function Uploads({ all, onSaved }: Props) {
+  const s = useSection(all, ["upload_files_per_day", "upload_mb_per_day"], onSaved);
+  return (
+    <Section title="Uploads" sub="How much one person can send of their own (tickets' photos and signatures) in any 24 hours, so nobody can fill the server's disk. Module files have their own limit: 200 files and 5 GB."
+             onSubmit={s.save} busy={s.action.busy} error={s.action.error} said={s.said}>
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="Files a person can send in a day" hint="1 to 100000" source={all.upload_files_per_day.source}
+               error={s.errors.upload_files_per_day} onReset={() => void s.reset("upload_files_per_day")}>
+          {(id) => <input id={id} className="field" type="number" min={1} max={100000} value={String(s.draft.upload_files_per_day)}
+                          onChange={(e) => s.set("upload_files_per_day")(e.target.value)} />}
+        </Field>
+        <Field label="MB a person can send in a day" hint="1000 MB is a GB" source={all.upload_mb_per_day.source}
+               error={s.errors.upload_mb_per_day} onReset={() => void s.reset("upload_mb_per_day")}>
+          {(id) => <input id={id} className="field" type="number" min={1} max={1000000} value={String(s.draft.upload_mb_per_day)}
+                          onChange={(e) => s.set("upload_mb_per_day")(e.target.value)} />}
+        </Field>
+      </div>
     </Section>
   );
 }

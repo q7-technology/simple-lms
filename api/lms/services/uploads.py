@@ -7,9 +7,11 @@ in memory whole: a video may be 200 MB."""
 from __future__ import annotations
 
 import hashlib
+import math
 import os
 import tempfile
 import uuid
+from datetime import timedelta
 from pathlib import Path
 
 from sqlalchemy import exists, or_, select
@@ -18,6 +20,7 @@ from sqlalchemy.orm import Session as Db
 from lms.api.errors import Refused
 from lms.config import get_settings
 from lms.models import Person, Signoff, TicketSubmission, Upload
+from lms.services import clock, settings
 
 # what each purpose may be, and how big: 200 MB for a video, 20 MB for
 # anything else (the design's limits); a signature is a few kB
@@ -40,6 +43,21 @@ SENDERS = {
     "page-video": "competencies:write",
     "signoff-photo": "signoffs:write",
 }
+# how much one person may send in a rolling day, so no session can fill the
+# uploads volume: a learner's own (tickets, signatures) as Settings say; an
+# editor's module files, these
+DAY = timedelta(hours=24)
+MB = 1_000_000
+LEARNER_PURPOSES = ("ticket", "signature")
+PAGE_PURPOSES = ("page-image", "page-pdf", "page-video")
+PAGE_FILES_PER_DAY = 200
+PAGE_BYTES_PER_DAY = 5_000 * MB
+# supervisors, managers and admins send two signatures and a photo for each
+# practical they sign off, so their own files count on their own, more freely
+STAFF = ("supervisor", "manager", "admin")
+STAFF_PURPOSES = ("ticket", "signature", "signoff-photo")
+STAFF_FILES_PER_DAY = 200
+STAFF_BYTES_PER_DAY = 2_000 * MB
 MAGIC = {"image/png": b"\x89PNG\r\n\x1a\n", "image/jpeg": b"\xff\xd8\xff",
          "application/pdf": b"%PDF-"}
 EXT = {"image/png": "png", "image/jpeg": "jpg", "application/pdf": "pdf",
@@ -110,6 +128,59 @@ def full_path(row: Upload) -> Path:
 def too_large(purpose: str) -> Refused:
     _, limit = PURPOSES[purpose]
     return Refused(413, "too_large", f"a {purpose} file may be {limit // 1_000_000} MB at most")
+
+
+def _size(n: int) -> str:
+    return f"{n // (1000 * MB)} GB" if n % (1000 * MB) == 0 else f"{n // MB} MB"
+
+
+def _no_room(detail: str, when=None, now=None) -> Refused:
+    if when is None:
+        return Refused(429, "too_many_uploads", detail)
+    # said where the business is, as the quiz's wait is
+    from lms.services.modules import said_at
+    return Refused(429, "too_many_uploads", f"{detail} You can send more after "
+                   f"{said_at(when, now)}.",
+                   headers={"Retry-After": str(max(1, math.ceil((when - now).total_seconds())))})
+
+
+def check_room(db: Db, person: Person, purpose: str, incoming: int) -> None:
+    """Refused (429) if this person has sent their day's worth for this
+    kind of file, counted from the uploads kept in the last 24 hours, or
+    would with `incoming` bytes more; the detail says when they can send
+    more. A learner's limits are in Settings; an editor's module files,
+    and a supervisor's, manager's or admin's own files, count on their own."""
+    if purpose in PAGE_PURPOSES:
+        group, files, most, what = PAGE_PURPOSES, PAGE_FILES_PER_DAY, PAGE_BYTES_PER_DAY, \
+            "module files"
+    elif person.permission in STAFF:
+        group, files, most, what = STAFF_PURPOSES, STAFF_FILES_PER_DAY, STAFF_BYTES_PER_DAY, \
+            "files"
+    else:
+        s = settings.current()
+        group, files, most, what = LEARNER_PURPOSES, s.upload_files_per_day, \
+            s.upload_mb_per_day * MB, "files"
+    now = clock.now()
+    rows = db.execute(select(Upload.created_at, Upload.size_bytes)
+                      .where(Upload.person_id == person.id, Upload.purpose.in_(group),
+                             Upload.created_at > now - DAY)
+                      .order_by(Upload.created_at)).all()
+    if len(rows) >= files:
+        # when enough of the oldest have gone out of the day to send one more
+        raise _no_room(f"You've sent {len(rows)} {what} in the last 24 hours, the most for "
+                       "a day.", rows[len(rows) - files].created_at + DAY, now)
+    total = sum(size for _, size in rows)
+    if total + incoming <= most:
+        return
+    if incoming > most:
+        raise _no_room(f"A file this big is more than the {_size(most)} a person can send "
+                       "in a day.")
+    for created_at, size in rows:
+        total -= size
+        if total + incoming <= most:
+            raise _no_room(f"That would take you past the {_size(most)} a person can send "
+                           "in a day.", created_at + DAY, now)
+    raise AssertionError("unreachable: with every row gone, it fits")
 
 
 class Incoming:

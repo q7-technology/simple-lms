@@ -56,6 +56,10 @@ class Effective:
     smtp_security: Literal["starttls", "ssl", "none"] = "starttls"
     # where people open Simple LMS, for the links in emails
     public_url: str = ""
+    # how much one person may send of their own (tickets' photos,
+    # signatures) in 24 hours; an editor's module files have limits of their own
+    upload_files_per_day: int = 30
+    upload_mb_per_day: int = 200
 
 
 KEYS = tuple(f.name for f in fields(Effective))
@@ -93,6 +97,9 @@ class Changes(BaseModel):
     smtp_from: Annotated[str, Field(max_length=254)] | None = None
     smtp_security: Literal["starttls", "ssl", "none"] | None = None
     public_url: Annotated[str, Field(max_length=2000)] | None = None
+    upload_files_per_day: Annotated[Int, Field(ge=1, le=100_000)] | None = None
+    # up to a terabyte
+    upload_mb_per_day: Annotated[Int, Field(ge=1, le=1_000_000)] | None = None
 
     @field_validator("timezone", "smtp_host", "smtp_user", "smtp_password", "smtp_from",
                      "public_url")
