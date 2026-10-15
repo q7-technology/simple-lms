@@ -39,6 +39,9 @@ def upgrade() -> None:
         sa.Column("published_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("published_by_id", sa.Integer(), nullable=True),
         _created_at(),
+        # changed by every save, so a save based on an older one is refused
+        sa.Column("saved_at", sa.DateTime(timezone=True), server_default=sa.text("now()"),
+                  nullable=False),
         sa.CheckConstraint("version >= 1", name=op.f("ck_module_version_version")),
         sa.CheckConstraint("pass_mark between 1 and 100", name=op.f("ck_module_version_pass_mark")),
         # published, by whom and when, or neither

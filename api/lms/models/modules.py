@@ -47,6 +47,8 @@ class ModuleVersion(Base):
     published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     published_by_id: Mapped[int | None] = mapped_column(ForeignKey("person.id"))
     created_at: Mapped[datetime] = created_at_column()
+    # changed by every save, so a save based on an older one is refused
+    saved_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     competency: Mapped[Competency] = relationship()
     published_by: Mapped[Person | None] = relationship()

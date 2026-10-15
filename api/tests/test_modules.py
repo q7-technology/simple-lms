@@ -122,6 +122,22 @@ def test_publishing_freezes_it_and_a_change_is_a_new_version(client, manager_hea
     assert [(v["version"], len(v["pages"])) for v in versions] == [(2, 1), (1, 5)]
 
 
+def test_a_save_based_on_what_was_saved_since_is_refused(client, manager_headers, induction):
+    # two editors open the same draft; the second to save would undo the first
+    opened = client.post(f"{INDUCTION}/draft", headers=manager_headers).json()["saved_at"]
+    r = save(client, manager_headers, based_on=opened, pass_mark=70)
+    assert r.status_code == 200, r.text
+    first = r.json()["saved_at"]
+    assert first > opened
+    r = save(client, manager_headers, based_on=opened, pass_mark=90)
+    assert r.status_code == 409 and r.json() == {
+        "detail": "the draft was saved by someone else since: reload it", "code": "changed"}
+    versions = client.get(f"{INDUCTION}/versions", headers=manager_headers).json()
+    assert (versions[0]["pass_mark"], versions[0]["saved_at"]) == (70, first)
+    # based on the newest save, it goes ahead
+    assert save(client, manager_headers, based_on=first, pass_mark=90).status_code == 200
+
+
 def test_publishing_needs_a_page_and_a_question(client, manager_headers, induction):
     client.post(f"{INDUCTION}/draft", headers=manager_headers)
     save(client, manager_headers, pages=[{"kind": "text", "title": "Hi", "body": "Hi."}])

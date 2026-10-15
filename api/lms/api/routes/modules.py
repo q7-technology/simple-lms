@@ -57,6 +57,8 @@ class DraftIn(BaseModel):
     pass_mark: int = Field(ge=1, le=100)
     pages: list[PageIn] = Field(max_length=100)
     questions: list[QuestionIn] = Field(max_length=50)
+    # the `saved_at` the editor loaded: a save since then is refused, not undone
+    based_on: datetime | None = None
 
 
 class FileOut(BaseModel):
@@ -94,6 +96,8 @@ class VersionOut(BaseModel):
     pages: list[PageOut]
     questions: list[QuestionOut]
     created_at: datetime
+    # changed by every save: send it back as `based_on`
+    saved_at: datetime
 
 
 class AnsweredVersionOut(VersionOut):
@@ -116,7 +120,7 @@ def version_out(v: ModuleVersion, session: Session) -> AnsweredVersionOut:
         pages=[page_out(p, session) for p in v.pages],
         questions=[AnsweredQuestionOut(prompt=q.prompt, options=q.options, correct=q.correct)
                    for q in v.questions],
-        created_at=v.created_at)
+        created_at=v.created_at, saved_at=v.saved_at)
 
 
 def unanswered(v: AnsweredVersionOut) -> VersionOut:
@@ -213,9 +217,12 @@ def start_draft(key: str, db: DB, who: Principal = require("competencies:write")
 @router.put("/modules/{key}/draft", response_model=AnsweredVersionOut)
 def save_draft(key: str, body: DraftIn, db: DB, who: Principal = require("competencies:write")):
     """The draft in full: its pass mark, its pages and its questions, in
-    order. Whatever was there before is replaced."""
+    order. Whatever was there before is replaced, unless someone else saved
+    it since the editor loaded it (`based_on`)."""
     c = get_module(db, key)
     v = _draft(db, c)
+    if body.based_on is not None and body.based_on != v.saved_at:
+        raise Conflict("changed", "the draft was saved by someone else since: reload it")
     pages = [_page(db, i, p) for i, p in enumerate(body.pages)]
     for i, q in enumerate(body.questions):
         if q.correct >= len(q.options):
@@ -229,6 +236,7 @@ def save_draft(key: str, body: DraftIn, db: DB, who: Principal = require("compet
         db.add(QuizQuestion(module_version_id=v.id, position=i, prompt=q.prompt,
                             options=q.options, correct=q.correct))
     v.pass_mark = body.pass_mark
+    v.saved_at = datetime.now(UTC)
     db.commit()
     db.expire(v, ["pages", "questions"])
     return version_out(v, who.session)

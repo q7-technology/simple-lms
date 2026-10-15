@@ -344,7 +344,7 @@ Each version, as its editors see it (`correct` is only there for them):
                 "link": "/v1/media/…?session=…&expires=…&sig=…" } },
     { "kind": "link", "title": "SafeWork", "body": null, "url": "https://www.safework.nsw.gov.au", "file": null }],
   "questions": [{ "prompt": "Where do you sign in?", "options": ["The gatehouse", "The canteen"], "correct": 0 }],
-  "created_at": "…" }
+  "created_at": "…", "saved_at": "…" }
 ```
 
 - `GET /v1/modules/{key}/versions` (`competencies:read`) — newest first: the
@@ -358,7 +358,7 @@ Each version, as its editors see it (`correct` is only there for them):
 - `PUT /v1/modules/{key}/draft` (`competencies:write`) — the draft in full,
   replacing what was there: `{ "pass_mark": 1–100, "pages": [{ "kind",
   "title", "body"?, "file"?, "url"? }], "questions": [{ "prompt", "options",
-  "correct" }] }` → `200`. A text page needs its `body` (plain text; line
+  "correct" }], "based_on"? }` → `200`. A text page needs its `body` (plain text; line
   breaks are kept, nothing else is formatting); a picture, PDF or video page
   needs `file`, an upload of purpose `page-image`, `page-pdf` or
   `page-video`; a link page needs `url`, an `https://` or `http://` address
@@ -367,7 +367,9 @@ Each version, as its editors see it (`correct` is only there for them):
   2 to 6 answers, and `correct` (counting from 0) is one of them. Up to 100
   pages and 50 questions. Anything amiss is `422` on that field (e.g.
   `pages.2.file`). No draft is `404`; one published meanwhile is `409 {
-  "code": "published" }`.
+  "code": "published" }`. `saved_at` changes with every save: send the one
+  you loaded as `based_on`, and a draft someone else saved since is `409 {
+  "code": "changed" }` rather than overwritten (reload it to see theirs).
 - `POST /v1/modules/{key}/draft/publish` (`competencies:write`) → `200`,
   frozen, and the one people take from now. It needs a page and a question
   (`409 { "code": "incomplete" }`). A deactivated module is `409 { "code":
