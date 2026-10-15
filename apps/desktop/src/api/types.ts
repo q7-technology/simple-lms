@@ -147,3 +147,25 @@ export interface ModuleVersion {
   /** changed by every save: sent back as `based_on`, so a save meanwhile isn't undone */
   saved_at: string;
 }
+
+/** Where a setting's value comes from: set on the Settings screen, .env, or the default. */
+export type SettingSource = "here" | "env" | "default";
+export interface SettingValue<T> { value: T; source: SettingSource }
+
+export interface Settings {
+  sign_in_pin: SettingValue<boolean>;
+  sign_in_password: SettingValue<boolean>;
+  quiz_cooldown_tries: SettingValue<number>;
+  quiz_cooldown_minutes: SettingValue<number>;
+  reminder_days: SettingValue<number[]>;
+  timezone: SettingValue<string>;
+  daily_hour: SettingValue<number>;
+  smtp_host: SettingValue<string>;
+  smtp_port: SettingValue<number>;
+  smtp_user: SettingValue<string>;
+  /** never sent back: only whether there is one */
+  smtp_password: { set: boolean; source: SettingSource };
+  smtp_from: SettingValue<string>;
+  smtp_security: SettingValue<"starttls" | "ssl" | "none">;
+  public_url: SettingValue<string>;
+}
