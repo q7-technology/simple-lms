@@ -104,6 +104,9 @@ def publish_version(key: str, body: ChecklistIn, db: DB,
 
 @router.get("/practicals/{key}", response_model=PracticalOut)
 def read_practical(key: str, db: DB, who: Principal = require("training:read")):
-    """The checklist to tick now."""
+    """The checklist to tick now. A deactivated practical is signed off by
+    nobody: only its editors still see it."""
     c = get_practical(db, key)
+    if not c.active and not who.has_scope("competencies:write"):
+        raise Conflict("inactive", f"{c.name} isn't in use any more")
     return PracticalOut(key=c.key, name=c.name, version=checklist_out(to_tick(db, c)))

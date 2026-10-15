@@ -487,7 +487,9 @@ asks nobody to be signed off again (sign-offs so far still count).
   `[{ "id", "version", "items": [{ "id", "text" }], "note", "published_by":
   { "code", "name" }, "created_at" }]`.
 - `GET /v1/practicals/{key}` (`training:read`) — the checklist to tick now:
-  `{ "key", "name", "version": { … } }`; `404` until one is published.
+  `{ "key", "name", "version": { … } }`; `404` until one is published. A
+  deactivated practical is `409 { "code": "inactive" }`, except for its
+  editors (`competencies:write`).
 
 A key that is not a practical is `404` on all of these.
 
@@ -520,8 +522,8 @@ signs off anyone. Nobody signs off themselves, admins included.
   newer one was published meanwhile, `409 { "code": "new_version" }`, and
   it is ticked again. Signing off yourself is `403 { "code": "own_signoff"
   }`; someone a supervisor may not sign off is `404`; a learner (no
-  `signoffs:write`) is `403`. A competency that is not a practical is `422`
-  on `competency`, one with no checklist yet `404`,
+  `signoffs:write`) is `403`. An unknown competency is `404`, one that is
+  not a practical `422` on `competency`, one with no checklist yet `404`,
   and a deactivated practical or person `409 { "code": "inactive" }`. The
   caller who set the learner's PIN in the last 7 days knows it, so their
   sign-off is `409 { "code": "you_set_their_pin" }` ("You set Kim Lee's PIN

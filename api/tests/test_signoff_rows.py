@@ -204,3 +204,15 @@ def test_a_pin_change_is_kept_as_it_was(db, yard, change):
             db.execute(delete(PinChange))
         db.commit()
 
+
+def test_a_file_on_two_signoffs_still_finds_a_learner(db, yard, caplog):
+    """The API never lets a signature go on two sign-offs; if one ever did,
+    who may see it is still answered, and the log says so."""
+    from lms.services import uploads
+
+    boss, sam, kim, forklift, one = yard
+    first = signoff(db, one, kim, sam)
+    signoff(db, one, kim, sam, learner_signature_upload_id=first.supervisor_signature_upload_id)
+    with caplog.at_level("WARNING"):
+        assert uploads.signed_off(db, first.supervisor_signature_upload_id) == kim
+    assert "on 2 sign-offs" in caplog.text

@@ -241,8 +241,11 @@ def test_only_a_practical_with_a_checklist_is_signed_off(client, sam, manager_he
 
 def test_not_for_a_deactivated_practical_or_person(client, db, sam, manager_headers, learner,
                                                    checklist):
+    ticked = [i["id"] for i in checklist["items"]]
     client.post("/v1/competencies/forklift-practical/deactivate", headers=manager_headers)
-    r = sign_off(client, sam)
+    # nor is its checklist for anyone but its editors now
+    assert client.get(FORKLIFT, headers=sam).json()["code"] == "inactive"
+    r = sign_off(client, sam, ticked=ticked)
     assert r.status_code == 409 and r.json()["code"] == "inactive"
     client.post("/v1/competencies/forklift-practical/reactivate", headers=manager_headers)
     learner.active = False

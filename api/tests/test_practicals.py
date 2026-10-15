@@ -72,3 +72,13 @@ def test_two_published_at_once_are_1_and_2(client, manager_headers, forklift):
                                    json={"items": ITEMS}).json()["version"]
 
     assert sorted(all_at_once(2, publish)) == [1, 2]
+
+
+def test_a_deactivated_practicals_checklist_is_for_its_editors_only(client, manager_headers,
+                                                                    supervisor, forklift):
+    published(client, manager_headers)
+    client.post("/v1/competencies/forklift-practical/deactivate", headers=manager_headers)
+    sam = bearer(pin_login(client, supervisor.code)["token"])
+    r = client.get(FORKLIFT, headers=sam)
+    assert r.status_code == 409 and r.json()["code"] == "inactive"
+    assert client.get(FORKLIFT, headers=manager_headers).status_code == 200

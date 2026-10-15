@@ -7,6 +7,7 @@ in memory whole: a video may be 200 MB."""
 from __future__ import annotations
 
 import hashlib
+import logging
 import math
 import os
 import tempfile
@@ -21,6 +22,8 @@ from lms.api.errors import Refused
 from lms.config import get_settings
 from lms.models import Person, Signoff, TicketSubmission, Upload
 from lms.services import clock, settings
+
+log = logging.getLogger(__name__)
 
 # what each purpose may be, and how big: 200 MB for a video, 20 MB for
 # anything else (the design's limits); a signature is a few kB
@@ -265,11 +268,17 @@ def mine(db: Db, person: Person, upload_id: uuid.UUID | None, purpose: str) -> U
 def signed_off(db: Db, upload_id: uuid.UUID) -> Person | None:
     """The learner whose sign-off has this photo or signature on it, if one
     does. They were sent from the supervisor's phone, so they are the
-    supervisor's; the learner may see them too."""
-    return db.execute(select(Person).join(Signoff, Signoff.person_id == Person.id).where(or_(
-        Signoff.photo_upload_id == upload_id,
-        Signoff.supervisor_signature_upload_id == upload_id,
-        Signoff.learner_signature_upload_id == upload_id))).scalar_one_or_none()
+    supervisor's; the learner may see them too. The API puts each on one
+    sign-off only; if one is ever on more, the first counts and the log says so."""
+    rows = db.execute(select(Signoff.id, Person).join(Person, Signoff.person_id == Person.id)
+                      .where(or_(Signoff.photo_upload_id == upload_id,
+                                 Signoff.supervisor_signature_upload_id == upload_id,
+                                 Signoff.learner_signature_upload_id == upload_id))
+                      .order_by(Signoff.id)).all()
+    if len(rows) > 1:
+        log.warning("upload %s is on %d sign-offs (%s): only one should have it", upload_id,
+                    len(rows), ", ".join(str(r.id) for r in rows))
+    return rows[0].Person if rows else None
 
 
 def on_a_ticket(db: Db, upload_id: uuid.UUID) -> bool:
