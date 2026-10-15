@@ -186,6 +186,12 @@ export interface Settings {
   /** how much a person can send of their own (tickets, signatures) in 24 hours */
   upload_files_per_day: SettingValue<number>;
   upload_mb_per_day: SettingValue<number>;
+  /** Platen's intake: until it is set, nothing prints */
+  platen_url: SettingValue<string>;
+  /** never sent back: only whether there is one */
+  platen_key: { set: boolean; source: SettingSource };
+  certificate_printer: SettingValue<string>;
+  skills_card_printer: SettingValue<string>;
 }
 
 /** A practical's checklist: the items a supervisor ticks, frozen once published. */
@@ -243,3 +249,6 @@ export interface ApiKey {
 
 /** Shown once, when it is made: Simple LMS keeps only its hash. */
 export interface ApiKeyMade extends ApiKey { key: string }
+
+/** A certificate or skills card queued for Platen. */
+export interface PrintJob { job_id: string; template: string; printer: string }

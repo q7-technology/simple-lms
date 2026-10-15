@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { api } from "../api/client";
-import type { Cell, CompetencyRecord, CompetencyRef, PersonRef } from "../api/types";
+import type { Cell, CompetencyRecord, CompetencyRef, PersonRef, PrintJob } from "../api/types";
 import { useAuth } from "../auth/AuthContext";
 import { LOOK, describe, formatDate } from "../lib/status";
 import { useAction, useLoad } from "../lib/useLoad";
@@ -8,7 +8,8 @@ import { Drawer, Problem } from "../ui/Drawer";
 import { Picture } from "../ui/Picture";
 
 /** One person's history for one competency, newest first: the first row is
- * the one that counts. A manager records a completion or revokes one here. */
+ * the one that counts. A manager records a completion or revokes one here,
+ * and prints a certificate of the one that counts. */
 export function HistoryDrawer({ person, competency, cell, today, onClose, onChanged }: {
   person: PersonRef; competency: CompetencyRef; cell: Cell; today: string;
   onClose: () => void; onChanged: () => void;
@@ -21,11 +22,13 @@ export function HistoryDrawer({ person, competency, cell, today, onClose, onChan
   const [expiresOn, setExpiresOn] = useState("");
   const [note, setNote] = useState("");
   const [why, setWhy] = useState("");
+  const [printed, setPrinted] = useState<string | null>(null);
   const action = useAction();
   const own = me?.code === person.code;
   const granted = history.data?.[0]?.kind === "granted";
 
   async function changed(fn: () => Promise<unknown>) {
+    setPrinted(null);
     if (await action.run(fn)) {
       setNote("");
       setWhy("");
@@ -42,6 +45,14 @@ export function HistoryDrawer({ person, competency, cell, today, onClose, onChan
     }));
   }
 
+  function printCertificate(id: number) {
+    setPrinted(null);
+    void action.run(async () => {
+      const job = await api.post<PrintJob>(`${path}/${id}/certificate`);
+      setPrinted(`Sent to Platen, for the printer ${job.printer}.`);
+    });
+  }
+
   function revoke(e: FormEvent) {
     e.preventDefault();
     void changed(() => api.post(`${path}/revoke`, { competency: competency.key, note: why.trim() }));
@@ -54,6 +65,7 @@ export function HistoryDrawer({ person, competency, cell, today, onClose, onChan
         <span className="small">{describe(cell)}</span>
       </div>
       <Problem error={action.error ?? history.error} />
+      {printed && <div className="msg g" role="status">{printed}</div>}
       {can("records:write") && own && (
         <div className="msg r">Nobody records their own competency: ask another manager.</div>
       )}
@@ -128,6 +140,10 @@ export function HistoryDrawer({ person, competency, cell, today, onClose, onChan
             )}
             {r.note && <div className="text-sm">{r.note}</div>}
             <div className="small">by {r.recorded_by.name} · {formatDate(r.created_at.slice(0, 10))}</div>
+            {i === 0 && r.kind === "granted" && can("printing:write") && (
+              <div><button type="button" className="btn" disabled={action.busy}
+                           onClick={() => printCertificate(r.id)}>Print certificate</button></div>
+            )}
           </div>
         ))}
       </section>

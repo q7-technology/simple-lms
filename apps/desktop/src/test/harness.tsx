@@ -12,7 +12,7 @@ export function json(status: number, body: unknown) {
 export const MEL: Me = {
   id: 2, code: "MG001", name: "Mel Grant", email: "mel@example.com.au", permission: "manager", method: "password",
   scopes: ["training:read", "training:write", "matrix:read", "roles:read", "competencies:read", "people:read",
-           "people:write", "roles:write", "competencies:write", "records:write", "tickets:verify"],
+           "people:write", "roles:write", "competencies:write", "records:write", "tickets:verify", "printing:write"],
   idle_seconds: 43200,
 };
 
@@ -39,6 +39,10 @@ export const ALL_SETTINGS: Settings = {
   public_url: { value: "", source: "default" },
   upload_files_per_day: { value: 30, source: "default" },
   upload_mb_per_day: { value: 200, source: "default" },
+  platen_url: { value: "", source: "default" },
+  platen_key: { set: false, source: "default" },
+  certificate_printer: { value: "office", source: "default" },
+  skills_card_printer: { value: "", source: "default" },
 };
 
 export interface Call { method: string; url: string; body: unknown; contentType?: string }
