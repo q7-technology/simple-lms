@@ -53,6 +53,14 @@ describe("ApiClient", () => {
     await expect(client.get("/v1/matrix")).rejects.toThrow("Can't reach Simple LMS right now.");
   });
 
+  it("says a file is too big when the proxy refuses it, not that Simple LMS can't be reached", async () => {
+    answers.push(new Response("Request Entity Too Large", { status: 413, headers: { "Content-Type": "text/plain" } }));
+    const e = (await client.upload("page-video", new Blob([new Uint8Array([0])])).catch((x) => x)) as ApiError;
+    expect(e).toBeInstanceOf(ApiError);
+    expect(e.status).toBe(413);
+    expect(e.message).toBe("That file is too big: the most is 200 MB for a video, 20 MB otherwise.");
+  });
+
   it("sends a module's file as it is, with its own type", async () => {
     client.token = "lms_s.abc";
     answers.push(json(201, { id: "u-1", purpose: "page-video", content_type: "video/mp4", size_bytes: 3 }));

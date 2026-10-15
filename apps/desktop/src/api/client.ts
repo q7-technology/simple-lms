@@ -36,6 +36,7 @@ type Fetcher = (url: string, init: RequestInit) => Promise<Response>;
 type Params = Record<string, string | number | boolean | null | undefined>;
 
 const TOKEN_KEY = "lms.desktop.token";
+const TOO_BIG = "That file is too big: the most is 200 MB for a video, 20 MB otherwise.";
 
 function query(params?: Params): string {
   if (!params) return "";
@@ -94,6 +95,8 @@ export class ApiClient {
     try {
       parsed = text ? JSON.parse(text) : null;
     } catch {
+      // Caddy refusing a body too big before the API sees it: say so plainly
+      if (res.status === 413) throw new ApiError(413, { detail: TOO_BIG, code: "too_large" });
       // a proxy's error page, say: not the API's own answer
       throw new Unreachable();
     }

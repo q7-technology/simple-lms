@@ -122,6 +122,18 @@ describe("a module's pages and quiz", () => {
     expect(calls.some((c) => c.url.startsWith("/v1/uploads"))).toBe(false);
   });
 
+  it("won't send a picture over 20 MB", async () => {
+    const { calls } = stubModule([EMPTY]);
+    const drawer = await openInduction();
+    await within(drawer).findByText(/Version 1 is a draft/);
+    await addPage(drawer, "Picture");
+    const big = new File([new Uint8Array([0xff, 0xd8])], "site.jpg", { type: "image/jpeg" });
+    Object.defineProperty(big, "size", { value: 20_000_001 });
+    await userEvent.upload(within(drawer).getByLabelText("File"), big);
+    expect(await within(drawer).findByRole("alert")).toHaveTextContent("That file is too big: the most is 20 MB.");
+    expect(calls.some((c) => c.url.startsWith("/v1/uploads"))).toBe(false);
+  });
+
   it("moves and removes pages before it is saved", async () => {
     const { calls } = stubModule([{ ...V1, published_at: null, published_by: null, version: 2, id: 2 }]);
     const drawer = await openInduction();
