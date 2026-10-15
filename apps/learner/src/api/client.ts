@@ -36,7 +36,7 @@ export class Unreachable extends Error {
 }
 
 type Fetcher = (url: string, init: RequestInit) => Promise<Response>;
-const SIGN_INS = new Set(["/v1/auth/login", "/v1/auth/pin-login"]);
+const SIGN_INS = new Set(["/v1/auth/login", "/v1/auth/pin-login", "/v1/auth/entra/finish"]);
 
 export class LearnerApi {
   token: string | null = null;

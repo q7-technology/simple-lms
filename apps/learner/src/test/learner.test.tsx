@@ -28,7 +28,7 @@ describe("the learner app", () => {
     await userEvent.type(screen.getByLabelText("PIN"), "2468");
     await userEvent.click(screen.getByRole("button", { name: "Sign in" }));
     expect(await screen.findByRole("heading", { name: "My training" })).toBeInTheDocument();
-    expect(calls[0].body).toEqual({ code: "ll042", pin: "2468" });
+    expect(calls.find((c) => c.url === "/v1/auth/pin-login")?.body).toEqual({ code: "ll042", pin: "2468" });
 
     const overdue = await screen.findByRole("region", { name: "Overdue" });
     expect(within(overdue).getAllByText(/First aid|WHS policy/).map((e) => e.textContent)).toEqual(["First aid", "WHS policy"]);
@@ -47,7 +47,7 @@ describe("the learner app", () => {
     await userEvent.type(screen.getByLabelText("Password"), "correct horse battery");
     await userEvent.click(screen.getByRole("button", { name: "Sign in" }));
     expect(await screen.findByRole("heading", { name: "My training" })).toBeInTheDocument();
-    expect(calls[0]).toMatchObject({ url: "/v1/auth/login", body: { email: "kim@example.com" } });
+    expect(calls.find((c) => c.url === "/v1/auth/login")).toMatchObject({ body: { email: "kim@example.com" } });
   });
 
   it("says when the PIN is wrong or locked", async () => {

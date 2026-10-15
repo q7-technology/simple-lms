@@ -8,12 +8,14 @@ export interface Me {
   name: string;
   email: string | null;
   permission: string;
-  method: "password" | "pin";
+  method: "password" | "pin" | "entra";
   scopes: string[];
   idle_seconds: number;
 }
 
 export interface SessionOut { token: string; person: Me }
+/** The ways of signing in that are on: Microsoft only once it is set up. */
+export interface SignInMethods { pin: boolean; password: boolean; entra: boolean }
 
 export interface TrainingItem {
   key: string;
