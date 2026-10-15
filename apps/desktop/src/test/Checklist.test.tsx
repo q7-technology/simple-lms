@@ -89,3 +89,40 @@ describe("a practical's checklist", () => {
     expect(within(drawer).queryByRole("button", { name: /Publish version/ })).not.toBeInTheDocument();
   });
 });
+
+describe("a practical signed off", () => {
+  it("shows in the history: what was ticked, the note, the photo and both signatures", async () => {
+    URL.createObjectURL = vi.fn(() => "blob:picture");
+    URL.revokeObjectURL = vi.fn();
+    const matrix = {
+      today: "2026-10-12", competencies: [{ key: "forklift-practical", name: "Forklift practical", kind: "practical" }],
+      people: [{ code: "LL042", name: "Kim Lee", roles: [], supervisor: { code: "SV001", name: "Sam Vu" },
+                 cells: { "forklift-practical": { status: "current", granted_on: "2026-10-12", expires_on: "2027-10-12" } } }],
+    };
+    const signedOff = {
+      id: 9, competency: matrix.competencies[0], kind: "granted", granted_on: "2026-10-12", expires_on: null, note: null,
+      recorded_by: { code: "SV001", name: "Sam Vu" }, policy_version: null, signed_name: null, signature: null,
+      ticket: null, quiz: null, created_at: "2026-10-12T01:00:00Z",
+      signoff: { version: 1, ticked: ["Checks the forks, chains and tyres", "Lifts a pallet to the top rack"],
+                 note: "Smooth on the ramp", photo: "p-1", supervisor_signature: "s-1", learner_signature: "s-2" },
+    };
+    stubApi((_m, url) => {
+      if (url.startsWith("/v1/matrix")) return json(200, matrix);
+      if (url === "/v1/roles") return json(200, { items: [], total: 0 });
+      if (url.startsWith("/v1/people/LL042/records")) return json(200, [signedOff]);
+      if (url.startsWith("/v1/uploads/")) return new Response(new Uint8Array([0x89, 0x50]), { status: 200, headers: { "Content-Type": "image/png" } });
+      return null;
+    });
+    renderApp("/matrix");
+    await userEvent.click(await screen.findByRole("button", { name: /Kim Lee, Forklift practical/ }));
+    const drawer = await screen.findByRole("dialog", { name: "Forklift practical" });
+    expect(await within(drawer).findByText("Signed off on checklist version 1, every item ticked:")).toBeInTheDocument();
+    expect(within(drawer).getByText("Lifts a pallet to the top rack")).toBeInTheDocument();
+    expect(within(drawer).getByText("“Smooth on the ramp”")).toBeInTheDocument();
+    expect(await within(drawer).findByRole("img", { name: "The sign-off photo" })).toBeInTheDocument();
+    expect(within(drawer).getByRole("img", { name: "Sam Vu's signature" })).toBeInTheDocument();
+    expect(within(drawer).getByRole("img", { name: "Kim Lee's signature" })).toBeInTheDocument();
+    expect(within(drawer).getByText("Kim Lee signed too, and confirmed it with their PIN.")).toBeInTheDocument();
+    expect(within(drawer).getByText(/by Sam Vu/)).toBeInTheDocument();
+  });
+});

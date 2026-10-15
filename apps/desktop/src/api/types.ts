@@ -92,6 +92,12 @@ export interface CompetencyRecord {
   ticket: number | null;
   /** a module passed in the learner app: the version, the score and the pass mark */
   quiz: { version: number; score: number; pass_mark: number } | null;
+  /** a practical signed off on the phone: what was ticked, and upload ids
+   * for the photo and both signatures. The supervisor is `recorded_by`. */
+  signoff: {
+    version: number; ticked: string[]; note: string | null; photo: string | null;
+    supervisor_signature: string; learner_signature: string;
+  } | null;
   created_at: string;
 }
 
