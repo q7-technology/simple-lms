@@ -8,6 +8,7 @@ from __future__ import annotations
 import uuid
 from datetime import UTC, datetime
 from typing import Annotated, Literal
+from urllib.parse import urlsplit
 
 from fastapi import APIRouter
 from fastapi.responses import JSONResponse
@@ -131,6 +132,15 @@ def _draft(db, c: Competency) -> ModuleVersion:
     return v
 
 
+def _web_address(url: str | None) -> bool:
+    """An http(s) address with a site in it, and no spaces or control
+    characters: `https://` alone goes nowhere."""
+    if not url or any(c.isspace() or ord(c) < 32 or ord(c) == 127 for c in url):
+        return False
+    parts = urlsplit(url)
+    return parts.scheme.lower() in ("http", "https") and bool(parts.hostname)
+
+
 def _page(db, i: int, p: PageIn) -> ModulePage:
     """What each kind of page needs, and nothing it doesn't."""
     at = f"pages.{i}"
@@ -146,7 +156,7 @@ def _page(db, i: int, p: PageIn) -> ModulePage:
     elif p.file is not None:
         raise FieldError(f"{at}.file", "only a picture, PDF or video page has a file")
     if p.kind == "link":
-        if not p.url or not p.url.lower().startswith(("https://", "http://")):
+        if not _web_address(p.url):
             raise FieldError(f"{at}.url", "a link is a web address starting with https://")
     elif p.url is not None:
         raise FieldError(f"{at}.url", "only a link page has a web address")

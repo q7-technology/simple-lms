@@ -53,6 +53,12 @@ def test_saving_again_replaces_it(client, manager_headers, induction):
      "a link is a web address starting with https://"),
     ({"kind": "link", "title": "SafeWork", "url": "javascript:alert(1)"}, "pages.0.url",
      "a link is a web address starting with https://"),
+    ({"kind": "link", "title": "SafeWork", "url": "https://"}, "pages.0.url",
+     "a link is a web address starting with https://"),
+    ({"kind": "link", "title": "SafeWork", "url": "https:///x"}, "pages.0.url",
+     "a link is a web address starting with https://"),
+    ({"kind": "link", "title": "SafeWork", "url": "https://example.com.au/a b"}, "pages.0.url",
+     "a link is a web address starting with https://"),
     ({"kind": "text", "title": "Welcome", "body": "Hi.", "url": "https://example.com.au"},
      "pages.0.url", "only a link page has a web address"),
 ])
@@ -61,6 +67,14 @@ def test_each_page_has_what_its_kind_needs(client, manager_headers, induction, p
     client.post(f"{INDUCTION}/draft", headers=manager_headers)
     r = save(client, manager_headers, pages=[page])
     assert r.status_code == 422 and r.json()["errors"] == [{"field": field, "message": message}]
+
+
+def test_a_link_to_a_page_on_a_site_is_kept(client, manager_headers, induction):
+    client.post(f"{INDUCTION}/draft", headers=manager_headers)
+    page = {"kind": "link", "title": "SafeWork", "url": "https://example.com.au/path"}
+    r = save(client, manager_headers, pages=[page])
+    assert r.status_code == 200, r.text
+    assert r.json()["pages"][0]["url"] == "https://example.com.au/path"
 
 
 def test_a_pages_file_is_a_page_file_of_its_kind(client, manager_headers, induction):

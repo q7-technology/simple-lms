@@ -3,7 +3,7 @@ import logging
 from fastapi import APIRouter, FastAPI
 from sqlalchemy import text
 
-from lms.api import errors
+from lms.api import errors, logs
 from lms.api.deps import DB
 from lms.api.routes import (
     auth, competencies, matrix, media, modules, overrides, people, policies, records, roles,
@@ -11,6 +11,7 @@ from lms.api.routes import (
 )
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
+logs.install()
 
 app = FastAPI(
     title="Simple LMS",
