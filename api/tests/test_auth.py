@@ -22,11 +22,12 @@ def test_code_and_pin_give_a_learner_session(client, learner):
     assert me["idle_seconds"] == 15 * 60
 
 
-def test_a_supervisor_signed_in_by_pin_only_does_their_own_training(client, supervisor):
+def test_a_supervisor_signed_in_by_pin_does_their_training_and_signs_off(client, supervisor):
     by_pin = pin_login(client, supervisor.code)["person"]
-    assert (by_pin["permission"], by_pin["scopes"]) == ("supervisor", ["training:read", "training:write"])
+    assert (by_pin["permission"], by_pin["scopes"]) == (
+        "supervisor", ["training:read", "training:write", "signoffs:write"])
     by_password = login(client, supervisor.email)["person"]
-    assert "matrix:read" in by_password["scopes"]
+    assert "matrix:read" in by_password["scopes"] and "signoffs:write" in by_password["scopes"]
 
 
 def test_a_wrong_password_and_an_unknown_email_look_alike(client, manager):
