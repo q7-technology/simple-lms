@@ -31,9 +31,12 @@ log = logging.getLogger("lms.entra")
 SCOPE = "openid profile email"
 # a minute either way between Microsoft's clock and ours
 LEEWAY = 60
-# the tenant's signing keys, fetched again after a day, or at once when a
-# token names a key we don't have (Microsoft has rolled them over)
+# the tenant's signing keys, fetched again after a day, or sooner when a
+# token names a key we don't have (Microsoft has rolled them over), but not
+# within 5 minutes of the last fetch: a token naming a made-up key is
+# refused without asking Microsoft every time
 KEYS_FOR = 24 * 3600
+REFETCH_AFTER = 5 * 60
 TIMEOUT = 10
 
 
@@ -81,15 +84,22 @@ def authorise_url(s: Settings, public_url: str, *, state: str, nonce: str, verif
 
 # --- talking to Microsoft (tests put a stand-in here) --------------------------
 
-def fetch_json(url: str) -> dict[str, Any]:
-    with urllib.request.urlopen(url, timeout=TIMEOUT) as r:
+def _https(url: str) -> str:
+    """Only ever https: urllib would open http: and file: addresses too."""
+    if urllib.parse.urlsplit(url).scheme != "https":
+        raise ValueError(f"not an https address: {url}")
+    return url
+
+
+def fetch_json(url: str) -> Any:
+    with urllib.request.urlopen(_https(url), timeout=TIMEOUT) as r:
         return json.load(r)
 
 
 def post_form(url: str, data: dict[str, str]) -> dict[str, Any]:
     """Microsoft's JSON answer, an error ({"error", "error_description"}) as
     much as a token."""
-    request = urllib.request.Request(url, data=urllib.parse.urlencode(data).encode(),
+    request = urllib.request.Request(_https(url), data=urllib.parse.urlencode(data).encode(),
                                      headers={"Accept": "application/json"})
     try:
         with urllib.request.urlopen(request, timeout=TIMEOUT) as r:
@@ -121,8 +131,13 @@ def forget_keys() -> None:
 
 
 def _fetch_keys(s: Settings) -> dict[str, Any]:
+    answer = fetch_json(_endpoint(s, "discovery/v2.0/keys"))
+    if not isinstance(answer, dict) or not isinstance(answer.get("keys"), list):
+        raise ValueError("Microsoft's answer is not a list of keys")
     found = {}
-    for jwk in fetch_json(_endpoint(s, "discovery/v2.0/keys")).get("keys", []):
+    for jwk in answer["keys"]:
+        if not isinstance(jwk, dict):
+            continue
         if jwk.get("kty") != "RSA" or jwk.get("use", "sig") != "sig" or "kid" not in jwk:
             continue
         try:
@@ -134,8 +149,9 @@ def _fetch_keys(s: Settings) -> dict[str, Any]:
 
 def signing_key(s: Settings, kid: str) -> Any:
     with _keys.lock:
-        stale = _keys.fetched_at is None or monotonic() - _keys.fetched_at >= KEYS_FOR
-        if stale or kid not in _keys.by_kid:
+        age = None if _keys.fetched_at is None else monotonic() - _keys.fetched_at
+        stale = age is None or age >= KEYS_FOR
+        if stale or (kid not in _keys.by_kid and age >= REFETCH_AFTER):
             try:
                 _keys.by_kid = _fetch_keys(s)
             except (OSError, ValueError) as e:

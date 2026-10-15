@@ -64,4 +64,11 @@ def test_the_ids_are_kept_lower_case():
 
 def test_microsofts_address_is_the_usual_one_unless_told():
     assert Settings().entra_authority == "https://login.microsoftonline.com"
-    assert Settings(entra_authority="http://10.0.0.5:8099/").entra_authority == "http://10.0.0.5:8099"
+    assert Settings(entra_authority="https://10.0.0.5:8099/").entra_authority == "https://10.0.0.5:8099"
+
+
+@pytest.mark.parametrize("authority", ["http://login.microsoftonline.com", "file:///etc",
+                                       "login.microsoftonline.com", "https://", "https:///x"])
+def test_microsofts_address_must_be_https_with_a_host(authority):
+    with pytest.raises(ValidationError, match="LMS_ENTRA_AUTHORITY .* must be an https:// address"):
+        Settings(entra_authority=authority)

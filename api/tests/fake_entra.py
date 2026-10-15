@@ -8,8 +8,11 @@ Run on its own, it is a stand-in to try signing in with Microsoft by hand
 (docs/plans, step 5's walkthrough): its sign-in page asks for an email and an
 object id instead of a password.
 
-    .venv/bin/python tests/fake_entra.py --port 8099 \\
+    .venv/bin/python tests/fake_entra.py --port 8099 --cert cert.pem --key key.pem \\
         --tenant <LMS_ENTRA_TENANT_ID> --client <LMS_ENTRA_CLIENT_ID> --secret <…>
+
+The API talks only to an https address (LMS_ENTRA_AUTHORITY), so it serves
+https with a certificate the API's container trusts (SSL_CERT_FILE).
 """
 from __future__ import annotations
 
@@ -138,7 +141,8 @@ email's domain (xms_edov)</label></p>
 <p><button>Sign in</button></p></form>"""
 
 
-def serve(port: int, fake: FakeEntra) -> None:
+def serve(port: int, fake: FakeEntra, cert: str, key: str) -> None:
+    import ssl
     from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
     base = f"/{fake.tenant}/"
@@ -186,8 +190,12 @@ def serve(port: int, fake: FakeEntra) -> None:
                 return self._send(302, "", "text/plain", {"Location": back})
             self._send(404, {"error": "not_found"})
 
-    print(f"fake Entra on http://0.0.0.0:{port}{base} (Ctrl-C stops it)")
-    ThreadingHTTPServer(("0.0.0.0", port), Handler).serve_forever()
+    server = ThreadingHTTPServer(("0.0.0.0", port), Handler)
+    tls = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    tls.load_cert_chain(cert, key)
+    server.socket = tls.wrap_socket(server.socket, server_side=True)
+    print(f"fake Entra on https://0.0.0.0:{port}{base} (Ctrl-C stops it)")
+    server.serve_forever()
 
 
 if __name__ == "__main__":
@@ -196,10 +204,13 @@ if __name__ == "__main__":
     p = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     p.add_argument("--port", type=int, default=8099)
     p.add_argument("--authority", help="the address the API and the browser use for it, "
-                                       "e.g. http://192.168.1.20:8099 (LMS_ENTRA_AUTHORITY)")
+                                       "e.g. https://192.168.1.20:8099 (LMS_ENTRA_AUTHORITY)")
+    p.add_argument("--cert", required=True, help="its certificate (PEM), for https")
+    p.add_argument("--key", required=True, help="the certificate's private key (PEM)")
     p.add_argument("--tenant", default=TENANT)
     p.add_argument("--client", default=CLIENT)
     p.add_argument("--secret", default=SECRET)
     a = p.parse_args()
     serve(a.port, FakeEntra(a.tenant, a.client, a.secret,
-                            (a.authority or f"http://127.0.0.1:{a.port}").rstrip("/")))
+                            (a.authority or f"https://127.0.0.1:{a.port}").rstrip("/")),
+          a.cert, a.key)

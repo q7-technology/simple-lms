@@ -215,7 +215,9 @@ center (an Application Administrator can):
 Then in `.env` set `LMS_ENTRA_TENANT_ID`, `LMS_ENTRA_CLIENT_ID` and
 `LMS_ENTRA_CLIENT_SECRET` (in `.env` only, not on the Settings screen: the
 secret is a secret), make sure the web address is set (**Settings → Web
-address**, or `LMS_PUBLIC_URL`), and `docker compose up -d api`. Both sign-in pages now offer **Sign in with
+address**, or `LMS_PUBLIC_URL`), and `docker compose up -d api`. `LMS_ENTRA_AUTHORITY` is
+Microsoft's address, `https://login.microsoftonline.com`, unless you point it
+at a stand-in; it must be an `https://` address or the API won't start. Both sign-in pages now offer **Sign in with
 Microsoft**. The learner app asks Microsoft for the password every time, so
 a shared tablet never signs the next person in as the last; the desktop
 lets people pick their account. Open Simple LMS at its web address to sign

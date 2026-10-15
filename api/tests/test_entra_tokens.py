@@ -65,11 +65,50 @@ def test_the_keys_are_fetched_once(entra):
     assert entra.key_fetches == 1
 
 
-def test_new_keys_are_fetched_when_microsoft_rolls_them(entra):
+def later_by(monkeypatch, seconds: float) -> None:
+    then = time.monotonic() + seconds
+    monkeypatch.setattr(service, "monotonic", lambda: then)
+
+
+def test_new_keys_are_fetched_when_microsoft_rolls_them(entra, monkeypatch):
     check(entra, entra.sign(entra.claims(nonce=NONCE)))
     entra.rotate()
+    later_by(monkeypatch, 5 * 60)
     check(entra, entra.sign(entra.claims(nonce=NONCE)))
     assert entra.key_fetches == 2
+
+
+def test_an_unknown_key_fetches_them_again_at_most_every_five_minutes(entra, monkeypatch):
+    check(entra, entra.sign(entra.claims(nonce=NONCE)))
+    # tokens naming keys nobody publishes, one after another, ask Microsoft nothing
+    for n in range(5):
+        with pytest.raises(EntraError, match="doesn't publish"):
+            check(entra, entra.sign(entra.claims(nonce=NONCE), kid=f"made-up-{n}"))
+    assert entra.key_fetches == 1
+    later_by(monkeypatch, 5 * 60)
+    with pytest.raises(EntraError, match="doesn't publish"):
+        check(entra, entra.sign(entra.claims(nonce=NONCE), kid="made-up-again"))
+    assert entra.key_fetches == 2
+    with pytest.raises(EntraError, match="doesn't publish"):
+        check(entra, entra.sign(entra.claims(nonce=NONCE), kid="and-again"))
+    assert entra.key_fetches == 2
+
+
+@pytest.mark.parametrize("answer", [["not", "an", "object"], "keys", None, {"no": "keys"},
+                                    {"keys": "not a list"}, {"keys": ["not a key", 7]}])
+def test_keys_that_arent_a_list_of_keys_are_a_refusal_not_a_crash(entra, monkeypatch, answer):
+    monkeypatch.setattr(service, "fetch_json", lambda url: answer)
+    with pytest.raises(EntraError):
+        check(entra, entra.sign(entra.claims(nonce=NONCE)))
+
+
+@pytest.mark.parametrize("url", ["http://login.microsoftonline.com/t/discovery/v2.0/keys",
+                                 "file:///etc/passwd", "ftp://example.com/keys"])
+def test_only_https_is_fetched(url):
+    with pytest.raises(ValueError, match="https"):
+        service.fetch_json(url)
+    with pytest.raises(ValueError, match="https"):
+        service.post_form(url, {"code": "x"})
 
 
 def test_the_keys_are_fetched_again_after_a_day(entra, monkeypatch):

@@ -1,4 +1,5 @@
 import re
+import urllib.parse
 from functools import lru_cache
 from typing import Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -72,6 +73,16 @@ class Settings(BaseSettings):
     @classmethod
     def _no_trailing_slash(cls, value: str) -> str:
         return value.strip().rstrip("/")
+
+    @field_validator("entra_authority")
+    @classmethod
+    def _authority_is_https(cls, value: str) -> str:
+        # after _no_trailing_slash: validators on a field run in order
+        parts = urllib.parse.urlsplit(value)
+        if parts.scheme != "https" or not parts.hostname:
+            raise ValueError(f"LMS_ENTRA_AUTHORITY {value!r} must be an https:// address with "
+                             "a host, e.g. https://login.microsoftonline.com")
+        return value
 
     @field_validator("entra_tenant_id")
     @classmethod
