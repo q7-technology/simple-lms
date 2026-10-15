@@ -1,4 +1,5 @@
-"""entra: Microsoft sign-ins under way, and sessions signed in with Microsoft
+"""entra: Microsoft sign-ins under way, and sessions signed in with Microsoft,
+each with its own idle time
 
 Revision ID: 0005
 Revises: 0003b
@@ -22,6 +23,12 @@ def upgrade() -> None:
     # a session signed in with Microsoft
     op.drop_constraint(op.f("ck_session_method"), "session", type_="check")
     op.create_check_constraint(op.f("ck_session_method"), "session", METHODS_NOW)
+    # how long a session lasts without a request: by its method until now, and
+    # 15 minutes for Microsoft in the learner app (perhaps a shared tablet)
+    op.add_column("session", sa.Column("idle_seconds", sa.Integer(), nullable=True))
+    op.execute("update session set idle_seconds = case when method = 'pin' then 900 "
+               "else 43200 end")
+    op.alter_column("session", "idle_seconds", nullable=False)
 
     op.create_table(
         "entra_sign_in",
@@ -61,5 +68,6 @@ def downgrade() -> None:
     op.drop_table("entra_sign_in")
     # before 0005 there is no such thing as an entra session: end them first
     op.execute("delete from session where method = 'entra'")
+    op.drop_column("session", "idle_seconds")
     op.drop_constraint(op.f("ck_session_method"), "session", type_="check")
     op.create_check_constraint(op.f("ck_session_method"), "session", METHODS_BEFORE)

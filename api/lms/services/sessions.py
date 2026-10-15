@@ -1,6 +1,8 @@
 """Sessions: one random token per signed-in device, kept only as its hash.
 A PIN session (the learner app, perhaps a shared tablet) ends after 15
-minutes idle; a password or Microsoft (entra) session after 12 hours idle.
+minutes idle, and so does a Microsoft (entra) one begun in the learner app;
+a password session, or a Microsoft one begun on the desktop, after 12 hours
+idle. Each session keeps its idle time (idle_seconds).
 Any ends on sign-out, or when its PIN or password is changed. A Microsoft
 session also ends 12 hours after it
 began: Simple LMS hears nothing from Microsoft once someone is signed in, so
@@ -21,6 +23,8 @@ IDLE = {"password": timedelta(hours=12), "pin": timedelta(minutes=15),
         "entra": timedelta(hours=12)}
 LIFETIME = {"password": timedelta(days=14), "pin": timedelta(hours=12),
             "entra": timedelta(hours=12)}
+# Microsoft in the learner app: perhaps a shared tablet, so as for a PIN
+SHARED_DEVICE_IDLE = IDLE["pin"]
 # last_seen_at is written at most once a minute, not on every request
 TOUCH_EVERY = timedelta(minutes=1)
 
@@ -53,12 +57,16 @@ def _hash(raw: str) -> str:
     return hashlib.sha256(raw.encode()).hexdigest()
 
 
-def start(db: Db, person: Person, method: str, now: datetime | None = None) -> str:
-    """A new session; the raw token is returned once and never stored."""
+def start(db: Db, person: Person, method: str, now: datetime | None = None,
+          idle: timedelta | None = None) -> str:
+    """A new session; the raw token is returned once and never stored. It
+    ends after `idle` without a request (the method's idle time unless told)."""
     now = now or datetime.now(UTC)
     raw = PREFIX + secrets.token_urlsafe(32)
+    idle = idle or IDLE[method]
     db.add(Session(person_id=person.id, token_hash=_hash(raw), method=method,
-                   last_seen_at=now, expires_at=now + LIFETIME[method]))
+                   last_seen_at=now, expires_at=now + LIFETIME[method],
+                   idle_seconds=int(idle.total_seconds())))
     db.flush()
     return raw
 
@@ -67,7 +75,7 @@ def alive(db: Db, row: Session, now: datetime | None = None) -> bool:
     """Not ended, not too old and not idle too long; marked as just used."""
     now = now or datetime.now(UTC)
     if (row.revoked_at is not None or row.expires_at <= now
-            or now - row.last_seen_at > IDLE[row.method]):
+            or now - row.last_seen_at > timedelta(seconds=row.idle_seconds)):
         return False
     if now - row.last_seen_at >= TOUCH_EVERY:
         row.last_seen_at = now

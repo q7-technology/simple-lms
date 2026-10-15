@@ -60,10 +60,10 @@ class MethodsOut(BaseModel):
     entra: bool
 
 
-def me_out(p: Person, method: str) -> MeOut:
+def me_out(p: Person, method: str, idle_seconds: int) -> MeOut:
     return MeOut(id=p.id, code=p.code, name=p.name, email=p.email, permission=p.permission,
                  method=method, scopes=sessions.scopes_for(p.permission, method),
-                 idle_seconds=int(sessions.IDLE[method].total_seconds()))
+                 idle_seconds=idle_seconds)
 
 
 def _refused(detail: str, code: str) -> JSONResponse:
@@ -77,11 +77,12 @@ def switched_on(on: bool, how: str) -> None:
         raise Forbidden(f"Signing in with {how} is switched off here.", "method_off")
 
 
-def signed_in(db, person: Person, method: str) -> SessionOut:
-    token = sessions.start(db, person, method)
+def signed_in(db, person: Person, method: str, idle: timedelta | None = None) -> SessionOut:
+    idle = idle or sessions.IDLE[method]
+    token = sessions.start(db, person, method, idle=idle)
     person.last_login_at = datetime.now(UTC)
     db.commit()
-    return SessionOut(token=token, person=me_out(person, method))
+    return SessionOut(token=token, person=me_out(person, method, int(idle.total_seconds())))
 
 
 def _one_at_a_time(db, where) -> Person | None:
@@ -154,7 +155,7 @@ def logout(db: DB, authorization: Annotated[str | None, Header()] = None):
 
 @router.get("/me", response_model=MeOut)
 def me(who: Who):
-    return me_out(who.person, who.method)
+    return me_out(who.person, who.method, who.session.idle_seconds)
 
 
 @router.get("/methods", response_model=MethodsOut)

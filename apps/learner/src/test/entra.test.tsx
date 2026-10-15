@@ -1,4 +1,4 @@
-import { screen, waitFor } from "@testing-library/react";
+import { act, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { browser } from "../auth/Session";
 import { json, KIM, renderApp, stubApi } from "./harness";
@@ -28,7 +28,7 @@ describe("signing in to the learner app with Microsoft", () => {
   it("finishes when Microsoft sends them back, and shows My training", async () => {
     window.sessionStorage.setItem("lms.learner.entra", "the-tabs-secret");
     const calls = stubApi((_m, url) => {
-      if (url === "/v1/auth/entra/finish") return json(200, { token: "lms_s.kim", person: { ...KIM, method: "entra", idle_seconds: 43200 } });
+      if (url === "/v1/auth/entra/finish") return json(200, { token: "lms_s.kim", person: { ...KIM, method: "entra", idle_seconds: 900 } });
       if (url === "/v1/people/LL042/training") return json(200, TRAINING);
       return null;
     });
@@ -37,6 +37,28 @@ describe("signing in to the learner app with Microsoft", () => {
     expect(calls.filter((c) => c.url === "/v1/auth/entra/finish").map((c) => c.body)).toEqual([
       { code: "the-hand-off", verifier: "the-tabs-secret" }]);
     expect(JSON.parse(window.localStorage.getItem("lms.learner.session")!).person.method).toBe("entra");
+  });
+
+  it("forgets someone signed in with Microsoft after 15 minutes idle, as the API does", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      window.sessionStorage.setItem("lms.learner.entra", "the-tabs-secret");
+      stubApi((_m, url) => {
+        if (url === "/v1/auth/entra/finish") return json(200, { token: "lms_s.kim", person: { ...KIM, method: "entra", idle_seconds: 900 } });
+        if (url === "/v1/people/LL042/training") return json(200, TRAINING);
+        if (url === "/v1/auth/methods") return json(200, ALL_ON);
+        return null;
+      });
+      renderApp(null, Date.now(), "/sign-in#entra=the-hand-off");
+      expect(await screen.findByRole("heading", { name: "My training" })).toBeInTheDocument();
+      await act(async () => { vi.advanceTimersByTime(14 * 60_000); });
+      expect(screen.getByRole("heading", { name: "My training" })).toBeInTheDocument();
+      await act(async () => { vi.advanceTimersByTime(2 * 60_000); });
+      expect(await screen.findByRole("heading", { name: "Sign in" })).toBeInTheDocument();
+      expect(window.localStorage.getItem("lms.learner.session")).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("says plainly when nobody has that Microsoft account", async () => {

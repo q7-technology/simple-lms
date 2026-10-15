@@ -13,10 +13,10 @@ def test_a_session_may_be_signed_in_with_microsoft(db):
     kim = make_person(db, "LL042", "Kim Lee")
     now = datetime.now(UTC)
     db.add(Session(person_id=kim.id, token_hash="a" * 64, method="entra", last_seen_at=now,
-                   expires_at=now))
+                   expires_at=now, idle_seconds=900))
     db.commit()
     db.add(Session(person_id=kim.id, token_hash="b" * 64, method="sso", last_seen_at=now,
-                   expires_at=now))
+                   expires_at=now, idle_seconds=900))
     with pytest.raises(IntegrityError, match="ck_session_method"):
         db.commit()
 

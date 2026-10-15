@@ -52,8 +52,9 @@ class Person(Base):
 
 
 class Session(Base):
-    """One signed-in device. Only the token's hash is kept. A PIN session ends
-    after 15 minutes idle, a password or Microsoft (entra) one after 12 hours."""
+    """One signed-in device. Only the token's hash is kept. It ends after
+    idle_seconds without a request: 15 minutes for a PIN, or Microsoft in the
+    learner app; 12 hours for a password, or Microsoft on the desktop."""
 
     __tablename__ = "session"
     __table_args__ = (CheckConstraint("method in ('password', 'pin', 'entra')", name="method"),)
@@ -65,4 +66,5 @@ class Session(Base):
     created_at: Mapped[datetime] = created_at_column()
     last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    idle_seconds: Mapped[int] = mapped_column(Integer)
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

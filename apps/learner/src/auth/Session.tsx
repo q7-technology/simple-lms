@@ -71,7 +71,7 @@ function read(): Stored | null {
 }
 
 /** Who is signed in on this device. On a shared tablet the app forgets them
- * after the session's idle time (15 minutes for a PIN), as the API does, so
+ * after the session's idle time (15 minutes for a PIN or Microsoft), as the API does, so
  * the next person never sees the last one's training. */
 export function SessionProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Stored | null>(() => {

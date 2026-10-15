@@ -33,7 +33,7 @@ from lms.api.errors import Refused, Unauthorised
 from lms.api.routes.auth import SessionOut, signed_in, switched_on
 from lms.config import get_settings
 from lms.models import EntraSignIn, Person
-from lms.services import entra, settings
+from lms.services import entra, sessions, settings
 
 router = APIRouter(prefix="/auth/entra", tags=["auth"])
 log = logging.getLogger("lms.entra")
@@ -189,4 +189,6 @@ def finish(body: FinishIn, db: DB):
     if not ok or person is None or not person.active:
         db.commit()
         raise Unauthorised("that Microsoft sign-in has finished or expired; try again")
-    return signed_in(db, person, "entra")
+    # the learner app may be a shared tablet: as idle as a PIN, not 12 hours
+    idle = sessions.SHARED_DEVICE_IDLE if row.app == "learner" else None
+    return signed_in(db, person, "entra", idle)

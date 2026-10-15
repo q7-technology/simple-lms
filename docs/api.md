@@ -79,8 +79,9 @@ With email and password sign-in switched off in Settings it is `403 {
 (`"code": "locked"`) until a manager sets a new one. With code and PIN
 sign-in switched off in Settings it is `403 { "code": "method_off" }`.
 
-A session ends on sign-out, after its idle time without a request (15
-minutes for a PIN, 12 hours for a password or Microsoft), after 12 hours
+A session ends on sign-out, after its idle time without a request
+(`idle_seconds`: 15 minutes for a PIN or for Microsoft in the learner app,
+12 hours for a password or Microsoft on the desktop), after 12 hours
 (PIN or Microsoft) or 14 days (password) in all, when the person's PIN or
 password is changed, or when they are deactivated (a way switched off in
 Settings refuses new sign-ins; sessions already open run their course). A Microsoft session lasts a working day at most because
@@ -124,8 +125,9 @@ either app. The session token never goes in an address.
    publish, but not within 5 minutes of the last fetch: until then such a
    token is refused.
 3. `POST /v1/auth/entra/finish` — `{ "code", "verifier" }` → `200`, the
-   same shape as `login` with `"method": "entra"` and
-   `"idle_seconds": 43200`. A hand-off code works once, within 2 minutes,
+   same shape as `login` with `"method": "entra"`, and `"idle_seconds":
+   900` when the learner app started it (perhaps a shared tablet, so as for
+   a PIN) or `43200` for the desktop. A hand-off code works once, within 2 minutes,
    with the verifier its app started with; otherwise `401 { "detail": "that
    Microsoft sign-in has finished or expired; try again" }`.
 

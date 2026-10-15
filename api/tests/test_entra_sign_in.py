@@ -257,3 +257,28 @@ def test_starts_are_counted_by_address(client, db, entra):
     db.commit()
     assert to_microsoft(client)
 
+
+def test_microsoft_on_the_learner_app_ends_after_fifteen_minutes_idle(client, db, entra, learner):
+    from lms.models import Session
+
+    learner.email = "kim@example.com.au"
+    db.commit()
+    back = at_microsoft(client, entra, "learner", email="kim@example.com.au")[1]
+    out = finish(client, back["entra"]).json()
+    assert (out["person"]["method"], out["person"]["idle_seconds"]) == ("entra", 15 * 60)
+    me = client.get("/v1/auth/me", headers=bearer(out["token"])).json()
+    assert (me["method"], me["idle_seconds"]) == ("entra", 15 * 60)
+    db.execute(update(Session).values(last_seen_at=datetime.now(UTC) - timedelta(minutes=16)))
+    db.commit()
+    assert client.get("/v1/auth/me", headers=bearer(out["token"])).status_code == 401
+
+
+def test_microsoft_on_the_desktop_lasts_twelve_hours_idle(client, db, entra, manager):
+    from lms.models import Session
+
+    back = at_microsoft(client, entra, "desktop", email=manager.email)[1]
+    token = finish(client, back["entra"]).json()["token"]
+    db.execute(update(Session).values(last_seen_at=datetime.now(UTC) - timedelta(hours=11)))
+    db.commit()
+    me = client.get("/v1/auth/me", headers=bearer(token)).json()
+    assert me["idle_seconds"] == 12 * 3600

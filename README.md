@@ -222,7 +222,9 @@ Microsoft**. The learner app asks Microsoft for the password every time, so
 a shared tablet never signs the next person in as the last; the desktop
 lets people pick their account. Open Simple LMS at its web address to sign
 in this way: Microsoft sends people back there, to the tab they started in.
-A Microsoft session lasts a working day (12
+A Microsoft session in the learner app ends
+after 15 minutes without a tap, as a PIN's does, so a shared tablet is safe;
+on the desktop, after 12 hours. Either lasts a working day (12
 hours) at most, since Simple LMS hears nothing from Microsoft once someone
 is in: deactivate a person who leaves, as always. If a person was matched
 to the wrong account, **Unlink Microsoft** on their record under **People**.
