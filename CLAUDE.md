@@ -81,6 +81,17 @@ docker-compose.yml   api, worker, db, caddy
   keep the signature out of the logs (`lms/api/logs.py`).
 - Sister apps: nothing in Simple WMS or Simple TMS changes for Simple LMS. It
   publishes signed events and a competency API (build step 6).
+- Settings: everyday settings (sign-in methods, the quiz wait, reminder
+  days, the daily hour and time zone, the email server, the web address)
+  are read only through `lms/services/settings.py` (`settings.current()`),
+  never from `lms.config` directly: a value set on the Settings screen wins
+  over `.env`, which wins over the default, and changes reach every
+  process within seconds. A new everyday setting goes there, with its
+  `.env` fallback if it has one. What is needed before the app starts or
+  could lock everyone out (database, ports, domain, upload folder, Caddy)
+  stays in `.env` only. A secret is write-only: never sent back. Their
+  table, `setting`, came in migration `0003b`; the next migration (`0004`)
+  goes after it.
 - Printing: Simple LMS never renders a document. Certificates and skills
   cards go to Platen (or any print service) as `template` + JSON `data`
   through the queue.

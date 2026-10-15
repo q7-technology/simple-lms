@@ -8,12 +8,12 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session as Db
 
-from lms.config import get_settings
 from lms.models import Competency, ModulePage, ModuleVersion, QuizAttempt, QuizQuestion
-from lms.services import clock
+from lms.services import clock, settings
 
-# this many goes in a row that didn't pass, and the learner waits
-TRIES = 3
+NUMBERS = ["No", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine", "Ten",
+           "Eleven", "Twelve", "Thirteen", "Fourteen", "Fifteen", "Sixteen", "Seventeen",
+           "Eighteen", "Nineteen", "Twenty"]
 
 
 def newest(db: Db, module: Competency) -> ModuleVersion | None:
@@ -57,29 +57,46 @@ def score(correct: int, total: int) -> int:
 
 def retry_at(db: Db, person_id: int, module: Competency) -> datetime | None:
     """When the person may next try the module's quiz, if they must wait:
-    their last three goes at it (any version) didn't pass, and the wait
-    (LMS_QUIZ_COOLDOWN_MINUTES) runs from the last of them. A pass starts
-    the count again. Worked out from the attempts, never stored."""
-    minutes = get_settings().quiz_cooldown_minutes
+    their last few goes at it (any version; how many, and the wait, are in
+    Settings) didn't pass, and the wait runs from the last of them. A pass
+    starts the count again. Worked out from the attempts, never stored."""
+    s = settings.current()
+    minutes, tries = s.quiz_cooldown_minutes, s.quiz_cooldown_tries
     if minutes <= 0:
         return None
+    # the last saved, by id: created_at is when its transaction began, so a
+    # go that waited on the person's lock can be dated before one saved earlier
     last = db.execute(select(QuizAttempt.passed, QuizAttempt.created_at)
                       .where(QuizAttempt.person_id == person_id,
                              QuizAttempt.competency_id == module.id)
-                      .order_by(QuizAttempt.created_at.desc(), QuizAttempt.id.desc())
-                      .limit(TRIES)).all()
-    if len(last) < TRIES or any(passed for passed, _ in last):
+                      .order_by(QuizAttempt.id.desc())
+                      .limit(tries)).all()
+    if len(last) < tries or any(passed for passed, _ in last):
         return None
-    until = last[0].created_at + timedelta(minutes=minutes)
+    until = max(at for _, at in last) + timedelta(minutes=minutes)
     return until if until > clock.now() else None
+
+
+def retry_text(when: datetime | None) -> str | None:
+    """retry_at ready to show, in the business's time zone: "2:15 pm"."""
+    return said_at(when, clock.now()) if when is not None else None
 
 
 def said_at(when: datetime, now: datetime) -> str:
     """A time as people say it where the business is: 2:15 pm, and the day
     too when it isn't today, 1:00 am on Fri 16 Oct."""
-    zone = ZoneInfo(get_settings().timezone)
+    zone = ZoneInfo(settings.current().timezone)
     local, today = when.astimezone(zone), now.astimezone(zone).date()
     out = f"{local.hour % 12 or 12}:{local:%M} {'am' if local.hour < 12 else 'pm'}"
     if local.date() != today:
         out += f" on {local:%a} {local.day} {local:%b}"
     return out
+
+
+def why_wait() -> str:
+    """Why the learner waits, said as the setting stands: "Three tries in a
+    row didn't pass"."""
+    tries = settings.current().quiz_cooldown_tries
+    if tries == 1:
+        return "That try didn't pass"
+    return f"{NUMBERS[tries] if tries < len(NUMBERS) else tries} tries in a row didn't pass"

@@ -29,7 +29,7 @@ in UTC. Interactive docs are at `/docs`.
 | `learner` | `training:read`, `training:write` |
 | `supervisor` | `training:read`, `training:write`, `matrix:read`, `roles:read`, `competencies:read` |
 | `manager` | the supervisor's, plus `people:read`, `people:write`, `roles:write`, `competencies:write`, `records:write`, `tickets:verify` |
-| `admin` | `*` |
+| `admin` | `*` (everything, `settings:write` among it) |
 
 `training:write` is doing your own training: sending a file, signing a
 policy, sending in a ticket, reading a module and taking its quiz. A
@@ -56,12 +56,15 @@ manager or an admin (`403 { "code": "admin_only" }`).
 A wrong password, an unknown email, or someone with no password is `401`
 `{ "detail": "wrong email or password", "code": "wrong_password" }`. Five
 wrong in a row lock the password for 15 minutes (`"code": "locked"`).
+With email and password sign-in switched off in Settings it is `403 {
+"code": "method_off" }`, whatever is sent.
 
 ### POST /v1/auth/pin-login
 `{ "code": "LL042", "pin": "2468" }` → `200`, the same shape with
 `"method": "pin"` and `"idle_seconds": 900`. A wrong PIN or unknown code is
 `401 { "code": "wrong_pin" }`. Five wrong PINs lock the PIN
-(`"code": "locked"`) until a manager sets a new one.
+(`"code": "locked"`) until a manager sets a new one. With code and PIN
+sign-in switched off in Settings it is `403 { "code": "method_off" }`.
 
 A session ends on sign-out, after its idle time without a request (15
 minutes for a PIN, 12 hours for a password), after 12 hours (PIN) or 14 days
@@ -215,7 +218,8 @@ Worked out on every request, never stored:
 
 The last good day is the record's `expires_on` if it has one, else
 `granted_on` plus the competency's refresher months, else never. Today is
-the date in `LMS_TIMEZONE` (default `Australia/Melbourne`).
+the date in the time zone in Settings (or `LMS_TIMEZONE`; default
+`Australia/Melbourne`).
 
 A **policy** with a version published counts only for its newest version:
 a grant for an older version (or from before there were versions) is
@@ -384,12 +388,14 @@ Each version, as its editors see it (`correct` is only there for them):
 - `GET /v1/modules/{key}` (`training:read`) — the version to take now, as
   the learner sees it: `{ "key", "name", "version": { "id", "version",
   "pass_mark", "pages": [ … ], "questions": [{ "prompt", "options" }] },
-  "resume_at", "retry_at" }`. Never which answer is right. `resume_at` is
+  "resume_at", "retry_at", "retry_at_text" }`. Never which answer is right. `resume_at` is
   the page they left off at (counting from 0; one past the last page is the
   quiz), on any device; `0` for a version they haven't opened. `retry_at`
-  is when the caller may next try the quiz after three goes in a row that
-  didn't pass (below), or `null` when they may try now. `404` until a
-  version is published.
+  is when the caller may next try the quiz after too many goes in a row
+  that didn't pass (below), or `null` when they may try now;
+  `retry_at_text` is the same ready to show, in the time zone in Settings
+  (`"2:15 pm"`, or `"1:00 am on Fri 16 Oct"` when it isn't today). `404`
+  until a version is published.
 - `PUT /v1/modules/{key}/progress` (`training:write`) — `{ "version",
   "page" }` → `204`: where the caller is now, theirs alone. Kept on the
   server, so nothing of theirs stays on a shared tablet. A page past the
@@ -397,16 +403,19 @@ Each version, as its editors see it (`correct` is only there for them):
 - `POST /v1/modules/{key}/attempts` (`training:write`) — your own go at the
   quiz: `{ "version", "answers": [ … ] }`, one answer per question in order,
   counting from 0 → `201 { "id", "competency", "version", "correct",
-  "total", "score", "pass_mark", "passed", "created_at" }`. Marked here:
+  "total", "score", "pass_mark", "passed", "created_at", "retry_at",
+  "retry_at_text" }`, the last two as for the module, worked out once the
+  attempt is kept: the fail that starts the wait has them at once. Marked here:
   `score` is out of 100, rounded down, and a pass is a score of at least the
   pass mark. Every attempt is kept, pass or fail; try again as often as
-  needed, but after three goes in a row that didn't pass (the caller's last
-  three at this module, any version, with no pass after them) wait
-  `LMS_QUIZ_COOLDOWN_MINUTES` (60 by default; 0 for no wait) from the third:
-  a go before then is `429 { "code": "cooldown", "detail": "Three tries in
-  a row didn't pass: try again after 2:15 pm", "retry_at": "<ISO>" }` (the
-  time in `LMS_TIMEZONE`, with the day when it isn't today; a `Retry-After`
-  header in seconds), and nothing is kept. It is worked out from the
+  needed, but after a few goes in a row that didn't pass (the caller's last
+  three at this module by default, any version, the last saved, with no
+  pass after them) wait the minutes in Settings (60 by default; 0 for no
+  wait) from the last of them: a go before then is `429 { "code":
+  "cooldown", "detail": "Three tries in a row didn't pass: try again after
+  2:15 pm", "retry_at": "<ISO>", "retry_at_text": "2:15 pm" }` (the time
+  in the Settings time zone, with the day when it isn't today; a
+  `Retry-After` header in seconds), and nothing is kept. It is worked out from the
   attempts, once the person is locked, so goes sent at once can't slip
   past. A pass is a grant from today, recorded as the learner's own (the
   one thing anybody earns alone), and the competency's refresher, if any,
@@ -482,23 +491,86 @@ Each ticket:
 
 ## Emails and the daily job
 
-The worker sends email through SMTP (`LMS_SMTP_*` in `.env`) from the
-outbox, trying a failed one again after 1 minute, 5, 30 and 2 hours, then
-leaving it `failed`. Without `LMS_SMTP_HOST` and `LMS_SMTP_FROM` emails
-wait in the outbox, untried. Links in them start with `LMS_PUBLIC_URL`
-(none without it). Each day from `LMS_DAILY_HOUR` (6 am by default, in
-`LMS_TIMEZONE`) it queues:
+The worker sends email through the email server in Settings (or
+`LMS_SMTP_*` in `.env`) from the outbox, trying a failed one again after 1
+minute, 5, 30 and 2 hours, then leaving it `failed`. Without a host and a
+from address emails wait in the outbox, untried. Links in them start with
+the web address in Settings (or `LMS_PUBLIC_URL`; none without it). Each
+day from the daily hour (6 am by default, in the Settings time zone) it
+queues:
 
 - a reminder to each active person with an email when something they are
-  asked for has 30, 14 or 0 days left (the last good day itself), each once;
-  a day missed still gets the reminder it owed, and each says the real days
-  left;
+  asked for reaches a reminder day (30, 14 and 0 days left by default, 0
+  being the last good day itself), each once; a day missed still gets the
+  reminder it owed, and each says the real days left. Its outbox key is
+  `reminder:<person id>:<competency id>:<last good day>:<reminder day>`,
+  so each reminder day sends at most once. Adding a day can send a second
+  reminder for the same expiry (change 14 to 10, and someone with 10 days
+  left who had the 14-day email gets the 10-day one too);
 - on Mondays, a digest for each active manager and admin with an email of
   what is lapsed and what is expiring, for everyone (none when nothing is).
 
 `lms daily-job [--on YYYY-MM-DD]` queues them now (as if today were that
 date); nothing is queued twice. A date it can't read is refused with exit
 code 2.
+
+## Settings
+
+Everyday settings, changed by an admin (`settings:write`; anyone else is
+`403`) and taken up by the API and the worker within a few seconds, with no
+restart. Each value is the one set here, else the one in `.env`, else the
+default. What has to be known before the app starts (the database, ports,
+the domain, the upload folder, Caddy) is in `.env` only.
+
+| Key | Value | `.env` | Default |
+| --- | --- | --- | --- |
+| `sign_in_pin` | code and PIN sign-in on | | `true` |
+| `sign_in_password` | email and password sign-in on | | `true` |
+| `quiz_cooldown_tries` | quiz goes in a row that didn't pass before the wait, 1 to 20 | | `3` |
+| `quiz_cooldown_minutes` | the wait, 0 to 525600 (0: none) | `LMS_QUIZ_COOLDOWN_MINUTES` | `60` |
+| `reminder_days` | whole days 0 to 365, at least one, up to 10 (kept furthest first, each once) | | `[30, 14, 0]` |
+| `daily_hour` | 0 to 23 | `LMS_DAILY_HOUR` | `6` |
+| `timezone` | an IANA time zone | `LMS_TIMEZONE` | `"Australia/Melbourne"` |
+| `smtp_host` | the email server, no spaces | `LMS_SMTP_HOST` | `""` |
+| `smtp_port` | 1 to 65535 | `LMS_SMTP_PORT` | `587` |
+| `smtp_user` | | `LMS_SMTP_USER` | `""` |
+| `smtp_password` | write-only | `LMS_SMTP_PASSWORD` | `""` |
+| `smtp_from` | e.g. `Simple LMS <lms@example.com.au>` | `LMS_SMTP_FROM` | `""` |
+| `smtp_security` | `starttls`, `ssl` or `none` | `LMS_SMTP_SECURITY` | `"starttls"` |
+| `public_url` | `https://…` (or `http://`), no trailing slash, or `""` | `LMS_PUBLIC_URL` | `""` |
+
+### GET /v1/settings
+→ `200`, every key: `{ "value", "source" }`, where `source` is `here`,
+`env` (`.env` gives a value other than the default) or `default`. The password is never sent: `"smtp_password": { "set":
+true, "source": "env" }`.
+```json
+{ "daily_hour": { "value": 6, "source": "default" },
+  "timezone": { "value": "Australia/Perth", "source": "here" },
+  "smtp_password": { "set": false, "source": "default" }, "…": "…" }
+```
+
+### PUT /v1/settings
+Only the keys sent change: `{ "daily_hour": 7, "smtp_password": "…" }` →
+`200`, every setting as for GET. `null` removes the value set here, so it
+comes from `.env` or the default again; an empty password (`""`) is set
+here and clears one in `.env` too. A bad value is `422` on its key (e.g.
+`timezone`, `reminder_days.0`), an unknown key is `422` on that key, and
+nothing is saved unless every value is good. Who changed each setting last,
+and when, is kept with it.
+
+Switching `sign_in_password` off is `409 { "code": "last_way_in" }` while
+it is the only way an admin can sign in (a PIN session never carries an
+admin's scopes), which until Microsoft Entra sign-in arrives is always. A
+switched-off method is refused at sign-in (`403 method_off`); sessions
+already open run their course. The `lms` command line never signs in, so it
+works whatever is switched off, and `lms clear-setting <key>` puts any
+setting back to `.env` or the default.
+
+### POST /v1/settings/test-email
+Queues an email to the caller's own address through the outbox → `202 {
+"to" }`; the worker sends it within a few seconds. No email address is
+`409 { "code": "no_email" }`; no email server (host and from address) is
+`409 { "code": "no_mail_server" }`. Each press sends one.
 
 ## System
 

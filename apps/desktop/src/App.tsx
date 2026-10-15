@@ -6,6 +6,7 @@ import { Inbox } from "./pages/Inbox";
 import { Matrix } from "./pages/Matrix";
 import { People } from "./pages/People";
 import { Roles } from "./pages/Roles";
+import { Settings } from "./pages/Settings";
 import { SignIn } from "./pages/SignIn";
 import { Layout } from "./ui/Layout";
 
@@ -20,6 +21,7 @@ export function AppRoutes() {
           <Route path="/roles" element={<Roles />} />
           <Route path="/competencies" element={<Competencies />} />
           <Route path="/inbox" element={<Inbox />} />
+          <Route path="/settings" element={<Settings />} />
         </Route>
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />

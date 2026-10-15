@@ -1,3 +1,18 @@
+# The everyday settings from .env, for the api and the worker alike: both
+# read them (lms/services/settings.py), and a value set on the desktop's
+# Settings screen wins over them.
+x-lms-settings: &lms-settings
+  LMS_TIMEZONE: ${LMS_TIMEZONE:-Australia/Melbourne}
+  LMS_PUBLIC_URL: ${LMS_PUBLIC_URL:-}
+  LMS_DAILY_HOUR: ${LMS_DAILY_HOUR:-6}
+  LMS_QUIZ_COOLDOWN_MINUTES: ${LMS_QUIZ_COOLDOWN_MINUTES:-60}
+  LMS_SMTP_HOST: ${LMS_SMTP_HOST:-}
+  LMS_SMTP_PORT: ${LMS_SMTP_PORT:-587}
+  LMS_SMTP_USER: ${LMS_SMTP_USER:-}
+  LMS_SMTP_PASSWORD: ${LMS_SMTP_PASSWORD:-}
+  LMS_SMTP_FROM: ${LMS_SMTP_FROM:-}
+  LMS_SMTP_SECURITY: ${LMS_SMTP_SECURITY:-starttls}
+
 services:
   db:
     image: postgres:16
@@ -23,9 +38,8 @@ services:
     # migrations run on every start, before the API takes requests
     command: sh -c "alembic upgrade head && uvicorn lms.api.app:app --host 0.0.0.0 --port 8000"
     environment:
+      <<: *lms-settings
       LMS_DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-lms}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-lms}
-      LMS_TIMEZONE: ${LMS_TIMEZONE:-Australia/Melbourne}
-      LMS_QUIZ_COOLDOWN_MINUTES: ${LMS_QUIZ_COOLDOWN_MINUTES:-60}
     volumes:
       # tickets' photos and policy signatures (LMS_UPLOAD_DIR)
       - uploads:/data/uploads
@@ -53,16 +67,8 @@ services:
     restart: unless-stopped
     command: python -m lms.worker
     environment:
+      <<: *lms-settings
       LMS_DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-lms}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-lms}
-      LMS_TIMEZONE: ${LMS_TIMEZONE:-Australia/Melbourne}
-      LMS_PUBLIC_URL: ${LMS_PUBLIC_URL:-}
-      LMS_DAILY_HOUR: ${LMS_DAILY_HOUR:-6}
-      LMS_SMTP_HOST: ${LMS_SMTP_HOST:-}
-      LMS_SMTP_PORT: ${LMS_SMTP_PORT:-587}
-      LMS_SMTP_USER: ${LMS_SMTP_USER:-}
-      LMS_SMTP_PASSWORD: ${LMS_SMTP_PASSWORD:-}
-      LMS_SMTP_FROM: ${LMS_SMTP_FROM:-}
-      LMS_SMTP_SECURITY: ${LMS_SMTP_SECURITY:-starttls}
     depends_on:
       db:
         condition: service_healthy

@@ -20,7 +20,8 @@ LIFETIME = {"password": timedelta(days=14), "pin": timedelta(hours=12)}
 TOUCH_EVERY = timedelta(minutes=1)
 
 # What each permission level may do (the design's table). Admin-only areas
-# (users, sign-in settings, webhooks, API keys) arrive with their steps.
+# are the admin's "*" alone: settings:write (Settings, sign-in methods among
+# them) now, webhooks and API keys with their step.
 # training:write is doing your own training: signing a policy, adding a
 # ticket. tickets:verify is checking someone else's ticket.
 SCOPES: dict[str, list[str]] = {

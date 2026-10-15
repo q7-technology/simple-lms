@@ -1,4 +1,4 @@
-"""Email through SMTP, with the settings in .env (LMS_SMTP_*). Only the
+"""Email through SMTP, as Settings (or .env, LMS_SMTP_*) says. Only the
 worker sends, from the outbox; nothing waits on an email."""
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ import smtplib
 import ssl
 from email.message import EmailMessage
 
-from lms.config import Settings, get_settings
+from lms.services import settings
 
 TIMEOUT_SECONDS = 20
 # line breaks and other control characters, which in a header could start a new one
@@ -15,11 +15,11 @@ CONTROL = re.compile(r"[\x00-\x1f\x7f-\x9f\u2028\u2029]+")
 
 
 def set_up() -> bool:
-    s = get_settings()
+    s = settings.current()
     return bool(s.smtp_host and s.smtp_from)
 
 
-def connect(s: Settings) -> smtplib.SMTP:
+def connect(s: settings.Effective) -> smtplib.SMTP:
     """A connection to the mail server, encrypted as the settings say."""
     if s.smtp_security == "ssl":
         return smtplib.SMTP_SSL(s.smtp_host, s.smtp_port, timeout=TIMEOUT_SECONDS,
@@ -38,7 +38,7 @@ def one_line(value: str) -> str:
 
 def message(payload: dict) -> EmailMessage:
     msg = EmailMessage()
-    msg["From"] = one_line(get_settings().smtp_from)
+    msg["From"] = one_line(settings.current().smtp_from)
     msg["To"] = one_line(payload["to"])
     msg["Subject"] = one_line(payload["subject"])
     msg.set_content(payload["text"])
@@ -47,7 +47,7 @@ def message(payload: dict) -> EmailMessage:
 
 def send(payload: dict) -> str | None:
     """Send one email: None when the server took it, else what went wrong."""
-    s = get_settings()
+    s = settings.current()
     try:
         with connect(s) as smtp:
             if s.smtp_user:

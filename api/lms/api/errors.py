@@ -80,7 +80,9 @@ def field_errors(errors: list[dict]) -> list[dict]:
     out = []
     for e in errors:
         loc = [str(x) for x in e.get("loc", []) if x not in ("body",)]
-        out.append({"field": ".".join(loc) or "body", "message": e.get("msg", "invalid")})
+        # a check of our own says it plainly: without pydantic's "Value error, "
+        message = e.get("msg", "invalid").removeprefix("Value error, ")
+        out.append({"field": ".".join(loc) or "body", "message": message})
     return out
 
 
