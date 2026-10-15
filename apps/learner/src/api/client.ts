@@ -36,7 +36,7 @@ export class Unreachable extends Error {
 }
 
 type Fetcher = (url: string, init: RequestInit) => Promise<Response>;
-const SIGN_INS = new Set(["/v1/auth/login", "/v1/auth/pin-login"]);
+const SIGN_INS = new Set(["/v1/auth/login", "/v1/auth/pin-login", "/v1/auth/entra/finish"]);
 
 export class LearnerApi {
   token: string | null = null;
@@ -76,8 +76,9 @@ export class LearnerApi {
   get<T>(path: string) { return this.request<T>("GET", path); }
   post<T>(path: string, body: unknown = {}) { return this.request<T>("POST", path, body); }
   put<T>(path: string, body: unknown) { return this.request<T>("PUT", path, body); }
-  /** A ticket's photo or a signature, kept by the API before what names it. */
-  upload(purpose: "ticket" | "signature", file: Blob) {
+  /** A ticket's photo, a signature or a sign-off's photo, kept by the API
+   * before what names it. */
+  upload(purpose: "ticket" | "signature" | "signoff-photo", file: Blob) {
     return this.request<Upload>("POST", `/v1/uploads?purpose=${purpose}`, file);
   }
 }

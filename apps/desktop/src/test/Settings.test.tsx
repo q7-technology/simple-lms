@@ -11,6 +11,7 @@ const LEIGHTON: Me = {
 const SETTINGS: Settings = {
   sign_in_pin: { value: true, source: "default" },
   sign_in_password: { value: true, source: "default" },
+  sign_in_entra: { value: true, source: "default", set_up: false },
   quiz_cooldown_tries: { value: 3, source: "default" },
   quiz_cooldown_minutes: { value: 60, source: "env" },
   reminder_days: { value: [30, 14, 0], source: "default" },

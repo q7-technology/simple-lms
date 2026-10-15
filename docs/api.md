@@ -6,11 +6,12 @@ in UTC. Interactive docs are at `/docs`.
 ## Shared rules
 
 - **Auth:** `Authorization: Bearer <token>`. A token comes from
-  `POST /v1/auth/login` (email and password) or `POST /v1/auth/pin-login`
-  (code and PIN). The desktop and the learner app use these endpoints and
-  nothing else: the API is the only door. Another system calls with an
-  **API key** (`lms_k.…`) as its bearer token instead: a key opens the
-  competency API and nothing else (below).
+  `POST /v1/auth/login` (email and password), `POST /v1/auth/pin-login`
+  (code and PIN) or `POST /v1/auth/entra/finish` (Microsoft). The desktop
+  and the learner app use these endpoints and nothing else: the API is the
+  only door. Another system calls with an **API key** (`lms_k.…`) as its
+  bearer token instead: a key opens the competency API and nothing else
+  (below).
 - **Errors:** a missing, ended or unknown token is `401`. Signed in but not
   allowed is `403` with `{ "detail", "code" }`. Validation problems are
   `422` with `{ "errors": [{ "field", "message" }] }`. Something that is not
@@ -19,7 +20,9 @@ in UTC. Interactive docs are at `/docs`.
 - **Never deleted:** people and competencies are deactivated, not deleted.
   The training record and the extras and waivers are append-only: the latest
   row for a person and competency is the one that counts. Every quiz attempt
-  is kept, and a module version is frozen once it is published.
+  is kept, and a module version is frozen once it is published. A
+  practical's checklist versions and every sign-off, with what it ticked,
+  are kept as they were.
 - **Codes and keys:** a person's code is kept upper case (`ll042` finds
   `LL042`); role and competency keys are kept lower case. Emails are kept
   lower case.
@@ -29,21 +32,36 @@ in UTC. Interactive docs are at `/docs`.
 | Permission | Scopes (signed in with a password) |
 | --- | --- |
 | `learner` | `training:read`, `training:write` |
-| `supervisor` | `training:read`, `training:write`, `matrix:read`, `roles:read`, `competencies:read` |
+| `supervisor` | `training:read`, `training:write`, `matrix:read`, `roles:read`, `competencies:read`, `signoffs:write` |
 | `manager` | the supervisor's, plus `people:read`, `people:write`, `roles:write`, `competencies:write`, `records:write`, `tickets:verify`, `printing:write` |
 | `admin` | `*` (everything, `settings:write` among it: Settings, webhooks and API keys) |
 
 `training:write` is doing your own training: sending a file, signing a
-policy, sending in a ticket, reading a module and taking its quiz. A
-session signed in with a **PIN** carries
-`training:read` and `training:write` only, whoever it is: a PIN is short, so
-it opens the learner app's own training and nothing more.
+policy, sending in a ticket, reading a module and taking its quiz.
+`signoffs:write` is signing off someone else's practical. A session signed
+in with a **PIN** carries `training:read` and `training:write`, whoever it
+is, and `signoffs:write` too for a supervisor, manager or admin: a PIN is
+short, so it opens the learner app's own training, and signing off a
+practical on the phone where the learner is, and nothing more. A session
+signed in with **Microsoft** carries the person's own scopes, as a password
+does.
 
 A supervisor sees their own team (the people whose supervisor they are); a
 manager or admin sees everyone. Only an admin adds or changes a
 manager or an admin (`403 { "code": "admin_only" }`).
 
 ## Sign in
+
+### GET /v1/auth/methods
+No session needed: what a sign-in page offers. `200
+{ "pin": true, "password": true, "entra": false }`, from Settings
+(`sign_in_pin`, `sign_in_password`, `sign_in_entra`). `entra` is `true` only
+when it is switched on and set up: `LMS_ENTRA_TENANT_ID`,
+`LMS_ENTRA_CLIENT_ID` and `LMS_ENTRA_CLIENT_SECRET` in `.env`, and a web
+address (`public_url`). A way switched off is refused before anything else
+is looked at: `403 { "detail": "Signing in with Microsoft is switched off
+here.", "code": "method_off" }` from `entra/start` and `entra/finish`, as
+from `login` and `pin-login`.
 
 ### POST /v1/auth/login
 `{ "email", "password" }` → `200`
@@ -68,10 +86,57 @@ With email and password sign-in switched off in Settings it is `403 {
 (`"code": "locked"`) until a manager sets a new one. With code and PIN
 sign-in switched off in Settings it is `403 { "code": "method_off" }`.
 
-A session ends on sign-out, after its idle time without a request (15
-minutes for a PIN, 12 hours for a password), after 12 hours (PIN) or 14 days
-(password) in all, when the person's PIN or password is changed, or when they
-are deactivated.
+A session ends on sign-out, after its idle time without a request
+(`idle_seconds`: 15 minutes for a PIN or for Microsoft in the learner app,
+12 hours for a password or Microsoft on the desktop), after 12 hours
+(PIN or Microsoft) or 14 days (password) in all, when the person's PIN or
+password is changed, or when they are deactivated (a way switched off in
+Settings refuses new sign-ins; sessions already open run their course). A Microsoft session lasts a working day at most because
+Simple LMS hears nothing more from Microsoft once someone is signed in.
+
+### Sign in with Microsoft
+OpenID Connect's authorisation code flow with PKCE, done by the API, for
+either app. The session token never goes in an address.
+
+1. `POST /v1/auth/entra/start` — `{ "app": "desktop" | "learner",
+   "verifier" }` → `200 { "url" }`. `verifier` is a random secret of 32 to
+   128 letters, digits, `-` and `_` that the app keeps in the tab
+   (`sessionStorage`) until step 3; only its hash is kept. The app sends the
+   person to `url`, Microsoft's sign-in page for the tenant
+   (`prompt=login` for the learner app, so a shared tablet always asks for
+   the password; `prompt=select_account` for the desktop). More than 30
+   starts in a minute from one address are refused: `429 { "code":
+   "too_many_sign_ins" }` with `Retry-After: 60`. The address is the one
+   Caddy says the request came from (`X-Forwarded-For`, which Caddy sets).
+2. Microsoft sends them to `GET /v1/auth/entra/callback?code=&state=` (the
+   redirect URI registered in Entra: the web address in Settings, or
+   `LMS_PUBLIC_URL`, then `/v1/auth/entra/callback`).
+   The API swaps the code for an ID token (with the client secret and the
+   PKCE verifier), checks it (signed by a key the tenant publishes, RS256;
+   issuer `…/<tenant>/v2.0`; audience the client id; `exp`, `nbf`, `iat`
+   with a minute's leeway; the nonce it sent; `tid` the configured tenant),
+   and matches the person: by Entra object id (`oid`); else, the first time,
+   by `email` when Microsoft says the tenant owns its domain (`xms_edov`),
+   keeping the object id from then on. Someone matched by nobody, someone
+   deactivated, or someone already linked to another Microsoft account is
+   refused, never added. Either way it answers `303` to the app's sign-in
+   page under the web address, `…/sign-in` or `…/learn/sign-in`, with
+   `#entra=<hand-off code>`, or `#entra_error=` with `not_matched` (ask your
+   manager to add you), `method_off`, or `failed` (anything else: cancelled
+   at Microsoft, more than 10 minutes there, a state used before, a token
+   that doesn't check out, or keys from Microsoft that make no sense). The
+   access log leaves its query string out, and what Microsoft says when a
+   sign-in didn't finish (`error`, `error_description`) is logged on one
+   line, 300 characters at most. The tenant's signing keys are fetched
+   again after a day, or sooner for a token naming a key it doesn't
+   publish, but not within 5 minutes of the last fetch: until then such a
+   token is refused.
+3. `POST /v1/auth/entra/finish` — `{ "code", "verifier" }` → `200`, the
+   same shape as `login` with `"method": "entra"`, and `"idle_seconds":
+   900` when the learner app started it (perhaps a shared tablet, so as for
+   a PIN) or `43200` for the desktop. A hand-off code works once, within 2 minutes,
+   with the verifier its app started with; otherwise `401 { "detail": "that
+   Microsoft sign-in has finished or expired; try again" }`.
 
 ### POST /v1/auth/logout
 Ends the session whose token is sent. `204`, even if it had already ended.
@@ -103,16 +168,21 @@ The first admin is made on the command line:
   is `409 { "code": "has_team" }`: give their team another supervisor first.
 - `PUT /v1/people/{code}/roles` — `{ "roles": [keys] }`, in full.
 - `POST /v1/people/{code}/pin` — `{ "pin" }`: a new PIN, which also unlocks
-  a locked one. Their PIN sessions end.
+  a locked one. Their PIN sessions end. Every PIN set (here, or with a new
+  person) is kept with who set it, append-only: whoever set it knows it, so
+  they don't sign that person off for a week (see Signing off).
 - `POST /v1/people/{code}/password` — `{ "password" }`: a new password,
   which also lifts a lock. Their password sessions end.
+- `POST /v1/people/{code}/entra/unlink` — forgets their Microsoft account:
+  their next Microsoft sign-in is matched by email again. Their Microsoft
+  sessions end.
 - `POST /v1/people/{code}/deactivate`, `/reactivate` — deactivating ends
   their sessions; their records stay. Nobody deactivates themselves (`409
   { "code": "self" }`), and someone who still supervises active people is
   `409 { "code": "has_team" }` until their team has another supervisor.
 
-The `pin`, `password`, `deactivate` and `reactivate` calls answer `200` with
-the person.
+The `pin`, `password`, `entra/unlink`, `deactivate` and `reactivate` calls
+answer `200` with the person.
 
 Each person:
 ```json
@@ -120,9 +190,10 @@ Each person:
   "supervisor": { "code": "SV001", "name": "Sam Vu" },
   "roles": [{ "key": "forklift-operator", "name": "Forklift operator" }],
   "active": true, "has_pin": true, "pin_locked": false, "has_password": false,
-  "created_at": "…", "last_login_at": null }
+  "entra_linked": false, "created_at": "…", "last_login_at": null }
 ```
-A PIN or password is never returned.
+A PIN or password is never returned, nor a Microsoft object id:
+`entra_linked` says whether they have signed in with Microsoft.
 
 ## Roles
 
@@ -159,8 +230,8 @@ where `people` is how many people have the role.
 Each competency: `{ "id", "key", "name", "kind", "refresher_months", "card_expires", "active", "created_at" }`;
 `card_expires` is `null` for anything but a ticket.
 Every kind can still be recorded by hand. Policies are signed in the
-learner app, tickets sent in from it and modules taken in it (below);
-practicals get their own way in with a later build step.
+learner app, tickets sent in from it and modules taken in it, and
+practicals are signed off on a supervisor's phone (below).
 
 ## Extras and waivers
 
@@ -186,13 +257,20 @@ practicals get their own way in with a later build step.
      "kind": "granted", "granted_on": "2026-03-01", "expires_on": "2031-03-01",
      "note": "LF 0012345, sighted", "recorded_by": { "code": "MG001", "name": "Mel Grant" },
      "policy_version": null, "signed_name": null, "signature": null, "ticket": null,
-     "quiz": null, "created_at": "…" }]
+     "quiz": null, "signoff": null, "created_at": "…" }]
   ```
   `policy_version` is the policy version a grant is for; `signed_name` and
   `signature` (an upload id) are there when it was signed in the learner
   app; `ticket` is the ticket's id when a manager approved one; `quiz` is
   `{ "version", "score", "pass_mark" }` when the person passed a module's
-  quiz (recorded as theirs).
+  quiz (recorded as theirs); `signoff` is `{ "version", "ticked", "note",
+  "photo", "supervisor_signature", "learner_signature", "learner_pin_set_at",
+  "learner_pin_set_by" }` when a practical was signed off on the phone
+  (recorded by whoever signed it off): the checklist version, the text of
+  each item ticked in order, upload ids for the photo (or `null`) and both
+  signatures, and when the learner's PIN was last set and by whom (`{ "code",
+  "name" }`), as it was at the sign-off: both `null` for a PIN set before
+  PIN changes were kept.
 - `POST /v1/people/{code}/records` (`records:write`) — `{ "competency",
   "granted_on", "expires_on"?, "note"? }` → `201`. `granted_on` can't be in
   the future; `expires_on` (the last good day, e.g. a ticket's card date)
@@ -301,9 +379,9 @@ status is still worked out from their records. A revoked or unknown key is
 
 ## Files
 
-Tickets' photos (or a PDF), policy signatures, and a module page's
-picture, PDF or video. Sent before the ticket, signature or page that names
-them; kept on the host under `LMS_UPLOAD_DIR` (`/data/uploads`), named by a
+Tickets' photos (or a PDF), signatures, a module page's picture, PDF or
+video, and a sign-off's photo. Sent before the ticket, signature, page or
+sign-off that names them; kept on the host under `LMS_UPLOAD_DIR` (`/data/uploads`), named by a
 random id, and written to disk as they arrive (never held in memory whole).
 
 - `POST /v1/uploads?purpose=…` — the file as the request body (any
@@ -317,6 +395,7 @@ random id, and written to disk as they arrive (never held in memory whole).
   | `page-image` | `competencies:write` | JPEG or PNG | 20 MB |
   | `page-pdf` | `competencies:write` | PDF | 20 MB |
   | `page-video` | `competencies:write` | MP4 or WebM | 200 MB |
+  | `signoff-photo` | `signoffs:write` | JPEG or PNG | 20 MB |
 
   An MP4 is one whose `ftyp` box names a major brand of `isom`, `iso2`,
   `iso4`, `iso5`, `iso6`, `mp41`, `mp42`, `avc1`, `dash` or `M4V `; a WebM
@@ -336,8 +415,10 @@ random id, and written to disk as they arrive (never held in memory whole).
   Each person may send so much in any 24 hours, counted from the files kept
   (a file refused isn't counted): of their own (`ticket` and `signature`
   together), 30 files and 200 MB by default (`upload_files_per_day` and
-  `upload_mb_per_day` in Settings); of module files (the `page-` purposes
-  together), 200 files and 5 GB. Past that is `429 { "code":
+  `upload_mb_per_day` in Settings); a supervisor's, manager's or admin's
+  own (`ticket`, `signature` and `signoff-photo` together: a sign-off is
+  two signatures and a photo), 200 files and 2 GB; of module files (the
+  `page-` purposes together), 200 files and 5 GB. Past that is `429 { "code":
   "too_many_uploads", "detail": "You've sent 30 files in the last 24
   hours, the most for a day. You can send more after 2:15 pm." }` (the time
   in the Settings time zone, with the day when it isn't today; a
@@ -348,7 +429,10 @@ random id, and written to disk as they arrive (never held in memory whole).
   locked, once the body is in, so files sent at once can't slip past.
 - `GET /v1/uploads/{id}` — the file. Any signed-in session may ask (a PIN
   one too), but only someone who may see the file's owner gets it: that
-  person, their supervisor, and managers and admins. Anyone else gets `404`
+  person, their supervisor, and managers and admins. A sign-off's photo and
+  signatures are sent from the supervisor's phone, so they are the
+  supervisor's; whoever may see the learner they sign off gets them too.
+  Anyone else gets `404`
   (and so does a file missing from disk). Sent with `Cache-Control: private, no-store`,
   `Content-Security-Policy: default-src 'none'; sandbox`,
   `X-Content-Type-Options: nosniff` and `Content-Disposition:
@@ -357,9 +441,10 @@ random id, and written to disk as they arrive (never held in memory whole).
   so it is saved instead). Sent from disk a piece at a time, never read
   into memory whole.
 
-A ticket or signature may only name the caller's own uploads of the right
-purpose. Each upload goes on one record or ticket only: the database holds
-each signature to one record and each photo to one ticket.
+A ticket, signature or sign-off may only name the caller's own uploads of
+the right purpose. Each upload goes on one record, ticket or sign-off only:
+the database holds each signature to one record or sign-off and each photo
+to one ticket or sign-off, and the API holds a signature to one of either.
 
 - `GET /v1/media/{id}?session=&expires=&sig=` — a module page's file, by
   the link the API puts in the page (`file.link`, below). No token: an
@@ -485,6 +570,68 @@ Each version, as its editors see it (`correct` is only there for them):
 meanwhile, progress and attempts are `409 { "code": "new_version" }`, and
 they start the new one. A key that is not a module is `404` on all of these,
 and so are reading, progress and attempts before a version is published.
+
+## Practicals
+
+A practical is a competency of kind `practical`: a checklist of things a
+supervisor watches the learner do, published whole and never changed (the
+database refuses), so a sign-off always says what was ticked. A change is a
+new version; supervisors tick the newest from then on, and a new version
+asks nobody to be signed off again (sign-offs so far still count).
+
+- `POST /v1/practicals/{key}/versions` (`competencies:write`) — `{ "items":
+  [ … ], "note"? }` → `201`, the next version (1, 2, 3 …): 1 to 50 items, in
+  the order they are ticked, each up to 300 characters. A deactivated
+  practical is `409 { "code": "inactive" }`.
+- `GET /v1/practicals/{key}/versions` (`competencies:read`) — newest first:
+  `[{ "id", "version", "items": [{ "id", "text" }], "note", "published_by":
+  { "code", "name" }, "created_at" }]`.
+- `GET /v1/practicals/{key}` (`training:read`) — the checklist to tick now:
+  `{ "key", "name", "version": { … } }`; `404` until one is published. A
+  deactivated practical is `409 { "code": "inactive" }`, except for its
+  editors (`competencies:write`).
+
+A key that is not a practical is `404` on all of these.
+
+## Signing off
+
+`signoffs:write`. A supervisor signs off their own team; a manager or admin
+signs off anyone. Nobody signs off themselves, admins included.
+
+- `GET /v1/signoffs/people` — the people the caller may sign off (their
+  team, or every active person for a manager or admin; never themselves),
+  by name, each with the practicals they are asked for and not let off:
+  `[{ "code", "name", "practicals": [{ "key", "name", "status", "expires_on" }] }]`.
+- `POST /v1/people/{code}/signoffs` — on the supervisor's phone, with the
+  learner beside them: `{ "competency", "version", "ticked": [item ids],
+  "note"?, "photo"?, "supervisor_signature", "learner_signature",
+  "learner_pin" }` → `201`, the record (above): a grant from today, recorded
+  by the caller, with `signoff` filled in; the competency's refresher, if
+  any, says when it runs out. `ticked` is every item on that version, and
+  nothing else (`422` on `ticked`). `photo` is an upload of purpose
+  `signoff-photo`; both signatures are uploads of purpose `signature`; all
+  three are the caller's own, sent from the phone (`422` on the field
+  otherwise). The two signatures differ, and each, like the photo, goes on
+  one record or sign-off only (`422`: sign or take it again).
+  `learner_pin` is the learner's own PIN, typed by them on the phone to say
+  it was them: never kept. It is checked last, and counts against the same
+  five tries as signing in: a wrong one is `422` on `learner_pin` ("that
+  isn't Kim Lee's PIN: try again"), the fifth locks the PIN until a manager
+  resets it, and a locked PIN, or none (someone who signs in with a
+  password), is `422` there too. `version` is the checklist ticked: if a
+  newer one was published meanwhile, `409 { "code": "new_version" }`, and
+  it is ticked again. Signing off yourself is `403 { "code": "own_signoff"
+  }`; someone a supervisor may not sign off is `404`; a learner (no
+  `signoffs:write`) is `403`. An unknown competency is `404`, one that is
+  not a practical `422` on `competency`, one with no checklist yet `404`,
+  and a deactivated practical or person `409 { "code": "inactive" }`. The
+  caller who set the learner's PIN in the last 7 days knows it, so their
+  sign-off is `409 { "code": "you_set_their_pin" }` ("You set Kim Lee's PIN
+  this week: ask another supervisor or manager to sign them off"), checked
+  before the PIN so it costs no try; anyone else may sign them off.
+
+A sign-off is put right like any grant: revoke it with a note
+(`POST /v1/people/{code}/records/revoke`).
 
 ## Policies
 
@@ -630,6 +777,7 @@ the domain, the upload folder, Caddy) is in `.env` only.
 | --- | --- | --- | --- |
 | `sign_in_pin` | code and PIN sign-in on | | `true` |
 | `sign_in_password` | email and password sign-in on | | `true` |
+| `sign_in_entra` | Microsoft sign-in on (offered once `LMS_ENTRA_*` and `public_url` are set) | | `true` |
 | `quiz_cooldown_tries` | quiz goes in a row that didn't pass before the wait, 1 to 20 | | `3` |
 | `quiz_cooldown_minutes` | the wait, 0 to 525600 (0: none) | `LMS_QUIZ_COOLDOWN_MINUTES` | `60` |
 | `reminder_days` | whole days 0 to 365, at least one, up to 10 (kept furthest first, each once) | | `[30, 14, 0]` |
@@ -668,9 +816,16 @@ here and clears one in `.env` too. A bad value is `422` on its key (e.g.
 nothing is saved unless every value is good. Who changed each setting last,
 and when, is kept with it.
 
-Switching `sign_in_password` off is `409 { "code": "last_way_in" }` while
-it is the only way an admin can sign in (a PIN session never carries an
-admin's scopes), which until Microsoft Entra sign-in arrives is always. A
+`sign_in_entra` also answers `"set_up"`: whether `LMS_ENTRA_*` and a web
+address are there, so that its button shows when it is on. The tenant id,
+client id and client secret are in `.env` only, never on the screen.
+
+A change that would leave neither email and password nor Microsoft on and
+set up is `409 { "code": "last_way_in" }`: a PIN session never carries an
+admin's scopes, so one of them is the only way an admin can sign in.
+Switching off the way your own session signed in is `409 { "code":
+"own_method" }`: sign in another way first, so passwords are switched off
+from a Microsoft session, which shows Microsoft works for an admin. A
 switched-off method is refused at sign-in (`403 method_off`); sessions
 already open run their course. The `lms` command line never signs in, so it
 works whatever is switched off, and `lms clear-setting <key>` puts any

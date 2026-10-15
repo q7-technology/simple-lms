@@ -10,12 +10,14 @@ export interface Me {
   name: string;
   email: string | null;
   permission: Permission;
-  method: "password" | "pin";
+  method: "password" | "pin" | "entra";
   scopes: string[];
   idle_seconds: number;
 }
 
 export interface SessionOut { token: string; person: Me }
+/** The ways of signing in that are on: Microsoft only once it is set up. */
+export interface SignInMethods { pin: boolean; password: boolean; entra: boolean }
 export interface Page<T> { items: T[]; total: number }
 export interface PersonRef { code: string; name: string }
 export interface RoleRef { key: string; name: string }
@@ -33,6 +35,8 @@ export interface Person {
   has_pin: boolean;
   pin_locked: boolean;
   has_password: boolean;
+  /** has signed in with Microsoft: their account is kept */
+  entra_linked: boolean;
 }
 
 export interface Role {
@@ -92,6 +96,15 @@ export interface CompetencyRecord {
   ticket: number | null;
   /** a module passed in the learner app: the version, the score and the pass mark */
   quiz: { version: number; score: number; pass_mark: number } | null;
+  /** a practical signed off on the phone: what was ticked, and upload ids
+   * for the photo and both signatures. The supervisor is `recorded_by`.
+   * When the learner's PIN was last set, and by whom, as it was then (null
+   * for one set before PIN changes were kept). */
+  signoff: {
+    version: number; ticked: string[]; note: string | null; photo: string | null;
+    supervisor_signature: string; learner_signature: string;
+    learner_pin_set_at: string | null; learner_pin_set_by: PersonRef | null;
+  } | null;
   created_at: string;
 }
 
@@ -155,6 +168,8 @@ export interface SettingValue<T> { value: T; source: SettingSource }
 export interface Settings {
   sign_in_pin: SettingValue<boolean>;
   sign_in_password: SettingValue<boolean>;
+  /** `set_up`: LMS_ENTRA_* and a web address are there, so its button shows when it is on */
+  sign_in_entra: SettingValue<boolean> & { set_up: boolean };
   quiz_cooldown_tries: SettingValue<number>;
   quiz_cooldown_minutes: SettingValue<number>;
   reminder_days: SettingValue<number[]>;
@@ -171,4 +186,14 @@ export interface Settings {
   /** how much a person can send of their own (tickets, signatures) in 24 hours */
   upload_files_per_day: SettingValue<number>;
   upload_mb_per_day: SettingValue<number>;
+}
+
+/** A practical's checklist: the items a supervisor ticks, frozen once published. */
+export interface Checklist {
+  id: number;
+  version: number;
+  items: { id: number; text: string }[];
+  note: string | null;
+  published_by: PersonRef;
+  created_at: string;
 }

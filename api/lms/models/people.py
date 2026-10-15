@@ -28,7 +28,8 @@ class Person(Base):
     code: Mapped[str] = mapped_column(String(32), unique=True)
     name: Mapped[str] = mapped_column(String(120))
     email: Mapped[str | None] = mapped_column(String(254), unique=True)
-    # Microsoft Entra object id, matched on first sign-in (build step 5)
+    # their Microsoft Entra object id (oid), kept the first time they sign in
+    # with Microsoft and matched from then on
     entra_oid: Mapped[str | None] = mapped_column(String(64), unique=True)
     # learner, supervisor, manager, admin: what they may do, not what they need
     permission: Mapped[str] = mapped_column(String(16), default="learner")
@@ -51,11 +52,12 @@ class Person(Base):
 
 
 class Session(Base):
-    """One signed-in device. Only the token's hash is kept. A PIN session ends
-    after 15 minutes idle, a password one after 12 hours."""
+    """One signed-in device. Only the token's hash is kept. It ends after
+    idle_seconds without a request: 15 minutes for a PIN, or Microsoft in the
+    learner app; 12 hours for a password, or Microsoft on the desktop."""
 
     __tablename__ = "session"
-    __table_args__ = (CheckConstraint("method in ('password', 'pin')", name="method"),)
+    __table_args__ = (CheckConstraint("method in ('password', 'pin', 'entra')", name="method"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
     person_id: Mapped[int] = mapped_column(ForeignKey("person.id"), index=True)
@@ -64,4 +66,21 @@ class Session(Base):
     created_at: Mapped[datetime] = created_at_column()
     last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    idle_seconds: Mapped[int] = mapped_column(Integer)
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class PinChange(Base):
+    """A PIN set for someone, and by whom: append-only (a trigger says so).
+    Whoever set a learner's PIN knows it, so their typing it is no
+    confirmation from the learner (`practicals.set_their_pin()`)."""
+
+    __tablename__ = "pin_change"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    person_id: Mapped[int] = mapped_column(ForeignKey("person.id"), index=True)
+    changed_by_id: Mapped[int] = mapped_column(ForeignKey("person.id"))
+    created_at: Mapped[datetime] = created_at_column()
+
+    person: Mapped[Person] = relationship(foreign_keys=[person_id])
+    changed_by: Mapped[Person] = relationship(foreign_keys=[changed_by_id])

@@ -7,7 +7,7 @@ const PICKER: Role = { id: 1, key: "picker", name: "Picker", competencies: [], p
 const INDUCTION: Competency = { id: 1, key: "site-induction", name: "Site induction", kind: "module", refresher_months: 24, card_expires: null, active: true };
 const KIM: Person = {
   id: 4, code: "LL042", name: "Kim Lee", email: null, permission: "learner", supervisor: null,
-  roles: [], active: true, has_pin: true, pin_locked: false, has_password: false,
+  roles: [], active: true, has_pin: true, pin_locked: false, has_password: false, entra_linked: false,
 };
 
 /** Tab to the row's button, press Enter, and its drawer opens. */

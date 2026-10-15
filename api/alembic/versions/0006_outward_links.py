@@ -1,7 +1,7 @@
 """outward links: webhooks and their deliveries, API keys, print jobs, events seen
 
 Revision ID: 0006
-Revises: 0003b (0005 once steps 4 and 5 are merged)
+Revises: 0005
 Create Date: 2026-10-16
 """
 from typing import Sequence, Union
@@ -11,7 +11,7 @@ from alembic import op
 from sqlalchemy.dialects import postgresql
 
 revision: str = "0006"
-down_revision: Union[str, None] = "0003b"  # becomes "0005" when merged after steps 4 and 5
+down_revision: Union[str, None] = "0005"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

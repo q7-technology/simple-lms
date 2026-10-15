@@ -1,9 +1,13 @@
+import re
+import urllib.parse
 from functools import lru_cache
 from typing import Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+GUID = r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
 
 
 class Settings(BaseSettings):
@@ -24,6 +28,17 @@ class Settings(BaseSettings):
     # Where people open Simple LMS, for the links in emails, e.g.
     # https://lms.example.com.au. Without it the emails carry no link.
     public_url: str = ""
+
+    # Signing in with Microsoft Entra ID: the app registered in your tenant
+    # (README). All three, and a web address (Settings, or LMS_PUBLIC_URL),
+    # or the button never shows. In .env only: a secret, kept off the screen.
+    # The tenant is yours alone, by its id: not common or organizations.
+    entra_tenant_id: str = ""
+    entra_client_id: str = ""
+    # kept out of repr(), so printing the settings never shows it
+    entra_client_secret: str = Field(default="", repr=False)
+    # Microsoft's sign-in address; changed only to try it against a stand-in
+    entra_authority: str = "https://login.microsoftonline.com"
 
     # Email, sent by the worker. Without a host the emails wait, unsent,
     # until one is set.
@@ -74,10 +89,38 @@ class Settings(BaseSettings):
             raise ValueError(f"LMS_TIMEZONE {value!r} is not a time zone, e.g. Australia/Melbourne")
         return value
 
-    @field_validator("public_url")
+    @field_validator("public_url", "entra_authority")
     @classmethod
     def _no_trailing_slash(cls, value: str) -> str:
         return value.strip().rstrip("/")
+
+    @field_validator("entra_authority")
+    @classmethod
+    def _authority_is_https(cls, value: str) -> str:
+        # after _no_trailing_slash: validators on a field run in order
+        parts = urllib.parse.urlsplit(value)
+        if parts.scheme != "https" or not parts.hostname:
+            raise ValueError(f"LMS_ENTRA_AUTHORITY {value!r} must be an https:// address with "
+                             "a host, e.g. https://login.microsoftonline.com")
+        return value
+
+    @field_validator("entra_tenant_id")
+    @classmethod
+    def _one_tenant(cls, value: str) -> str:
+        value = value.strip().lower()
+        if value and not re.fullmatch(GUID, value):
+            raise ValueError(f"LMS_ENTRA_TENANT_ID {value!r} must be your Directory (tenant) "
+                             "ID, a GUID: not common, organizations or a domain name")
+        return value
+
+    @field_validator("entra_client_id")
+    @classmethod
+    def _client_is_a_guid(cls, value: str) -> str:
+        value = value.strip().lower()
+        if value and not re.fullmatch(GUID, value):
+            raise ValueError(f"LMS_ENTRA_CLIENT_ID {value!r} must be the app's Application "
+                             "(client) ID, a GUID")
+        return value
 
 
 @lru_cache

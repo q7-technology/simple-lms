@@ -11,6 +11,7 @@ from lms.models.catalogue import Competency
 from lms.models.evidence import PolicyVersion
 from lms.models.modules import QuizAttempt
 from lms.models.people import Person
+from lms.models.practicals import Signoff
 
 
 class PersonOverride(Base):
@@ -54,6 +55,9 @@ class CompetencyRecord(Base):
         # a module passed is a grant; a trigger says it is the pass of this
         # person, for this competency
         CheckConstraint("quiz_attempt_id is null or kind = 'granted'", name="quiz_grant"),
+        # a practical signed off is a grant; a trigger says it is that
+        # person's sign-off, for this competency, by whoever recorded it
+        CheckConstraint("signoff_id is null or kind = 'granted'", name="signoff_grant"),
         # a drawn signature goes on one record only
         Index("uq_competency_record_signature_upload_id", "signature_upload_id", unique=True,
               postgresql_where=text("signature_upload_id is not null")),
@@ -80,9 +84,12 @@ class CompetencyRecord(Base):
                                                              unique=True)
     # a module passed: the quiz attempt that passed it
     quiz_attempt_id: Mapped[int | None] = mapped_column(ForeignKey("quiz_attempt.id"), unique=True)
+    # a practical signed off on the phone: the sign-off
+    signoff_id: Mapped[int | None] = mapped_column(ForeignKey("signoff.id"), unique=True)
     created_at: Mapped[datetime] = created_at_column()
 
     competency: Mapped[Competency] = relationship()
     recorded_by: Mapped[Person] = relationship(foreign_keys=[recorded_by_id])
     policy_version: Mapped[PolicyVersion | None] = relationship()
     quiz_attempt: Mapped[QuizAttempt | None] = relationship()
+    signoff: Mapped[Signoff | None] = relationship()

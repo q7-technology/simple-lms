@@ -4,10 +4,25 @@ import type { Me, SessionOut } from "../api/types";
 
 interface Stored { token: string; person: Me; active_at: number }
 
+/** Leaving for Microsoft's sign-in page; a test stands in for it. */
+export const browser = { go: (url: string) => window.location.assign(url) };
+
+// the secret this tab keeps while the person is at Microsoft (POST /v1/auth/entra/start)
+const ENTRA_KEY = "lms.learner.entra";
+
+function tabSecret(): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(32));
+  return btoa(String.fromCharCode(...bytes)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
 interface State {
   person: Me | null;
   signInWithPin: (code: string, pin: string) => Promise<void>;
   signInWithPassword: (email: string, password: string) => Promise<void>;
+  /** Off to Microsoft's sign-in page; it sends the person back to /learn/sign-in. */
+  startEntra: () => Promise<void>;
+  /** Back from Microsoft with a hand-off code: a session, as from a PIN. */
+  finishEntra: (code: string) => Promise<void>;
   signOut: () => void;
   /** Someone is here though nobody taps: a video playing. Counts as a tap,
    * here and at the API, unless the idle time has passed already. */
@@ -56,7 +71,7 @@ function read(): Stored | null {
 }
 
 /** Who is signed in on this device. On a shared tablet the app forgets them
- * after the session's idle time (15 minutes for a PIN), as the API does, so
+ * after the session's idle time (15 minutes for a PIN or Microsoft), as the API does, so
  * the next person never sees the last one's training. */
 export function SessionProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Stored | null>(() => {
@@ -146,14 +161,31 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     signedIn(await api.post<SessionOut>("/v1/auth/login", { email, password }));
   }, [signedIn]);
 
+  const startEntra = useCallback(async () => {
+    const verifier = tabSecret();
+    const out = await api.post<{ url: string }>("/v1/auth/entra/start", { app: "learner", verifier });
+    try { window.sessionStorage.setItem(ENTRA_KEY, verifier); } catch { /* private mode: finishing says it expired */ }
+    browser.go(out.url);
+  }, []);
+
+  const finishEntra = useCallback(async (code: string) => {
+    let verifier = "";
+    try {
+      verifier = window.sessionStorage.getItem(ENTRA_KEY) ?? "";
+      window.sessionStorage.removeItem(ENTRA_KEY);
+    } catch { /* private mode */ }
+    signedIn(await api.post<SessionOut>("/v1/auth/entra/finish", { code, verifier }));
+  }, [signedIn]);
+
   const stillHere = useCallback(() => {
     tapped.current();
     // the API counts idle time too: any request tells it someone is here
     if (api.token) void api.get("/v1/auth/me").catch(() => undefined);
   }, []);
 
-  const value = useMemo<State>(() => ({ person: session?.person ?? null, signInWithPin, signInWithPassword, signOut, stillHere }),
-                               [session, signInWithPin, signInWithPassword, signOut, stillHere]);
+  const value = useMemo<State>(() => ({ person: session?.person ?? null, signInWithPin, signInWithPassword, startEntra,
+                                        finishEntra, signOut, stillHere }),
+                               [session, signInWithPin, signInWithPassword, startEntra, finishEntra, signOut, stillHere]);
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
 

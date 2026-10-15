@@ -35,9 +35,11 @@ Source = Literal["here", "env", "default"]
 @dataclass(frozen=True)
 class Effective:
     """Every setting as it stands."""
-    # sign-in methods: a code and PIN (the learner app), an email and password
+    # sign-in methods: a code and PIN (the learner app), an email and password,
+    # Microsoft (offered only once it is set up: entra_set_up())
     sign_in_pin: bool = True
     sign_in_password: bool = True
+    sign_in_entra: bool = True
     # this many goes at a module's quiz in a row that didn't pass, and the
     # learner waits this many minutes before the next (0: no wait)
     quiz_cooldown_tries: int = 3
@@ -81,6 +83,8 @@ FROM_ENV = ("quiz_cooldown_minutes", "timezone", "daily_hour", "smtp_host", "smt
             "platen_url", "platen_key", "certificate_printer", "skills_card_printer")
 # never sent back: only whether there is one
 SECRET = ("smtp_password", "platen_key")
+# the ways into the desktop, as an admin's session names them
+NAMES = {"password": "an email and password", "entra": "Microsoft"}
 
 # line breaks and other control characters
 CONTROL = re.compile(r"[\x00-\x1f\x7f-\x9f  ]")
@@ -95,6 +99,7 @@ class Changes(BaseModel):
 
     sign_in_pin: Bool | None = None
     sign_in_password: Bool | None = None
+    sign_in_entra: Bool | None = None
     quiz_cooldown_tries: Annotated[Int, Field(ge=1, le=20)] | None = None
     # up to a year
     quiz_cooldown_minutes: Annotated[Int, Field(ge=0, le=525600)] | None = None
@@ -249,19 +254,42 @@ def described(db: Db) -> dict[str, dict[str, Any]]:
         else:
             out[key] = {"value": list(value) if isinstance(value, tuple) else value,
                         "source": _source(rows, key)}
+    # the switch can be on with nobody offered the button: say why
+    out["sign_in_entra"]["set_up"] = entra_set_up(now)
     return out
+
+
+def entra_set_up(s: Effective) -> bool:
+    """Everything signing in with Microsoft needs: the app registered in the
+    tenant (LMS_ENTRA_* in .env only, as the client secret is a secret) and a
+    web address for Microsoft to send people back to."""
+    env = get_settings()
+    return bool(env.entra_tenant_id and env.entra_client_id and env.entra_client_secret
+                and s.public_url)
+
+
+def offered(s: Effective) -> dict[str, bool]:
+    """The ways a sign-in page offers: Microsoft only once it is set up."""
+    return {"pin": s.sign_in_pin, "password": s.sign_in_password,
+            "entra": s.sign_in_entra and entra_set_up(s)}
 
 
 def admin_ways_in(s: Effective) -> list[str]:
     """How an admin can sign in to change things back. A PIN session never
-    carries an admin's scopes, so it doesn't count. Entra (step 5) adds one."""
-    return ["password"] if s.sign_in_password else []
+    carries an admin's scopes, so it doesn't count."""
+    on = offered(s)
+    return [m for m in ("password", "entra") if on[m]]
 
 
-def save(db: Db, changes: dict[str, Any], by: Person | None) -> None:
+def save(db: Db, changes: dict[str, Any], by: Person | None,
+         method: str | None = None) -> None:
     """Set each key given (null: back to .env or the default) and commit.
-    Refused, with nothing saved, if no admin could sign in afterwards."""
+    Refused, with nothing saved, if no admin could sign in afterwards, or if
+    it switches off `method`, the way the one saving signed in (so password
+    sign-in goes off only from a Microsoft session, which shows Microsoft
+    works for an admin)."""
     now = datetime.now(UTC)
+    before = _effective(_load(db))
     for key, value in changes.items():
         if key not in KEYS:
             raise KeyError(key)
@@ -274,9 +302,15 @@ def save(db: Db, changes: dict[str, Any], by: Person | None) -> None:
                 index_elements=["key"],
                 set_={k: values[k] for k in ("value", "updated_by_id", "updated_at")}))
     db.flush()
-    if not admin_ways_in(_effective(_load(db))):
+    after = _effective(_load(db))
+    if not admin_ways_in(after):
         db.rollback()
-        raise Conflict("last_way_in", "Password sign-in is the only way an admin can sign in, "
-                       "so it stays on.")
+        raise Conflict("last_way_in", "Keep email and password or Microsoft sign-in on: it is "
+                       "the only way an admin can sign in (a PIN never opens the desktop).")
+    if (method in NAMES and getattr(before, f"sign_in_{method}")
+            and not getattr(after, f"sign_in_{method}")):
+        db.rollback()
+        raise Conflict("own_method", f"You signed in with {NAMES[method]}: sign in another way "
+                       "before switching it off.")
     db.commit()
     forget()

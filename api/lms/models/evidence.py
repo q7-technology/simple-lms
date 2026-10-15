@@ -15,15 +15,16 @@ from lms.models.people import Person
 
 
 class Upload(Base):
-    """A file someone sent: a ticket's photo or PDF, a policy signature, or
-    a module page's picture, PDF or video. Kept on disk under
+    """A file someone sent: a ticket's photo or PDF, a signature, a module
+    page's picture, PDF or video, or a sign-off's photo. Kept on disk under
     LMS_UPLOAD_DIR, named by its random id; served only through the API to
     people who may see it. Append-only: a trigger refuses UPDATE and DELETE,
-    since records, tickets and pages point at it."""
+    since records, tickets, pages and sign-offs point at it."""
 
     __tablename__ = "upload"
     __table_args__ = (CheckConstraint("purpose in ('ticket', 'signature', 'page-image', "
-                                      "'page-pdf', 'page-video')", name="purpose"),)
+                                      "'page-pdf', 'page-video', 'signoff-photo')",
+                                      name="purpose"),)
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True)
     # whose it is: the person who sent it

@@ -8,12 +8,14 @@ export interface Me {
   name: string;
   email: string | null;
   permission: string;
-  method: "password" | "pin";
+  method: "password" | "pin" | "entra";
   scopes: string[];
   idle_seconds: number;
 }
 
 export interface SessionOut { token: string; person: Me }
+/** The ways of signing in that are on: Microsoft only once it is set up. */
+export interface SignInMethods { pin: boolean; password: boolean; entra: boolean }
 
 export interface TrainingItem {
   key: string;
@@ -92,4 +94,18 @@ export interface Attempt {
   /** when the next go may be, if this attempt started a wait (as Module's) */
   retry_at: string | null;
   retry_at_text: string | null;
+}
+
+/** Someone the caller may sign off, and the practicals they are asked for. */
+export interface SignsOff {
+  code: string;
+  name: string;
+  practicals: { key: string; name: string; status: Status; expires_on: string | null }[];
+}
+
+/** A practical and the checklist to tick now. */
+export interface Practical {
+  key: string;
+  name: string;
+  version: { id: number; version: number; note: string | null; items: { id: number; text: string }[] };
 }

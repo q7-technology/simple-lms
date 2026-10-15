@@ -93,6 +93,18 @@ def test_an_editors_module_files_count_on_their_own(client, db, manager, manager
     assert send(client, learner_headers).status_code == 201
 
 
+def test_a_supervisors_own_files_count_on_their_own(client, db, supervisor, supervisor_headers):
+    # a day of sign-offs is two signatures and a photo each: past a learner's 30
+    assert (uploads.STAFF_FILES_PER_DAY, uploads.STAFF_BYTES_PER_DAY) == (200, 2_000_000_000)
+    kept(db, supervisor, "signature", n=20)
+    kept(db, supervisor, "signoff-photo", n=10)
+    assert send(client, supervisor_headers, "signature", PNG, "image/png").status_code == 201
+    kept(db, supervisor, "signature", n=169)
+    r = send(client, supervisor_headers, "signature", PNG, "image/png")
+    assert r.status_code == 429 and r.json()["detail"].startswith(
+        "You've sent 200 files in the last 24 hours, the most for a day.")
+
+
 def test_page_files_are_5_gb_a_day(client, db, manager, manager_headers):
     kept(db, manager, "page-video", size=200_000_000, n=25)
     r = client.post("/v1/uploads", params={"purpose": "page-video"}, content=b"x",

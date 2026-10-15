@@ -110,6 +110,22 @@ export function HistoryDrawer({ person, competency, cell, today, onClose, onChan
             {r.quiz && (
               <div className="text-sm">Passed the quiz on version {r.quiz.version} with {r.quiz.score}% (pass mark {r.quiz.pass_mark}%)</div>
             )}
+            {r.signoff && (
+              <>
+                <div className="text-sm">Signed off on checklist version {r.signoff.version}, every item ticked:</div>
+                <ul className="text-sm list-disc pl-5">{r.signoff.ticked.map((t, n) => <li key={n}>{t}</li>)}</ul>
+                {r.signoff.note && <div className="text-sm">“{r.signoff.note}”</div>}
+                {r.signoff.photo && <Picture upload={r.signoff.photo} label="The sign-off photo" />}
+                <div className="flex flex-wrap gap-3">
+                  <Picture upload={r.signoff.supervisor_signature} label={`${r.recorded_by.name}'s signature`} width={160} />
+                  <Picture upload={r.signoff.learner_signature} label={`${person.name}'s signature`} width={160} />
+                </div>
+                <div className="small">{person.name} signed too, and confirmed it with their PIN.</div>
+                {r.signoff.learner_pin_set_at && r.signoff.learner_pin_set_by && (
+                  <div className="small">PIN last set {formatDate(r.signoff.learner_pin_set_at.slice(0, 10))} by {r.signoff.learner_pin_set_by.name}</div>
+                )}
+              </>
+            )}
             {r.note && <div className="text-sm">{r.note}</div>}
             <div className="small">by {r.recorded_by.name} · {formatDate(r.created_at.slice(0, 10))}</div>
           </div>

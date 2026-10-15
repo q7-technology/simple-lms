@@ -1,6 +1,6 @@
 import { useEffect, useId, useState, type FormEvent, type ReactNode } from "react";
 import { api, ApiError } from "../api/client";
-import type { Settings as All, SettingSource } from "../api/types";
+import type { Me, Settings as All, SettingSource } from "../api/types";
 import { useAuth } from "../auth/AuthContext";
 import { useAction, useLoad } from "../lib/useLoad";
 import { Problem } from "../ui/Drawer";
@@ -10,7 +10,7 @@ type Kind = "bool" | "int" | "days" | "text" | "secret";
 type Draft = Partial<Record<Key, string | boolean>>;
 
 const KINDS: Record<Key, Kind> = {
-  sign_in_pin: "bool", sign_in_password: "bool",
+  sign_in_pin: "bool", sign_in_password: "bool", sign_in_entra: "bool",
   quiz_cooldown_tries: "int", quiz_cooldown_minutes: "int",
   reminder_days: "days", timezone: "text", daily_hour: "int",
   smtp_host: "text", smtp_port: "int", smtp_user: "text", smtp_password: "secret",
@@ -190,23 +190,40 @@ export function Settings() {
 
 interface Props { all: All; onSaved: (all: All) => void }
 
+type Way = "sign_in_pin" | "sign_in_password" | "sign_in_entra";
+const SIGNED_IN_WITH: Partial<Record<Me["method"], string>> = { password: "an email and password", entra: "Microsoft" };
+
 function SignIn({ all, onSaved }: Props) {
-  const s = useSection(all, ["sign_in_pin", "sign_in_password"], onSaved);
+  const { me } = useAuth();
+  const s = useSection(all, ["sign_in_pin", "sign_in_password", "sign_in_entra"], onSaved);
+  // the way this admin signed in stays on until they sign in another way (the API says so too)
+  const mine: Way | null = me && me.method !== "pin" && all[`sign_in_${me.method}`].value ? `sign_in_${me.method}` : null;
+  const box = (key: Way, label: string) => (
+    <label className="flex items-center gap-2 text-sm">
+      <input type="checkbox" checked={s.draft[key] === true} disabled={key === mine}
+             onChange={(e) => s.set(key)(e.target.checked)} />
+      {label} <span className={`pill ${all[key].source === "here" ? "t-green" : "t-grey"}`}>{FROM[all[key].source]}</span>
+    </label>
+  );
   return (
     <Section title="Sign-in" sub="The ways people can sign in. Someone already signed in stays signed in until their session ends."
              onSubmit={s.save} busy={s.action.busy} error={s.action.error} said={s.said}>
-      <label className="flex items-center gap-2 text-sm">
-        <input type="checkbox" checked={s.draft.sign_in_pin === true} onChange={(e) => s.set("sign_in_pin")(e.target.checked)} />
-        Code and PIN (the learner app) <span className={`pill ${all.sign_in_pin.source === "here" ? "t-green" : "t-grey"}`}>{FROM[all.sign_in_pin.source]}</span>
-      </label>
-      <label className="flex items-center gap-2 text-sm">
-        <input type="checkbox" checked={s.draft.sign_in_password === true} disabled
-               onChange={(e) => s.set("sign_in_password")(e.target.checked)} />
-        Email and password <span className="pill t-grey">{FROM[all.sign_in_password.source]}</span>
-      </label>
+      {box("sign_in_pin", "Code and PIN (the learner app)")}
+      {box("sign_in_password", "Email and password")}
+      {box("sign_in_entra", "Microsoft")}
+      {!all.sign_in_entra.set_up && (
+        <div className="small">
+          Microsoft isn't set up yet: it needs <code>LMS_ENTRA_TENANT_ID</code>, <code>LMS_ENTRA_CLIENT_ID</code> and{" "}
+          <code>LMS_ENTRA_CLIENT_SECRET</code> in <code>.env</code> (see the README), and the web address below. Until then
+          nobody sees its button.
+        </div>
+      )}
+      {mine && me && (
+        <div className="small">You signed in with {SIGNED_IN_WITH[me.method]}: to switch it off, sign in another way first.</div>
+      )}
       <div className="small">
-        Email and password stays on: it is the only way an admin can sign in. Microsoft Entra sign-in, coming in a later
-        step, will add another. The <code>lms</code> command on the server works whatever is switched off.
+        Email and password or Microsoft stays on: one of them is the only way an admin can sign in, as a PIN never opens
+        the desktop. The <code>lms</code> command on the server works whatever is switched off.
       </div>
     </Section>
   );
@@ -322,7 +339,7 @@ function Email({ all, onSaved }: Props) {
 function WebAddress({ all, onSaved }: Props) {
   const s = useSection(all, ["public_url"], onSaved);
   return (
-    <Section title="Web address" sub="Where people open Simple LMS, for the links in emails. Leave it empty and emails carry no link."
+    <Section title="Web address" sub="Where people open Simple LMS, for the links in emails and where Microsoft sends people back after signing in. Leave it empty and emails carry no link, and nobody can sign in with Microsoft."
              onSubmit={s.save} busy={s.action.busy} error={s.action.error} said={s.said}>
       <Field label="Web address" hint="e.g. https://lms.example.com.au" source={all.public_url.source}
              error={s.errors.public_url} onReset={() => void s.reset("public_url")}>

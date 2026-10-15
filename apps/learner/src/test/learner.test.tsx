@@ -28,7 +28,7 @@ describe("the learner app", () => {
     await userEvent.type(screen.getByLabelText("PIN"), "2468");
     await userEvent.click(screen.getByRole("button", { name: "Sign in" }));
     expect(await screen.findByRole("heading", { name: "My training" })).toBeInTheDocument();
-    expect(calls[0].body).toEqual({ code: "ll042", pin: "2468" });
+    expect(calls.find((c) => c.url === "/v1/auth/pin-login")?.body).toEqual({ code: "ll042", pin: "2468" });
 
     const overdue = await screen.findByRole("region", { name: "Overdue" });
     expect(within(overdue).getAllByText(/First aid|WHS policy/).map((e) => e.textContent)).toEqual(["First aid", "WHS policy"]);
@@ -47,7 +47,7 @@ describe("the learner app", () => {
     await userEvent.type(screen.getByLabelText("Password"), "correct horse battery");
     await userEvent.click(screen.getByRole("button", { name: "Sign in" }));
     expect(await screen.findByRole("heading", { name: "My training" })).toBeInTheDocument();
-    expect(calls[0]).toMatchObject({ url: "/v1/auth/login", body: { email: "kim@example.com" } });
+    expect(calls.find((c) => c.url === "/v1/auth/login")).toMatchObject({ body: { email: "kim@example.com" } });
   });
 
   it("says when the PIN is wrong or locked", async () => {
@@ -179,5 +179,19 @@ describe("the learner app", () => {
     stubApi((method, url) => url === "/v1/people/LL042/training" ? json(403, {}) : answers(method, url));
     renderApp(KIM);
     expect(await screen.findByRole("alert")).toHaveTextContent("That didn't work. Try again, or ask your manager.");
+  });
+});
+
+describe("signing someone off", () => {
+  it("is offered on My training to someone who signs off practicals, and to nobody else", async () => {
+    stubApi(answers);
+    const { unmount } = renderApp({ ...KIM, code: "SV001", name: "Sam Vu", permission: "supervisor",
+                                    scopes: ["training:read", "training:write", "signoffs:write"] });
+    expect(await screen.findByRole("link", { name: "Sign someone off" })).toHaveAttribute("href", "/signoff");
+    unmount();
+    window.localStorage.clear();
+    renderApp(KIM);
+    expect(await screen.findByRole("heading", { name: "My training" })).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Sign someone off" })).not.toBeInTheDocument();
   });
 });

@@ -34,3 +34,9 @@ def test_any_other_request_is_logged_as_it_came():
 def test_the_app_puts_it_on_uvicorns_access_log():
     filters = logging.getLogger("uvicorn.access").filters
     assert any(isinstance(f, NoMediaSignatures) for f in filters)
+
+
+def test_microsofts_code_and_state_are_not_logged():
+    line = logged("/v1/auth/entra/callback?code=0.AAAA-secret&state=st4te")
+    assert "secret" not in line and "st4te" not in line
+    assert '"GET /v1/auth/entra/callback HTTP/1.1" 200 OK' in line

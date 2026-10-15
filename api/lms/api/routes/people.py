@@ -16,7 +16,7 @@ from lms.api.errors import Conflict, FieldError, Forbidden, NotFound, commit_uni
 from lms.api.schemas import (
     CODE, EMAIL, PIN, Page, PersonRef, RoleRef, normal_code, normal_key, person_ref, role_ref,
 )
-from lms.models import Person, PersonRole, Role
+from lms.models import Person, PersonRole, PinChange, Role
 from lms.services import access, events, sessions
 
 router = APIRouter(tags=["people"])
@@ -87,6 +87,8 @@ class PersonOut(BaseModel):
     has_pin: bool
     pin_locked: bool
     has_password: bool
+    # signed in with Microsoft before: their Entra object id is kept
+    entra_linked: bool
     created_at: datetime
     last_login_at: datetime | None
 
@@ -95,7 +97,8 @@ def person_out(p: Person) -> PersonOut:
     return PersonOut(id=p.id, code=p.code, name=p.name, email=p.email, permission=p.permission,
                      supervisor=person_ref(p.supervisor), roles=[role_ref(r) for r in p.roles],
                      active=p.active, has_pin=p.pin_hash is not None, pin_locked=p.pin_locked,
-                     has_password=p.password_hash is not None, created_at=p.created_at,
+                     has_password=p.password_hash is not None,
+                     entra_linked=p.entra_oid is not None, created_at=p.created_at,
                      last_login_at=p.last_login_at)
 
 
@@ -158,6 +161,15 @@ def _email_taken(email: str | None) -> FieldError:
     return FieldError("email", f"{email} is already taken")
 
 
+def set_pin(db, p: Person, pin: str, by: Person) -> None:
+    """A PIN, and who set it, kept (`pin_change`): whoever set it knows it,
+    so a sign-off they make for this person this week is refused."""
+    p.pin_hash = access.hash_password(pin)
+    p.pin_failed_attempts = 0
+    p.pin_locked = False
+    db.add(PinChange(person=p, changed_by=by))
+
+
 @router.post("/people", status_code=201, response_model=PersonOut)
 def create_person(body: PersonIn, db: DB, who: Principal = require("people:write")):
     may_manage(who, None, body.permission)
@@ -167,13 +179,14 @@ def create_person(body: PersonIn, db: DB, who: Principal = require("people:write
         raise code_taken
     _email_free(db, body.email)
     p = Person(code=code, name=body.name, email=body.email, permission=body.permission,
-               pin_hash=access.hash_password(body.pin) if body.pin else None,
                password_hash=access.hash_password(body.password) if body.password else None,
                pin_failed_attempts=0, pin_locked=False, password_failed_attempts=0, active=True)
     if body.supervisor:
         p.supervisor = _supervisor(db, body.supervisor)
     p.roles = _roles(db, body.roles)
     db.add(p)
+    if body.pin:
+        set_pin(db, p, body.pin, who.person)
     commit_unique(db, {"uq_person_code": code_taken,
                        "uq_person_email": _email_taken(body.email)},
                   before=lambda: events.person_updated(db, p))
@@ -248,9 +261,7 @@ def reset_pin(code: str, body: PinIn, db: DB, who: Principal = require("people:w
     PIN sessions end."""
     p = get_person(db, code)
     may_manage(who, p.permission)
-    p.pin_hash = access.hash_password(body.pin)
-    p.pin_failed_attempts = 0
-    p.pin_locked = False
+    set_pin(db, p, body.pin, who.person)
     sessions.end_all(db, p, "pin")
     db.commit()
     return person_out(p)
@@ -265,6 +276,18 @@ def set_password(code: str, body: PasswordIn, db: DB, who: Principal = require("
     p.password_failed_attempts = 0
     p.password_locked_until = None
     sessions.end_all(db, p, "password")
+    db.commit()
+    return person_out(p)
+
+
+@router.post("/people/{code}/entra/unlink", response_model=PersonOut)
+def unlink_entra(code: str, db: DB, who: Principal = require("people:write")):
+    """Forget their Microsoft account: the next time they sign in with
+    Microsoft they are matched by email again. Their Microsoft sessions end."""
+    p = get_person(db, code)
+    may_manage(who, p.permission)
+    p.entra_oid = None
+    sessions.end_all(db, p, "entra")
     db.commit()
     return person_out(p)
 

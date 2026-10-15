@@ -39,11 +39,22 @@ services:
   api:
     build: ./api
     restart: unless-stopped
-    # migrations run on every start, before the API takes requests
-    command: sh -c "alembic upgrade head && uvicorn lms.api.app:app --host 0.0.0.0 --port 8000"
+    # migrations run on every start, before the API takes requests. The
+    # address Caddy says a request came from (X-Forwarded-For, which Caddy
+    # sets itself) is taken as the person's: the API's port is reached only
+    # by Caddy and this host.
+    command: sh -c "alembic upgrade head && uvicorn lms.api.app:app --host 0.0.0.0 --port 8000 --forwarded-allow-ips '*'"
     environment:
       <<: *lms-settings
       LMS_DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-lms}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-lms}
+      # Sign in with Microsoft (README). LMS_PUBLIC_URL, which comes with the
+      # settings above, is where Microsoft sends people back:
+      # LMS_PUBLIC_URL/v1/auth/entra/callback. Not the worker's: it never
+      # signs anyone in.
+      LMS_ENTRA_TENANT_ID: ${LMS_ENTRA_TENANT_ID:-}
+      LMS_ENTRA_CLIENT_ID: ${LMS_ENTRA_CLIENT_ID:-}
+      LMS_ENTRA_CLIENT_SECRET: ${LMS_ENTRA_CLIENT_SECRET:-}
+      LMS_ENTRA_AUTHORITY: ${LMS_ENTRA_AUTHORITY:-https://login.microsoftonline.com}
     volumes:
       # tickets' photos and policy signatures (LMS_UPLOAD_DIR)
       - uploads:/data/uploads

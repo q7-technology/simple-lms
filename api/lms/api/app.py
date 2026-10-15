@@ -6,8 +6,9 @@ from sqlalchemy import text
 from lms.api import errors, logs
 from lms.api.deps import DB
 from lms.api.routes import (
-    api_keys, auth, competencies, learning, matrix, media, modules, overrides, people, policies,
-    printing, records, roles, settings, statuses, tickets, uploads, webhooks,
+    api_keys, auth, competencies, entra, learning, matrix, media, modules, overrides, people,
+    policies, practicals, printing, records, roles, settings, signoffs, statuses, tickets, uploads,
+    webhooks,
 )
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
@@ -24,6 +25,7 @@ errors.install(app)
 
 v1 = APIRouter(prefix="/v1")
 v1.include_router(auth.router)
+v1.include_router(entra.router)
 v1.include_router(people.router)
 v1.include_router(roles.router)
 v1.include_router(competencies.router)
@@ -36,6 +38,8 @@ v1.include_router(policies.router)
 v1.include_router(tickets.router)
 v1.include_router(modules.router)
 v1.include_router(learning.router)
+v1.include_router(practicals.router)
+v1.include_router(signoffs.router)
 v1.include_router(settings.router)
 v1.include_router(webhooks.router)
 v1.include_router(api_keys.router)
