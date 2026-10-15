@@ -29,7 +29,7 @@ in UTC. Interactive docs are at `/docs`.
 | `learner` | `training:read`, `training:write` |
 | `supervisor` | `training:read`, `training:write`, `matrix:read`, `roles:read`, `competencies:read` |
 | `manager` | the supervisor's, plus `people:read`, `people:write`, `roles:write`, `competencies:write`, `records:write`, `tickets:verify` |
-| `admin` | `*` |
+| `admin` | `*` (everything, `settings:write` among it) |
 
 `training:write` is doing your own training: sending a file, signing a
 policy, sending in a ticket, reading a module and taking its quiz. A
@@ -56,12 +56,15 @@ manager or an admin (`403 { "code": "admin_only" }`).
 A wrong password, an unknown email, or someone with no password is `401`
 `{ "detail": "wrong email or password", "code": "wrong_password" }`. Five
 wrong in a row lock the password for 15 minutes (`"code": "locked"`).
+With email and password sign-in switched off in Settings it is `403 {
+"code": "method_off" }`, whatever is sent.
 
 ### POST /v1/auth/pin-login
 `{ "code": "LL042", "pin": "2468" }` → `200`, the same shape with
 `"method": "pin"` and `"idle_seconds": 900`. A wrong PIN or unknown code is
 `401 { "code": "wrong_pin" }`. Five wrong PINs lock the PIN
-(`"code": "locked"`) until a manager sets a new one.
+(`"code": "locked"`) until a manager sets a new one. With code and PIN
+sign-in switched off in Settings it is `403 { "code": "method_off" }`.
 
 A session ends on sign-out, after its idle time without a request (15
 minutes for a PIN, 12 hours for a password), after 12 hours (PIN) or 14 days
@@ -215,7 +218,8 @@ Worked out on every request, never stored:
 
 The last good day is the record's `expires_on` if it has one, else
 `granted_on` plus the competency's refresher months, else never. Today is
-the date in `LMS_TIMEZONE` (default `Australia/Melbourne`).
+the date in the time zone in Settings (or `LMS_TIMEZONE`; default
+`Australia/Melbourne`).
 
 A **policy** with a version published counts only for its newest version:
 a grant for an older version (or from before there were versions) is
@@ -487,23 +491,84 @@ Each ticket:
 
 ## Emails and the daily job
 
-The worker sends email through SMTP (`LMS_SMTP_*` in `.env`) from the
-outbox, trying a failed one again after 1 minute, 5, 30 and 2 hours, then
-leaving it `failed`. Without `LMS_SMTP_HOST` and `LMS_SMTP_FROM` emails
-wait in the outbox, untried. Links in them start with `LMS_PUBLIC_URL`
-(none without it). Each day from `LMS_DAILY_HOUR` (6 am by default, in
-`LMS_TIMEZONE`) it queues:
+The worker sends email through the email server in Settings (or
+`LMS_SMTP_*` in `.env`) from the outbox, trying a failed one again after 1
+minute, 5, 30 and 2 hours, then leaving it `failed`. Without a host and a
+from address emails wait in the outbox, untried. Links in them start with
+the web address in Settings (or `LMS_PUBLIC_URL`; none without it). Each
+day from the daily hour (6 am by default, in the Settings time zone) it
+queues:
 
 - a reminder to each active person with an email when something they are
-  asked for has 30, 14 or 0 days left (the last good day itself), each once;
-  a day missed still gets the reminder it owed, and each says the real days
-  left;
+  asked for reaches a reminder day (30, 14 and 0 days left by default, 0
+  being the last good day itself), each once; a day missed still gets the
+  reminder it owed, and each says the real days left. Its outbox key is
+  `reminder:<person id>:<competency id>:<last good day>:<reminder day>`,
+  so changing the reminder days never sends one twice;
 - on Mondays, a digest for each active manager and admin with an email of
   what is lapsed and what is expiring, for everyone (none when nothing is).
 
 `lms daily-job [--on YYYY-MM-DD]` queues them now (as if today were that
 date); nothing is queued twice. A date it can't read is refused with exit
 code 2.
+
+## Settings
+
+Everyday settings, changed by an admin (`settings:write`; anyone else is
+`403`) and taken up by the API and the worker within a few seconds, with no
+restart. Each value is the one set here, else the one in `.env`, else the
+default. What has to be known before the app starts (the database, ports,
+the domain, the upload folder, Caddy) is in `.env` only.
+
+| Key | Value | `.env` | Default |
+| --- | --- | --- | --- |
+| `sign_in_pin` | code and PIN sign-in on | | `true` |
+| `sign_in_password` | email and password sign-in on | | `true` |
+| `quiz_cooldown_tries` | quiz goes in a row that didn't pass before the wait, 1 to 20 | | `3` |
+| `quiz_cooldown_minutes` | the wait, 0 to 525600 (0: none) | `LMS_QUIZ_COOLDOWN_MINUTES` | `60` |
+| `reminder_days` | whole days 0 to 365, at least one, up to 10 (kept furthest first, each once) | | `[30, 14, 0]` |
+| `daily_hour` | 0 to 23 | `LMS_DAILY_HOUR` | `6` |
+| `timezone` | an IANA time zone | `LMS_TIMEZONE` | `"Australia/Melbourne"` |
+| `smtp_host` | the email server, no spaces | `LMS_SMTP_HOST` | `""` |
+| `smtp_port` | 1 to 65535 | `LMS_SMTP_PORT` | `587` |
+| `smtp_user` | | `LMS_SMTP_USER` | `""` |
+| `smtp_password` | write-only | `LMS_SMTP_PASSWORD` | `""` |
+| `smtp_from` | e.g. `Simple LMS <lms@example.com.au>` | `LMS_SMTP_FROM` | `""` |
+| `smtp_security` | `starttls`, `ssl` or `none` | `LMS_SMTP_SECURITY` | `"starttls"` |
+| `public_url` | `https://…` (or `http://`), no trailing slash, or `""` | `LMS_PUBLIC_URL` | `""` |
+
+### GET /v1/settings
+→ `200`, every key: `{ "value", "source" }`, where `source` is `here`,
+`env` (`.env` gives a value other than the default) or `default`. The password is never sent: `"smtp_password": { "set":
+true, "source": "env" }`.
+```json
+{ "daily_hour": { "value": 6, "source": "default" },
+  "timezone": { "value": "Australia/Perth", "source": "here" },
+  "smtp_password": { "set": false, "source": "default" }, "…": "…" }
+```
+
+### PUT /v1/settings
+Only the keys sent change: `{ "daily_hour": 7, "smtp_password": "…" }` →
+`200`, every setting as for GET. `null` removes the value set here, so it
+comes from `.env` or the default again; an empty password (`""`) is set
+here and clears one in `.env` too. A bad value is `422` on its key (e.g.
+`timezone`, `reminder_days.0`), an unknown key is `422` on that key, and
+nothing is saved unless every value is good. Who changed each setting last,
+and when, is kept with it.
+
+Switching `sign_in_password` off is `409 { "code": "last_way_in" }` while
+it is the only way an admin can sign in (a PIN session never carries an
+admin's scopes), which until Microsoft Entra sign-in arrives is always. A
+switched-off method is refused at sign-in (`403 method_off`); sessions
+already open run their course. The `lms` command line never signs in, so it
+works whatever is switched off, and `lms clear-setting <key>` puts any
+setting back to `.env` or the default.
+
+### POST /v1/settings/test-email
+Queues an email to the caller's own address through the outbox → `202 {
+"to" }`; the worker sends it within a few seconds. No email address is
+`409 { "code": "no_email" }`; no email server (host and from address) is
+`409 { "code": "no_mail_server" }`. Each press sends one.
 
 ## System
 
