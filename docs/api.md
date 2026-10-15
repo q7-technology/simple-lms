@@ -74,7 +74,7 @@ The `person` object above, for the session's token.
 
 The first admin is made on the command line:
 `lms create-user --code AD001 --name "…" --email … [--permission admin]`
-(prompts for the password, at least 12 characters).
+(prompts twice for the password, at least 12 characters).
 
 ## People
 

@@ -24,6 +24,33 @@ def test_create_user_refuses_a_short_password(db, capsys):
     assert db.execute(select(Person)).first() is None
 
 
+def test_create_user_asks_for_the_password_twice(client, db, monkeypatch, capsys):
+    answers = iter(["a long enough password", "a long enough password"])
+    prompts = []
+    monkeypatch.setattr("getpass.getpass", lambda prompt="": prompts.append(prompt) or next(answers))
+    assert main(["create-user", "--code", "AD001", "--name", "L", "--email", "l@example.com"]) == 0
+    assert len(prompts) == 2
+    r = client.post("/v1/auth/login", json={"email": "l@example.com",
+                                            "password": "a long enough password"})
+    assert r.status_code == 200
+
+
+def test_create_user_refuses_passwords_that_differ(db, monkeypatch, capsys):
+    answers = iter(["a long enough password", "a long enough passwerd"])
+    monkeypatch.setattr("getpass.getpass", lambda prompt="": next(answers))
+    assert main(["create-user", "--code", "AD001", "--name", "L", "--email", "l@example.com"]) == 1
+    assert "create-user: the passwords don't match" in capsys.readouterr().err
+    assert db.execute(select(Person)).first() is None
+
+
+def test_create_user_does_not_prompt_when_given_the_password(db, monkeypatch):
+    def no_prompt(prompt=""):
+        raise AssertionError("prompted")
+    monkeypatch.setattr("getpass.getpass", no_prompt)
+    assert main(["create-user", "--code", "AD001", "--name", "L", "--email", "l@example.com",
+                 "--password", "a long enough password"]) == 0
+
+
 def test_create_user_refuses_a_code_or_email_already_taken(db, admin, capsys):
     assert main(["create-user", "--code", admin.code, "--name", "Another",
                  "--email", "another@example.com", "--password", "a long enough password"]) == 1
