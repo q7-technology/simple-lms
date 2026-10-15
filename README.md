@@ -48,11 +48,25 @@ docker compose exec api lms create-user --code AD001 --name "Your Name" --email 
 `create-user` asks for a password twice (12 characters or more) and makes an
 admin unless you give `--permission`.
 
-For email, set `LMS_SMTP_HOST`, `LMS_SMTP_FROM` (both are empty in
-`.env.example`) and the rest of the `LMS_SMTP_*` settings in `.env` (and
-`LMS_PUBLIC_URL`, for the links in them), then `docker compose up -d worker`
-again. While either is empty, emails wait in the outbox, untried, and
-nothing else is held up.
+**Settings.** An admin changes the everyday settings on the desktop's
+**Settings** screen, and they take effect within a few seconds, with no
+restart: sign-in methods (code and PIN, email and password), the quiz wait,
+the reminder days, the daily job's hour and the time zone, the email server
+(with **Send a test email**), and the web address for links in emails.
+Each says where its value comes from: set there, from `.env`, or the
+default; a value set there wins over `.env`, so an install that only has
+`.env` keeps working. What has to be known before Simple LMS starts, or
+could lock everyone out, stays in `.env` only: the database and its
+password, the ports, the domain, the upload folder and Caddy. Email and
+password sign-in can't be switched off while it is the only way an admin
+can sign in (until Microsoft Entra sign-in arrives, always), and
+`docker compose exec api lms clear-setting <key>` puts any setting back to
+`.env` or the default.
+
+For email, fill in the email server under **Settings** (or `LMS_SMTP_*` in
+`.env`, then `docker compose up -d api worker` again). Until it has a host
+and a from address, emails wait in the outbox, untried, and nothing else is
+held up.
 
 The desktop is at `https://<LMS_DOMAIN>/` (default `https://localhost/`,
 self-signed): sign in with that email and password and it opens on the
@@ -105,8 +119,9 @@ one page at a time (where they are is kept by Simple LMS, so they can carry
 on from any device), then takes the quiz: a pass says Ding! and counts as
 current until the refresher runs out; a fail gives the score and another
 go. After three goes in a row that didn't pass, they wait before the next:
-an hour by default, or `LMS_QUIZ_COOLDOWN_MINUTES` (e.g. 1440 for a day; 0
-for no wait), and the player says when they can try again. Every attempt
+an hour by default (both are in Settings; 0 minutes for no wait), and the
+player says when they can try again as soon as the fail that starts the
+wait is handed in. Every attempt
 is kept. A video that is playing counts as a tap, so a
 PIN session doesn't end in the middle of it.
 
@@ -117,9 +132,10 @@ only. It waits in the desktop's **Inbox**, where a manager or admin who is
 not them (nobody approves their own) checks the photos and approves it
 (current until the card's date) or sends it back with a reason they see.
 
-**Reminders.** Each morning (from `LMS_DAILY_HOUR`, 6 am by default, in
-`LMS_TIMEZONE`) the worker emails each person with an email when something
-of theirs has 30, 14 or 0 days left, saying the real days left (a day the
+**Reminders.** Each morning (from 6 am by default, in the business's time
+zone; both in Settings) the worker emails each person with an email when
+something of theirs reaches a reminder day (30, 14 and 0 days left by
+default; also in Settings), saying the real days left (a day the
 worker missed still gets the reminder it owed), and on Mondays sends each
 manager and admin with an email a digest of what is expiring and lapsed.
 Each is sent once. A failed email is tried again after 1 minute, 5, 30 and

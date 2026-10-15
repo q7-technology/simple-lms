@@ -10,6 +10,7 @@ export const SCREENS: Screen[] = [
   { to: "/roles", label: "Roles", scope: "roles:read" },
   { to: "/competencies", label: "Competencies", scope: "competencies:read" },
   { to: "/inbox", label: "Inbox", scope: "tickets:verify" },
+  { to: "/settings", label: "Settings", scope: "settings:write" },
 ];
 
 /** The drawer's name for a path: the screen it is, or under. */

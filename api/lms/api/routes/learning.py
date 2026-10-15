@@ -46,9 +46,12 @@ class ModuleOut(BaseModel):
     version: TakingOut
     # the page to open at, counting from 0; one past the last is the quiz
     resume_at: int
-    # when the caller may next try the quiz, after three goes in a row that
-    # didn't pass; null when they may try now
+    # when the caller may next try the quiz, after too many goes in a row
+    # that didn't pass (Settings); null when they may try now
     retry_at: datetime | None = None
+    # the same, ready to show where the business is: "2:15 pm", or
+    # "1:00 am on Fri 16 Oct" when it isn't today
+    retry_at_text: str | None = None
 
 
 class ProgressIn(BaseModel):
@@ -77,8 +80,9 @@ def read_module(key: str, db: DB, who: Principal = require("training:read")):
     v = to_take(db, c)
     progress = db.get(ModuleProgress, (who.person.id, c.id))
     resume_at = progress.page if progress and progress.module_version_id == v.id else 0
+    wait_until = modules.retry_at(db, who.person.id, c)
     return ModuleOut(key=c.key, name=c.name, resume_at=min(resume_at, len(v.pages)),
-                     retry_at=modules.retry_at(db, who.person.id, c),
+                     retry_at=wait_until, retry_at_text=modules.retry_text(wait_until),
                      version=TakingOut(id=v.id, version=v.version, pass_mark=v.pass_mark,
                                        pages=[page_out(p, who.session) for p in v.pages],
                                        questions=[AskedOut(prompt=q.prompt, options=q.options)
@@ -124,6 +128,13 @@ class AttemptOut(BaseModel):
     created_at: datetime
 
 
+class TakenOut(AttemptOut):
+    """An attempt just taken, and when the next go may be (as ModuleOut):
+    the fail that starts the wait says so straight away."""
+    retry_at: datetime | None = None
+    retry_at_text: str | None = None
+
+
 def attempt_out(a: QuizAttempt) -> AttemptOut:
     return AttemptOut(id=a.id, competency=competency_ref(a.competency),
                       version=a.module_version.version, correct=a.correct, total=a.total,
@@ -131,7 +142,7 @@ def attempt_out(a: QuizAttempt) -> AttemptOut:
                       created_at=a.created_at)
 
 
-@router.post("/modules/{key}/attempts", status_code=201, response_model=AttemptOut)
+@router.post("/modules/{key}/attempts", status_code=201, response_model=TakenOut)
 def take_quiz(key: str, body: AttemptIn, db: DB, who: Principal = require("training:write")):
     """Your own go at the quiz, marked here, pass or fail, and kept for good.
     A pass is a grant from today, recorded as yours: the one thing anybody
@@ -145,9 +156,10 @@ def take_quiz(key: str, body: AttemptIn, db: DB, who: Principal = require("train
     wait_until = modules.retry_at(db, p.id, c)
     if wait_until is not None:
         now = clock.now()
-        raise Refused(429, "cooldown", "Three tries in a row didn't pass: try again after "
+        raise Refused(429, "cooldown", f"{modules.why_wait()}: try again after "
                       f"{modules.said_at(wait_until, now)}",
-                      extra={"retry_at": wait_until.isoformat()},
+                      extra={"retry_at": wait_until.isoformat(),
+                             "retry_at_text": modules.said_at(wait_until, now)},
                       headers={"Retry-After": str(math.ceil((wait_until - now).total_seconds()))})
     v = to_take(db, c)
     same_version(v, body.version)
@@ -171,7 +183,10 @@ def take_quiz(key: str, body: AttemptIn, db: DB, who: Principal = require("train
         db.execute(delete(ModuleProgress).where(ModuleProgress.person_id == p.id,
                                                 ModuleProgress.competency_id == c.id))
     db.commit()
-    return JSONResponse(status_code=201, content=attempt_out(attempt).model_dump(mode="json"))
+    wait_until = modules.retry_at(db, p.id, c)
+    out = TakenOut(**attempt_out(attempt).model_dump(), retry_at=wait_until,
+                   retry_at_text=modules.retry_text(wait_until))
+    return JSONResponse(status_code=201, content=out.model_dump(mode="json"))
 
 
 @router.get("/people/{code}/attempts", response_model=list[AttemptOut])

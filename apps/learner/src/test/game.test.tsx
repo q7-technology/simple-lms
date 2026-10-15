@@ -9,14 +9,14 @@ const item = (key: string, name: string, status: string) =>
 const training = (...items: ReturnType<typeof item>[]) => ({ person: { code: "LL042", name: "Kim Lee" }, today: "2026-10-12", items });
 
 const INDUCTION: Module = {
-  key: "site-induction", name: "Site induction", resume_at: 1, retry_at: null,
+  key: "site-induction", name: "Site induction", resume_at: 1, retry_at: null, retry_at_text: null,
   version: {
     id: 1, version: 1, pass_mark: 80,
     pages: [{ kind: "text", title: "Welcome", body: "Sign in at the gatehouse.", url: null, file: null }],
     questions: [{ prompt: "Where do you sign in?", options: ["The gatehouse", "The canteen"] }],
   },
 };
-const ATTEMPT = { id: 1, version: 1, correct: 1, total: 1, score: 100, pass_mark: 80, passed: true, created_at: "2026-10-12T01:00:00Z" };
+const ATTEMPT = { id: 1, version: 1, correct: 1, total: 1, score: 100, pass_mark: 80, passed: true, created_at: "2026-10-12T01:00:00Z", retry_at: null, retry_at_text: null };
 
 /** The site induction's quiz, answered right or wrong. */
 async function handIn(passed: boolean) {

@@ -10,7 +10,7 @@ const TRAINING = {
 };
 const link = (id: string) => `/v1/media/${id}?session=1&expires=1&sig=x`;
 const INDUCTION: Module = {
-  key: "site-induction", name: "Site induction", resume_at: 0, retry_at: null,
+  key: "site-induction", name: "Site induction", resume_at: 0, retry_at: null, retry_at_text: null,
   version: {
     id: 1, version: 1, pass_mark: 80,
     pages: [
@@ -29,7 +29,8 @@ const INDUCTION: Module = {
     ],
   },
 };
-const PASS = { id: 1, version: 1, correct: 2, total: 2, score: 100, pass_mark: 80, passed: true, created_at: "2026-10-12T01:00:00Z" };
+const PASS = { id: 1, version: 1, correct: 2, total: 2, score: 100, pass_mark: 80, passed: true,
+               created_at: "2026-10-12T01:00:00Z", retry_at: null, retry_at_text: null };
 const FAIL = { ...PASS, correct: 1, score: 50, passed: false };
 
 /** The site induction, opened at `resume_at`; `attempts` answer the quiz in turn. */
@@ -229,10 +230,11 @@ describe("the module player", () => {
 
   it("says when they can try again after three goes that didn't pass, and offers the pages", async () => {
     const soon = new Date(Date.now() + 30 * 60_000).toISOString();
-    stubModule({ ...INDUCTION, resume_at: 5, retry_at: soon });
+    stubModule({ ...INDUCTION, resume_at: 5, retry_at: soon, retry_at_text: "2:15 pm" });
     renderApp(KIM, Date.now(), "/module/site-induction");
+    // the time as the API says it, in the business's time zone, not the phone's
     expect(await screen.findByRole("status", { name: "Wait to try again" })).toHaveTextContent(
-      /^Three tries in a row didn't pass\. You can try again after \d{1,2}:\d{2} (am|pm)( on .+)?\.$/);
+      "Too many tries in a row didn't pass. You can try again after 2:15 pm.");
     expect(screen.queryByRole("button", { name: "Hand it in" })).not.toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Read it again" }));
     expect(screen.getByLabelText("Page 1 of 5")).toBeInTheDocument();
@@ -248,16 +250,38 @@ describe("the module player", () => {
   it("says when they can try again when the hand-in is turned away", async () => {
     const soon = new Date(Date.now() + 60 * 60_000).toISOString();
     stubModule({ ...INDUCTION, resume_at: 5 }, [json(429, {
-      detail: "Three tries in a row didn't pass: try again after 2:15 pm", code: "cooldown", retry_at: soon })]);
+      detail: "Three tries in a row didn't pass: try again after 2:15 pm", code: "cooldown", retry_at: soon,
+      retry_at_text: "2:15 pm" })]);
     renderApp(KIM, Date.now(), "/module/site-induction");
     await userEvent.click(await screen.findByLabelText("The canteen"));
     await userEvent.click(screen.getByLabelText("Your PPE"));
     await userEvent.click(screen.getByRole("button", { name: "Hand it in" }));
     const wait = await screen.findByRole("status", { name: "Wait to try again" });
-    expect(wait).toHaveTextContent(/^Three tries in a row didn't pass\. You can try again after \d{1,2}:\d{2} (am|pm)( on .+)?\.$/);
+    expect(wait).toHaveTextContent("Too many tries in a row didn't pass. You can try again after 2:15 pm.");
     expect(document.activeElement).toBe(wait);
     expect(screen.queryByRole("button", { name: "Hand it in" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Read it again" })).toBeInTheDocument();
+  });
+
+  it("says straight away when the fail just handed in starts the wait", async () => {
+    const soon = new Date(Date.now() + 60 * 60_000).toISOString();
+    // the module said there was no wait when it opened: the attempt's answer is the latest word
+    stubModule({ ...INDUCTION, resume_at: 5 }, [json(201, { ...FAIL, retry_at: soon, retry_at_text: "3:30 pm" })]);
+    renderApp(KIM, Date.now(), "/module/site-induction");
+    await userEvent.click(await screen.findByLabelText("The canteen"));
+    await userEvent.click(screen.getByLabelText("Your PPE"));
+    await userEvent.click(screen.getByRole("button", { name: "Hand it in" }));
+    const missed = await screen.findByRole("status", { name: "Not passed" });
+    expect(missed).toHaveTextContent(
+      "50%Not this time: you need 80% to pass. Too many tries in a row didn't pass. You can try again after 3:30 pm.");
+    expect(screen.queryByRole("button", { name: "Try again" })).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Read it again" }));
+    expect(screen.getByLabelText("Page 1 of 5")).toBeInTheDocument();
+    // back at the quiz, still the wait: not the questions again
+    for (let i = 0; i < 4; i++) await userEvent.click(screen.getByRole("button", { name: "Next" }));
+    await userEvent.click(screen.getByRole("button", { name: "Start the quiz" }));
+    expect(await screen.findByRole("status", { name: "Wait to try again" })).toHaveTextContent("after 3:30 pm");
+    expect(screen.queryByRole("button", { name: "Hand it in" })).not.toBeInTheDocument();
   });
 
   it("starts the new version when one came out while they read", async () => {

@@ -9,6 +9,10 @@ import { Back, plain } from "../ui";
 const CHANGED = "The module has changed: start the new version.";
 // how often a playing video says someone is still here
 const STILL_HERE_MS = 60_000;
+const TOO_MANY = "Too many tries in a row didn't pass.";
+
+/** When the next go at the quiz may be, as the API last said it. */
+interface Wait { at: string; text: string }
 
 /** A module, one page at a time, then the quiz. Where the learner is goes
  * to the API as they go, so they carry on where they left off, on this
@@ -19,6 +23,8 @@ export function ModulePlayer() {
   const [at, setAt] = useState(0);
   const [trouble, setTrouble] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  // the latest word on the quiz's wait, from the module or an attempt
+  const [wait, setWait] = useState<Wait | null>(null);
   const top = useRef<HTMLHeadingElement>(null);
   // the heading of the page (or the quiz) on show: focus goes there on a move
   const heading = useRef<HTMLHeadingElement>(null);
@@ -35,6 +41,7 @@ export function ModulePlayer() {
     try {
       const m = await api.get<Module>(path);
       setModule(m);
+      setWait(waiting(m.retry_at, m.retry_at_text));
       if (!keepPlace) setAt(m.resume_at);
     } catch (e) {
       setTrouble(e instanceof ApiError && e.status === 404 ? "There's nothing to do here yet. Ask your manager." : plain(e));
@@ -42,6 +49,14 @@ export function ModulePlayer() {
   }, [path]);
 
   useEffect(() => { void load(); }, [load]);
+
+  // the wait is over: the quiz again (a timer can't wait longer than about 24 days)
+  useEffect(() => {
+    if (!wait) return;
+    const timer = setTimeout(() => setWait(null),
+      Math.min(Math.max(new Date(wait.at).getTime() - Date.now(), 0), 2 ** 31 - 1));
+    return () => clearTimeout(timer);
+  }, [wait]);
 
   // the button they pressed went with the old page: take focus to the new one
   useEffect(() => {
@@ -107,6 +122,7 @@ export function ModulePlayer() {
                       onBack={() => go(at - 1)} onNext={() => go(at + 1)} onReload={() => void load(true)} />
           ) : (
             <Quiz key={module.version.id} module={module} path={path} heading={heading} onChanged={changed}
+                  wait={wait} onWait={setWait}
                   onBack={() => go(pages.length - 1)} onReadAgain={() => go(0)} />
           )}
         </>
@@ -179,8 +195,9 @@ function Video({ link, title }: { link: string; title: string }) {
                 onTimeUpdate={playing} onError={() => setFailed(true)} />;
 }
 
-function Quiz({ module, path, heading, onChanged, onBack, onReadAgain }: {
+function Quiz({ module, path, heading, wait, onWait, onChanged, onBack, onReadAgain }: {
   module: Module; path: string; heading: RefObject<HTMLHeadingElement | null>;
+  wait: Wait | null; onWait: (wait: Wait | null) => void;
   onChanged: () => Promise<void>; onBack: () => void; onReadAgain: () => void;
 }) {
   const { questions, pass_mark: passMark, version } = module.version;
@@ -189,8 +206,6 @@ function Quiz({ module, path, heading, onChanged, onBack, onReadAgain }: {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<Attempt | null>(null);
-  // after three goes in a row that didn't pass, when they may try again
-  const [retryAt, setRetryAt] = useState<string | null>(() => waiting(module.retry_at));
   // the form goes when the result comes (and back on another go), taking
   // focus with it: it goes to the result, so it is read out, or the quiz's top
   const said = useRef<HTMLElement>(null);
@@ -198,17 +213,9 @@ function Quiz({ module, path, heading, onChanged, onBack, onReadAgain }: {
   const { wake, ding } = useDing();
 
   useEffect(() => {
-    if (result || retryAt) said.current?.focus();
+    if (result || wait) said.current?.focus();
     else if (again.current) { again.current = false; heading.current?.focus(); }
-  }, [result, retryAt, heading]);
-
-  // the wait is over: the quiz again (a timer can't wait longer than about 24 days)
-  useEffect(() => {
-    if (!retryAt) return;
-    const timer = setTimeout(() => setRetryAt(null),
-      Math.min(Math.max(new Date(retryAt).getTime() - Date.now(), 0), 2 ** 31 - 1));
-    return () => clearTimeout(timer);
-  }, [retryAt]);
+  }, [result, wait, heading]);
 
   async function handIn(e: FormEvent) {
     e.preventDefault();
@@ -216,14 +223,15 @@ function Quiz({ module, path, heading, onChanged, onBack, onReadAgain }: {
     setBusy(true);
     setError(null);
     try {
-      const attempt = await api.post<Attempt>(`${path}/attempts`, { version, answers });
-      if (attempt.passed) ding();
-      setResult(attempt);
+      const out = await api.post<Attempt>(`${path}/attempts`, { version, answers });
+      if (out.passed) ding();
+      setResult(out);
+      onWait(waiting(out.retry_at, out.retry_at_text));
     } catch (err) {
-      const until = err instanceof ApiError && err.code === "cooldown"
-        ? waiting((err.body as { retry_at?: unknown })?.retry_at) : null;
+      const body = err instanceof ApiError ? err.body as { retry_at?: unknown; retry_at_text?: unknown } : null;
+      const until = err instanceof ApiError && err.code === "cooldown" ? waiting(body?.retry_at, body?.retry_at_text) : null;
       if (err instanceof ApiError && err.code === "new_version") await onChanged();
-      else if (until) setRetryAt(until);
+      else if (until) onWait(until);
       else setError(plain(err));
     } finally {
       setBusy(false);
@@ -241,11 +249,22 @@ function Quiz({ module, path, heading, onChanged, onBack, onReadAgain }: {
       </>
     );
   }
-  if (retryAt) {
+  if (result && wait) {
+    return (
+      <>
+        <section ref={said} tabIndex={-1} className="miss" role="status" aria-label="Not passed">
+          <b>{result.score}%</b>
+          <span>Not this time: you need {result.pass_mark}% to pass. {TOO_MANY} You can try again after {wait.text}.</span>
+        </section>
+        <button type="button" className="big ghost" onClick={onReadAgain}>Read it again</button>
+      </>
+    );
+  }
+  if (wait) {
     return (
       <>
         <section ref={said} tabIndex={-1} className="miss" role="status" aria-label="Wait to try again">
-          <span>Three tries in a row didn't pass. You can try again after {when(retryAt)}.</span>
+          <span>{TOO_MANY} You can try again after {wait.text}.</span>
         </section>
         <button type="button" className="big ghost" onClick={onReadAgain}>Read it again</button>
       </>
@@ -287,15 +306,9 @@ function Quiz({ module, path, heading, onChanged, onBack, onReadAgain }: {
   );
 }
 
-/** The time, if it is still to come. */
-function waiting(at: unknown): string | null {
-  return typeof at === "string" && new Date(at).getTime() > Date.now() ? at : null;
-}
-
-/** A time as people say it: 2:15 pm, and the day too when it isn't today. */
-function when(at: string): string {
-  const d = new Date(at);
-  const time = d.toLocaleTimeString("en-AU", { hour: "numeric", minute: "2-digit" });
-  if (d.toDateString() === new Date().toDateString()) return time;
-  return `${time} on ${d.toLocaleDateString("en-AU", { weekday: "short", day: "numeric", month: "short" })}`;
+/** The wait, if it is still to come, with the time as the API says it (in
+ * the business's time zone, not the device's). */
+function waiting(at: unknown, text: unknown): Wait | null {
+  if (typeof at !== "string" || !(new Date(at).getTime() > Date.now())) return null;
+  return { at, text: typeof text === "string" && text ? text : "a while" };
 }

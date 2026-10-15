@@ -7,6 +7,9 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
+    """What .env says. The everyday settings below (time zone, web address,
+    email, daily hour, quiz wait) are only the fallback: read them through
+    lms/services/settings.py, where a value set on the Settings screen wins."""
     model_config = SettingsConfigDict(env_prefix="LMS_", extra="ignore")
 
     database_url: str = "postgresql+psycopg://lms:lms@127.0.0.1:5432/lms"
@@ -37,8 +40,9 @@ class Settings(BaseSettings):
     worker_poll_seconds: float = Field(default=5.0, gt=0)
     daily_hour: int = Field(default=6, ge=0, le=23)
 
-    # After three goes at a module's quiz in a row that didn't pass, how long
-    # the learner waits before the next, e.g. 1440 for a day. 0: no wait.
+    # After a few goes at a module's quiz in a row that didn't pass (3 unless
+    # Settings says otherwise), how long the learner waits before the next,
+    # e.g. 1440 for a day. 0: no wait.
     quiz_cooldown_minutes: int = Field(default=60, ge=0)
 
     @field_validator("timezone")

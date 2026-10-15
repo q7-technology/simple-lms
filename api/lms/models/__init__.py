@@ -7,10 +7,11 @@ from lms.models.modules import (
 )
 from lms.models.records import CompetencyRecord, PersonOverride
 from lms.models.outbox import Outbox
+from lms.models.settings import Setting
 
 __all__ = [
     "Base", "PERMISSIONS", "KINDS", "PAGE_KINDS", "Person", "Session", "Role", "PersonRole",
     "Competency", "RoleRequirement", "PersonOverride", "CompetencyRecord", "Upload",
     "PolicyVersion", "TicketSubmission", "Outbox", "ModuleVersion", "ModulePage",
-    "QuizQuestion", "QuizAttempt", "ModuleProgress",
+    "QuizQuestion", "QuizAttempt", "ModuleProgress", "Setting",
 ]

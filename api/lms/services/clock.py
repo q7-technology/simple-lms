@@ -4,11 +4,11 @@ from __future__ import annotations
 from datetime import UTC, date, datetime
 from zoneinfo import ZoneInfo
 
-from lms.config import get_settings
+from lms.services import settings
 
 
 def today() -> date:
-    return datetime.now(ZoneInfo(get_settings().timezone)).date()
+    return datetime.now(ZoneInfo(settings.current().timezone)).date()
 
 
 def now() -> datetime:

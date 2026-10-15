@@ -123,3 +123,43 @@ def test_no_digest_when_nothing_is_due(db, manager):
 
 def test_reminder_days():
     assert [daily.reminder_for(d) for d in (30, 29, 15, 14, 1, 0)] == [30, 30, 30, 14, 14, 0]
+
+
+def test_the_reminder_days_are_a_setting(db, kim, admin):
+    from lms.services import settings
+
+    settings.save(db, {"reminder_days": [7, 0]}, admin)
+    on(db, MONDAY, date(2026, 10, 28))     # 30 and 14 days left: no reminder now
+    assert emails(db) == []
+    on(db, date(2026, 11, 4), date(2026, 11, 5))
+    assert emails(db) == [("kim@example.com.au", "Forklift licence: 7 days left")]
+    # the key keeps its shape: person, competency, last good day, reminder day
+    db.expire_all()
+    assert db.query(Outbox).filter(Outbox.key.startswith("reminder")).one().key.endswith(
+        ":2026-11-11:7")
+
+
+def test_a_reminder_day_beyond_30_reminds_while_still_current(db, kim, admin):
+    from lms.services import settings
+
+    settings.save(db, {"reminder_days": [60, 0]}, admin)
+    on(db, date(2026, 9, 12), date(2026, 9, 20))     # 60 days left, still current
+    assert emails(db) == [("kim@example.com.au", "Forklift licence: 60 days left")]
+
+
+def test_a_key_queued_before_the_change_still_counts(db, kim, admin):
+    from lms.services import settings
+
+    on(db, MONDAY)                                          # the 30-day one, as before
+    settings.save(db, {"reminder_days": [30, 21, 0]}, admin)
+    on(db, date(2026, 10, 15))                              # 27 days left: still the 30
+    assert len(emails(db)) == 1
+
+
+def test_the_web_address_set_here_goes_in_the_email(db, kim, admin):
+    from lms.services import settings
+
+    settings.save(db, {"public_url": "https://lms.example.com.au"}, admin)
+    on(db, MONDAY)
+    text = db.query(Outbox).filter(Outbox.key.startswith("reminder")).one().payload["text"]
+    assert "Open Simple LMS: https://lms.example.com.au/learn/" in text

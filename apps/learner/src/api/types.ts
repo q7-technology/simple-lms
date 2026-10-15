@@ -74,8 +74,10 @@ export interface Module {
   };
   /** the page to open at; one past the last is the quiz */
   resume_at: number;
-  /** after three goes in a row that didn't pass, when they may try again; null: now */
+  /** after too many goes in a row that didn't pass, when they may try again; null: now */
   retry_at: string | null;
+  /** the same, ready to show in the business's time zone: "2:15 pm" */
+  retry_at_text: string | null;
 }
 
 export interface Attempt {
@@ -87,4 +89,7 @@ export interface Attempt {
   pass_mark: number;
   passed: boolean;
   created_at: string;
+  /** when the next go may be, if this attempt started a wait (as Module's) */
+  retry_at: string | null;
+  retry_at_text: string | null;
 }

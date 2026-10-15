@@ -11,9 +11,10 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
 
 from lms.api.deps import DB, Who, bearer_token
+from lms.api.errors import Forbidden
 from lms.api.schemas import normal_code
 from lms.models import Person
-from lms.services import access, sessions
+from lms.services import access, sessions, settings
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -61,6 +62,12 @@ def _refused(detail: str, code: str) -> JSONResponse:
                         headers={"WWW-Authenticate": "Bearer"})
 
 
+def _switched_on(on: bool, how: str) -> None:
+    """A method switched off in Settings is refused before anything is checked."""
+    if not on:
+        raise Forbidden(f"Signing in with {how} is switched off here.", "method_off")
+
+
 def _signed_in(db, person: Person, method: str) -> SessionOut:
     token = sessions.start(db, person, method)
     person.last_login_at = datetime.now(UTC)
@@ -77,6 +84,7 @@ def _one_at_a_time(db, where) -> Person | None:
 @router.post("/login", response_model=SessionOut)
 def login(body: LoginIn, db: DB):
     """Five wrong passwords lock the password for 15 minutes."""
+    _switched_on(settings.current().sign_in_password, "an email and password")
     person = _one_at_a_time(db, Person.email == body.email.strip().lower())
     if person is None or not person.active or not person.password_hash:
         # an unknown email and a wrong password look alike, and take as long
@@ -103,6 +111,7 @@ def login(body: LoginIn, db: DB):
 @router.post("/pin-login", response_model=SessionOut)
 def pin_login(body: PinLoginIn, db: DB):
     """Five wrong PINs lock the PIN until a manager sets a new one."""
+    _switched_on(settings.current().sign_in_pin, "a code and PIN")
     person = _one_at_a_time(db, Person.code == normal_code(body.code))
     if person is None or not person.active or not person.pin_hash:
         access.verify_password(body.pin, access.DUMMY_HASH)

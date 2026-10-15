@@ -1,5 +1,6 @@
 """The daily job, run by the worker each morning: a reminder to each
-learner with an email when something of theirs has 30, 14 or 0 days left,
+learner with an email when something of theirs reaches a reminder day
+(Settings; 30, 14 and 0 days left unless changed),
 and on Mondays a digest of what is expiring and lapsed for each manager.
 Status comes from status.py, as everywhere (rule 2). Each email has its
 own key in the outbox, so running the job again sends nothing twice."""
@@ -11,11 +12,11 @@ from datetime import date, datetime
 from sqlalchemy import select
 from sqlalchemy.orm import Session as Db
 
-from lms.config import get_settings
 from lms.models import Person
-from lms.services import outbox, standing
+from lms.services import outbox, settings, standing
 
-# days left on the last good day's count: 30, 14, and the day itself
+# days left on the last good day's count, unless Settings says otherwise:
+# 30, 14, and the day itself
 REMINDER_DAYS = (30, 14, 0)
 MONDAY = 0
 MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
@@ -26,10 +27,11 @@ def formatted(d: date) -> str:
     return f"{d.day} {MONTHS[d.month - 1]} {d.year}"
 
 
-def reminder_for(days_left: int) -> int:
-    """Which reminder is due: the nearest of 30, 14 and 0 not yet passed, so a
-    day the worker missed still gets the one it was owed."""
-    return min(t for t in REMINDER_DAYS if t >= days_left)
+def reminder_for(days_left: int, days: tuple[int, ...] = REMINDER_DAYS) -> int | None:
+    """Which reminder is due: the nearest reminder day not yet passed, so a
+    day the worker missed still gets the one it was owed. None before the
+    first of them."""
+    return min((t for t in days if t >= days_left), default=None)
 
 
 @dataclass
@@ -41,12 +43,12 @@ class Item:
 
 
 def _where_to(path: str) -> str:
-    url = get_settings().public_url
+    url = settings.current().public_url
     return f"\n\nOpen Simple LMS: {url}{path}" if url else ""
 
 
 def reminder(person: Person, name: str, expires_on: date, days_left: int) -> tuple[str, str]:
-    """Said with the real days left, whichever of 30, 14 and 0 is being sent."""
+    """Said with the real days left, whichever reminder day is being sent."""
     if days_left == 0:
         subject = f"{name}: today is its last day"
         when = f"Your {name} is good until the end of today, {formatted(expires_on)}."
@@ -82,6 +84,7 @@ def run(db: Db, today: date, now: datetime | None = None) -> dict[str, int]:
     """Queue today's reminders and (on a Monday) the digests. Returns how
     many were queued now; anything an earlier run queued is not queued again."""
     queued = {"reminders": 0, "digests": 0}
+    days = settings.current().reminder_days
     people = db.execute(select(Person).where(Person.active.is_(True))
                         .order_by(Person.name, Person.code)).scalars().all()
     st = standing.load(db, [p.id for p in people], today)
@@ -89,13 +92,15 @@ def run(db: Db, today: date, now: datetime | None = None) -> dict[str, int]:
     for p in people:
         for c in sorted(st.asked_for(p.id), key=lambda c: st.competencies[c].name):
             s = st.status(p.id, c)
-            if s.status not in ("expiring", "lapsed"):
-                continue
             name = st.competencies[c].name
-            items.append(Item(p, name, s.status, s.expires_on))
-            if s.status == "expiring" and p.email:
+            if s.status in ("expiring", "lapsed"):
+                items.append(Item(p, name, s.status, s.expires_on))
+            # a reminder day may be further off than "expiring" (30 days)
+            if s.status in ("current", "expiring") and s.expires_on is not None and p.email:
                 days_left = (s.expires_on - today).days
-                tier = reminder_for(days_left)
+                tier = reminder_for(days_left, days)
+                if tier is None:
+                    continue
                 subject, text = reminder(p, name, s.expires_on, days_left)
                 key = f"reminder:{p.id}:{c}:{s.expires_on.isoformat()}:{tier}"
                 queued["reminders"] += outbox.queue_email(db, key, p.email, subject, text, now)
