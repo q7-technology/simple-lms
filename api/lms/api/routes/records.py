@@ -38,6 +38,13 @@ class RevokeIn(BaseModel):
     note: str = Field(min_length=1, max_length=500)
 
 
+class QuizOut(BaseModel):
+    """A module passed: on which version, with what score, against what pass mark."""
+    version: int
+    score: int
+    pass_mark: int
+
+
 class RecordOut(BaseModel):
     id: int
     competency: CompetencyRef
@@ -53,16 +60,22 @@ class RecordOut(BaseModel):
     signature: uuid.UUID | None
     # a ticket a manager verified: its submission's id
     ticket: int | None
+    # a module passed in the learner app: the quiz that passed it
+    quiz: QuizOut | None
     created_at: datetime
 
 
 def record_out(r: CompetencyRecord) -> RecordOut:
+    a = r.quiz_attempt
     return RecordOut(id=r.id, competency=competency_ref(r.competency), kind=r.kind,
                      granted_on=r.granted_on, expires_on=r.expires_on, note=r.note,
                      recorded_by=person_ref(r.recorded_by),
                      policy_version=r.policy_version.version if r.policy_version else None,
                      signed_name=r.signed_name, signature=r.signature_upload_id,
-                     ticket=r.ticket_submission_id, created_at=r.created_at)
+                     ticket=r.ticket_submission_id,
+                     quiz=QuizOut(version=a.module_version.version, score=a.score,
+                                  pass_mark=a.module_version.pass_mark) if a else None,
+                     created_at=r.created_at)
 
 
 def latest_record(db, person_id: int, competency_id: int) -> CompetencyRecord | None:

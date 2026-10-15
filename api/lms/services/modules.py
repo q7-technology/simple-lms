@@ -40,3 +40,8 @@ def start_draft(db: Db, module: Competency) -> ModuleVersion:
     db.flush()
     db.expire(v, ["pages", "questions"])
     return v
+
+
+def score(correct: int, total: int) -> int:
+    """Out of 100, rounded down: 2 of 3 is 66, never a pass mark of 67."""
+    return correct * 100 // total

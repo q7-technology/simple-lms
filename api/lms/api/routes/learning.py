@@ -8,14 +8,19 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, Response
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
+from sqlalchemy import delete, select
 from sqlalchemy.dialects.postgresql import insert
 
 from lms.api.deps import DB, Principal, require
 from lms.api.errors import Conflict, FieldError, NotFound
 from lms.api.routes.modules import PageOut, get_module, page_out
-from lms.models import Competency, ModuleProgress, ModuleVersion
-from lms.services import modules
+from lms.api.routes.people import get_person
+from lms.api.routes.records import one_at_a_time
+from lms.api.schemas import CompetencyRef, competency_ref, normal_key
+from lms.models import Competency, CompetencyRecord, ModuleProgress, ModuleVersion, QuizAttempt
+from lms.services import clock, modules
 
 router = APIRouter(tags=["modules"])
 
@@ -91,3 +96,81 @@ def keep_progress(key: str, body: ProgressIn, db: DB,
         set_={k: values[k] for k in ("module_version_id", "page", "updated_at")}))
     db.commit()
     return Response(status_code=204)
+
+
+class AttemptIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    # the version they answered: if a newer one came out, they take that
+    version: int
+    # the answer chosen for each question, in order, counting from 0
+    answers: list[int] = Field(max_length=50)
+
+
+class AttemptOut(BaseModel):
+    id: int
+    competency: CompetencyRef
+    version: int
+    correct: int
+    total: int
+    # out of 100, rounded down
+    score: int
+    pass_mark: int
+    passed: bool
+    created_at: datetime
+
+
+def attempt_out(a: QuizAttempt) -> AttemptOut:
+    return AttemptOut(id=a.id, competency=competency_ref(a.competency),
+                      version=a.module_version.version, correct=a.correct, total=a.total,
+                      score=a.score, pass_mark=a.module_version.pass_mark, passed=a.passed,
+                      created_at=a.created_at)
+
+
+@router.post("/modules/{key}/attempts", status_code=201, response_model=AttemptOut)
+def take_quiz(key: str, body: AttemptIn, db: DB, who: Principal = require("training:write")):
+    """Your own go at the quiz, marked here, pass or fail, and kept for good.
+    A pass is a grant from today, recorded as yours: the one thing anybody
+    earns alone (rule 3). The refresher, if there is one, says when it runs
+    out. After a fail, try again."""
+    p = one_at_a_time(db, who.person.code)
+    c = get_module(db, key)
+    if not c.active:
+        raise Conflict("inactive", f"{c.key} is deactivated")
+    v = to_take(db, c)
+    same_version(v, body.version)
+    questions = v.questions
+    if len(body.answers) != len(questions):
+        raise FieldError("answers", f"answer all {len(questions)} questions")
+    for i, (answer, q) in enumerate(zip(body.answers, questions)):
+        if not 0 <= answer < len(q.options):
+            raise FieldError(f"answers.{i}", "choose one of the answers")
+    correct = sum(answer == q.correct for answer, q in zip(body.answers, questions))
+    score = modules.score(correct, len(questions))
+    attempt = QuizAttempt(person_id=p.id, competency=c, module_version=v, answers=body.answers,
+                          correct=correct, total=len(questions), score=score,
+                          passed=score >= v.pass_mark)
+    db.add(attempt)
+    db.flush()
+    if attempt.passed:
+        db.add(CompetencyRecord(person_id=p.id, competency=c, kind="granted",
+                                granted_on=clock.today(), recorded_by=p, quiz_attempt=attempt))
+        # done: next time, it starts from the top
+        db.execute(delete(ModuleProgress).where(ModuleProgress.person_id == p.id,
+                                                ModuleProgress.competency_id == c.id))
+    db.commit()
+    return JSONResponse(status_code=201, content=attempt_out(attempt).model_dump(mode="json"))
+
+
+@router.get("/people/{code}/attempts", response_model=list[AttemptOut])
+def list_attempts(code: str, db: DB, competency: str | None = None,
+                  who: Principal = require("training:read")):
+    """Every go at every quiz, pass or fail, newest first. Your own, your
+    team's, or (a manager or admin) anyone's."""
+    p = get_person(db, code)
+    if not who.sees(p):
+        raise NotFound(f"no person {code}")
+    q = select(QuizAttempt).where(QuizAttempt.person_id == p.id)
+    if competency:
+        q = q.join(Competency).where(Competency.key == normal_key(competency))
+    rows = db.execute(q.order_by(QuizAttempt.id.desc())).scalars().all()
+    return [attempt_out(a) for a in rows]
