@@ -45,6 +45,10 @@ def engine():
     command.upgrade(cfg, "head")
     yield engine
     engine.dispose()
+    # and the app's own, so no connection is left for the garbage collector
+    from lms.db import get_engine
+
+    get_engine().dispose()
 
 
 @pytest.fixture
