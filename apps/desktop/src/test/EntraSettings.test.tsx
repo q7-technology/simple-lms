@@ -26,6 +26,10 @@ const SETTINGS: Settings = {
   public_url: { value: "https://lms.example.com.au", source: "env" },
   upload_files_per_day: { value: 30, source: "default" },
   upload_mb_per_day: { value: 200, source: "default" },
+  platen_url: { value: "", source: "default" },
+  platen_key: { set: false, source: "default" },
+  certificate_printer: { value: "office", source: "default" },
+  skills_card_printer: { value: "", source: "default" },
 };
 
 /** Settings as the API has them, for `me`; a PUT answers `put`, or the settings changed. */

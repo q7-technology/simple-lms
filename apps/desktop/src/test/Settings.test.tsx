@@ -26,6 +26,10 @@ const SETTINGS: Settings = {
   public_url: { value: "", source: "default" },
   upload_files_per_day: { value: 30, source: "default" },
   upload_mb_per_day: { value: 200, source: "default" },
+  platen_url: { value: "", source: "default" },
+  platen_key: { set: false, source: "default" },
+  certificate_printer: { value: "office", source: "default" },
+  skills_card_printer: { value: "", source: "default" },
 };
 
 /** Settings as the API has them; a PUT answers `put` (or the settings, changed). */
@@ -38,6 +42,7 @@ function stubSettings(put?: (body: Record<string, unknown>) => Response) {
       now = structuredClone(now);
       for (const [k, v] of Object.entries(body as Record<string, unknown>)) {
         if (k === "smtp_password") now.smtp_password = { set: v !== "", source: "here" };
+        else if (k === "platen_key") now.platen_key = { set: v !== "", source: "here" };
         else (now as unknown as Record<string, unknown>)[k] = { value: v, source: "here" };
       }
       return json(200, now);
@@ -160,6 +165,22 @@ describe("settings", () => {
     await userEvent.click(pin);
     await userEvent.click(within(signIn).getByRole("button", { name: "Save" }));
     await waitFor(() => expect(puts(calls)).toEqual([{ sign_in_pin: false }]));
+  });
+
+  it("sets where certificates and skills cards print, the key never shown", async () => {
+    const { calls } = stubSettings();
+    renderApp("/settings");
+    const printing = await section("Printing");
+    await userEvent.type(within(printing).getByLabelText(/Platen's address/), "https://platen.example.com.au/intake/jobs");
+    await userEvent.type(within(printing).getByLabelText(/Platen key/), "pk_s3cret");
+    await userEvent.clear(within(printing).getByLabelText(/Certificates print on/));
+    await userEvent.type(within(printing).getByLabelText(/Certificates print on/), "front office");
+    await userEvent.click(within(printing).getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(puts(calls)).toEqual([{
+      platen_url: "https://platen.example.com.au/intake/jobs", platen_key: "pk_s3cret", certificate_printer: "front office",
+    }]));
+    expect(await within(printing).findByText("A key is set. Leave this empty to keep it.")).toBeInTheDocument();
+    expect(within(printing).getByLabelText(/Platen key/)).toHaveValue("");
   });
 
   it("puts a value back to .env or the default", async () => {

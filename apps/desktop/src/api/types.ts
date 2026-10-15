@@ -186,6 +186,12 @@ export interface Settings {
   /** how much a person can send of their own (tickets, signatures) in 24 hours */
   upload_files_per_day: SettingValue<number>;
   upload_mb_per_day: SettingValue<number>;
+  /** Platen's intake: until it is set, nothing prints */
+  platen_url: SettingValue<string>;
+  /** never sent back: only whether there is one */
+  platen_key: { set: boolean; source: SettingSource };
+  certificate_printer: SettingValue<string>;
+  skills_card_printer: SettingValue<string>;
 }
 
 /** A practical's checklist: the items a supervisor ticks, frozen once published. */
@@ -197,3 +203,52 @@ export interface Checklist {
   published_by: PersonRef;
   created_at: string;
 }
+
+export type EventType = "competency.granted" | "competency.revoked" | "competency.expiring"
+  | "competency.lapsed" | "person.updated";
+
+export interface Webhook {
+  id: number;
+  name: string;
+  url: string;
+  /** event types, or ["*"] for everything */
+  events: string[];
+  active: boolean;
+  /** deliveries still to go, and those given up on */
+  waiting: number;
+  failed: number;
+  created_at: string;
+}
+
+/** Shown once, when it is made: what its bodies are signed with. */
+export interface WebhookMade extends Webhook { secret: string }
+
+export interface Delivery {
+  id: number;
+  event_id: string;
+  event_type: EventType;
+  status: "pending" | "done" | "failed";
+  attempts: number;
+  next_attempt_at: string;
+  last_error: string | null;
+  done_at: string | null;
+  created_at: string;
+}
+
+export interface ApiKey {
+  id: number;
+  name: string;
+  /** its first characters, to tell which is which */
+  prefix: string;
+  scopes: string[];
+  created_by: PersonRef;
+  created_at: string;
+  last_used_at: string | null;
+  revoked_at: string | null;
+}
+
+/** Shown once, when it is made: Simple LMS keeps only its hash. */
+export interface ApiKeyMade extends ApiKey { key: string }
+
+/** A certificate or skills card queued for Platen. */
+export interface PrintJob { job_id: string; template: string; printer: string }

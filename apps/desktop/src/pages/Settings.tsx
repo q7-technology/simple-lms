@@ -4,6 +4,8 @@ import type { Me, Settings as All, SettingSource } from "../api/types";
 import { useAuth } from "../auth/AuthContext";
 import { useAction, useLoad } from "../lib/useLoad";
 import { Problem } from "../ui/Drawer";
+import { ApiKeys } from "./ApiKeys";
+import { Webhooks } from "./Webhooks";
 
 type Key = keyof All;
 type Kind = "bool" | "int" | "days" | "text" | "secret";
@@ -16,6 +18,7 @@ const KINDS: Record<Key, Kind> = {
   smtp_host: "text", smtp_port: "int", smtp_user: "text", smtp_password: "secret",
   smtp_from: "text", smtp_security: "text", public_url: "text",
   upload_files_per_day: "int", upload_mb_per_day: "int",
+  platen_url: "text", platen_key: "secret", certificate_printer: "text", skills_card_printer: "text",
 };
 
 const FROM: Record<SettingSource, string> = { here: "Set here", env: "From .env", default: "Default" };
@@ -181,7 +184,10 @@ export function Settings() {
           <Reminders all={all} onSaved={setAll} />
           <Email all={all} onSaved={setAll} />
           <WebAddress all={all} onSaved={setAll} />
+          <Printing all={all} onSaved={setAll} />
           <Uploads all={all} onSaved={setAll} />
+          <Webhooks />
+          <ApiKeys />
         </>
       )}
     </main>
@@ -366,6 +372,36 @@ function Uploads({ all, onSaved }: Props) {
           {(id) => <input id={id} className="field" type="number" min={1} max={1000000} value={String(s.draft.upload_mb_per_day)}
                           onChange={(e) => s.set("upload_mb_per_day")(e.target.value)} />}
         </Field>
+      </div>
+    </Section>
+  );
+}
+
+function Printing({ all, onSaved }: Props) {
+  const s = useSection(all, ["platen_url", "platen_key", "certificate_printer", "skills_card_printer"], onSaved);
+  const text = (key: Key, label: string, hint?: string, type = "text") => (
+    <Field label={label} hint={hint} source={all[key].source} error={s.errors[key]} onReset={() => void s.reset(key)}>
+      {(id) => <input id={id} className="field" type={type} value={String(s.draft[key] ?? "")}
+                      onChange={(e) => s.set(key)(e.target.value)} />}
+    </Field>
+  );
+  return (
+    <Section title="Printing" sub="Certificates and skills cards print through Platen: Simple LMS sends the template's name and the data, never a page. Until Platen's address is set, nothing prints."
+             onSubmit={s.save} busy={s.action.busy} error={s.action.error} said={s.said}>
+      {text("platen_url", "Platen's address", "Its intake, e.g. https://platen.example.com.au/intake/jobs", "url")}
+      <Field label="Platen key" source={all.platen_key.source} error={s.errors.platen_key}
+             onReset={() => void s.reset("platen_key")}
+             hint={<>{all.platen_key.set ? "A key is set. Leave this empty to keep it." : "No key set: make one in Platen for Simple LMS."}{" "}
+               {all.platen_key.set && (
+                 <button type="button" className="rowbtn underline" onClick={() => void s.send({ platen_key: "" }, "Key cleared.")}>
+                   Clear the key</button>
+               )}</>}>
+        {(id) => <input id={id} className="field" type="password" autoComplete="new-password" value={String(s.draft.platen_key ?? "")}
+                        onChange={(e) => s.set("platen_key")(e.target.value)} />}
+      </Field>
+      <div className="grid grid-cols-2 gap-3">
+        {text("certificate_printer", "Certificates print on", "A Platen printer's id or name")}
+        {text("skills_card_printer", "Skills cards print on", "Leave empty for the certificates' printer")}
       </div>
     </Section>
   );

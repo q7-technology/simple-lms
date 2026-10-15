@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from "react";
 import { useSearchParams } from "react-router-dom";
 import { api } from "../api/client";
-import type { Competency, Override, Page, Permission, Person, Role } from "../api/types";
+import type { Competency, Override, Page, Permission, Person, PrintJob, Role } from "../api/types";
 import { useAuth } from "../auth/AuthContext";
 import { useAction, useLoad } from "../lib/useLoad";
 import { Drawer, Problem } from "../ui/Drawer";
@@ -166,7 +166,7 @@ function NewPerson({ supervisors, onClose, onDone }: {
 function PersonDrawer({ code, supervisors, onClose, onChanged }: {
   code: string; supervisors: Person[]; onClose: () => void; onChanged: () => void;
 }) {
-  const { me, signOut } = useAuth();
+  const { me, signOut, can } = useAuth();
   const path = `/v1/people/${encodeURIComponent(code)}`;
   const person = useLoad(() => api.get<Person>(path), [path]);
   const roles = useLoad(() => api.get<Page<Role>>("/v1/roles"), []);
@@ -209,6 +209,15 @@ function PersonDrawer({ code, supervisors, onClose, onChanged }: {
     <Drawer title={p.name} sub={`${p.code} · ${p.permission}${p.active ? "" : " · deactivated"}`} onClose={onClose}>
       <Problem error={action.error} />
       {said && <div className="msg g" role="status">{said}</div>}
+      {can("printing:write") && (
+        <div><button type="button" className="btn" disabled={action.busy} onClick={() => {
+          setSaid(null);
+          void action.run(async () => {
+            const job = await api.post<PrintJob>(`${path}/skills-card`);
+            setSaid(`Sent to Platen, for the printer ${job.printer}.`);
+          });
+        }}>Print skills card</button></div>
+      )}
       {!mine && <div className="msg r">Only an admin can change a manager or an admin.</div>}
       {mine && (
         <>
