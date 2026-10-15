@@ -197,3 +197,34 @@ export interface Checklist {
   published_by: PersonRef;
   created_at: string;
 }
+
+export type EventType = "competency.granted" | "competency.revoked" | "competency.expiring"
+  | "competency.lapsed" | "person.updated";
+
+export interface Webhook {
+  id: number;
+  name: string;
+  url: string;
+  /** event types, or ["*"] for everything */
+  events: string[];
+  active: boolean;
+  /** deliveries still to go, and those given up on */
+  waiting: number;
+  failed: number;
+  created_at: string;
+}
+
+/** Shown once, when it is made: what its bodies are signed with. */
+export interface WebhookMade extends Webhook { secret: string }
+
+export interface Delivery {
+  id: number;
+  event_id: string;
+  event_type: EventType;
+  status: "pending" | "done" | "failed";
+  attempts: number;
+  next_attempt_at: string;
+  last_error: string | null;
+  done_at: string | null;
+  created_at: string;
+}

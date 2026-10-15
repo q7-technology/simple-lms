@@ -3,7 +3,7 @@ import { MemoryRouter, useLocation } from "react-router-dom";
 import { api } from "../api/client";
 import { AppRoutes } from "../App";
 import { AuthProvider } from "../auth/AuthContext";
-import type { Me } from "../api/types";
+import type { Me, Settings } from "../api/types";
 
 export function json(status: number, body: unknown) {
   return new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
@@ -14,6 +14,31 @@ export const MEL: Me = {
   scopes: ["training:read", "training:write", "matrix:read", "roles:read", "competencies:read", "people:read",
            "people:write", "roles:write", "competencies:write", "records:write", "tickets:verify"],
   idle_seconds: 43200,
+};
+
+/** An admin: everything, Settings with its webhooks and API keys too. */
+export const ADA: Me = { ...MEL, id: 1, code: "AD001", name: "Ada Admin", email: "ada@example.com.au",
+                         permission: "admin", scopes: ["*"] };
+
+/** GET /v1/settings as a fresh install answers it. */
+export const ALL_SETTINGS: Settings = {
+  sign_in_pin: { value: true, source: "default" },
+  sign_in_password: { value: true, source: "default" },
+  sign_in_entra: { value: true, source: "default", set_up: false },
+  quiz_cooldown_tries: { value: 3, source: "default" },
+  quiz_cooldown_minutes: { value: 60, source: "default" },
+  reminder_days: { value: [30, 14, 0], source: "default" },
+  timezone: { value: "Australia/Melbourne", source: "default" },
+  daily_hour: { value: 6, source: "default" },
+  smtp_host: { value: "", source: "default" },
+  smtp_port: { value: 587, source: "default" },
+  smtp_user: { value: "", source: "default" },
+  smtp_password: { set: false, source: "default" },
+  smtp_from: { value: "", source: "default" },
+  smtp_security: { value: "starttls", source: "default" },
+  public_url: { value: "", source: "default" },
+  upload_files_per_day: { value: 30, source: "default" },
+  upload_mb_per_day: { value: 200, source: "default" },
 };
 
 export interface Call { method: string; url: string; body: unknown; contentType?: string }
