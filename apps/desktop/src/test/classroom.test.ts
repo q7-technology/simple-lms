@@ -1,5 +1,8 @@
 import type { Cell, Matrix, MatrixRow, Status } from "../api/types";
-import { COLS, FRONT, deskAt, desks, everyone, over, personTone, roomSize, seatAt, tallyWords, unseated, viewBox } from "../lib/classroom";
+import {
+  DESK, FRONT, MIN_SCALE, PITCH_Y, SEAT_LINK, SIGN, columns, deskAt, deskParts, desks, everyone, minWidth, outline, over,
+  personTone, roomSize, seatAt, signAt, tallyWords, teacherVolume, unitsWide, unseated, viewBox,
+} from "../lib/classroom";
 import { GAME_PREFS_KEY, getGamePrefs, reloadGamePrefs, setGamePrefs } from "../lib/gamePrefs";
 import { scr } from "../lib/iso";
 
@@ -58,6 +61,23 @@ describe("the classroom's desks", () => {
   });
 });
 
+type Pt = [number, number];
+
+/** Do two convex outlines overlap? (separating axes) */
+function overlaps(a: Pt[], b: Pt[]): boolean {
+  for (const poly of [a, b]) {
+    for (let i = 0; i < poly.length; i++) {
+      const [x1, y1] = poly[i];
+      const [x2, y2] = poly[(i + 1) % poly.length];
+      const [nx, ny] = [y2 - y1, x1 - x2];
+      const span = (p: Pt[]) => p.map(([x, y]) => x * nx + y * ny);
+      const [sa, sb] = [span(a), span(b)];
+      if (Math.max(...sa) <= Math.min(...sb) || Math.max(...sb) <= Math.min(...sa)) return false;
+    }
+  }
+  return true;
+}
+
 describe("where things go in the room", () => {
   it("projects as Simple WMS does: x down to the right, y down to the left, z up", () => {
     expect(scr(100, 0)).toEqual([86.6, 50]);
@@ -66,26 +86,69 @@ describe("where things go in the room", () => {
   });
 
   it("puts three desks in a row behind the front, then starts another row", () => {
-    expect(COLS).toBe(3);
-    const spots = [0, 1, 2, 3].map(deskAt);
+    const spots = [0, 1, 2, 3].map((i) => deskAt(i, 5));
     expect(spots.slice(0, 3).map((s) => s.y)).toEqual([FRONT, FRONT, FRONT]);
     expect(spots[1].x - spots[0].x).toBe(spots[2].x - spots[1].x);
-    expect(spots[3]).toEqual({ x: spots[0].x, y: FRONT + 170 });
+    expect(spots[3]).toEqual({ x: spots[0].x, y: FRONT + PITCH_Y });
   });
 
-  it("seats people in a row behind their desk, facing the board", () => {
-    const desk = deskAt(0);
+  it("widens the room once there are many rows, so it stays nearer square", () => {
+    expect([1, 5, 9, 12].map(columns)).toEqual([3, 3, 3, 3]);
+    expect(columns(30)).toBe(5);
+    expect(deskAt(4, 30).y).toBe(FRONT);
+    expect(deskAt(5, 30).y).toBe(FRONT + PITCH_Y);
+    expect(roomSize(30).w).toBeGreaterThan(roomSize(12).w);
+  });
+
+  it("seats people on chairs in a row behind their desk, facing the board", () => {
+    const desk = deskAt(0, 1);
     const seats = [0, 1, 5].map((k) => seatAt(desk, k));
     expect(new Set(seats.map((s) => s.y)).size).toBe(1);
-    expect(seats[0].y).toBeGreaterThan(desk.y);
-    expect(seats[2].x).toBeLessThan(desk.x + 150);
+    expect(seats[0].y).toBeGreaterThan(desk.y + DESK.d);
+    expect(seats[0].x).toBeGreaterThan(desk.x);
+    expect(seats[2].x).toBeLessThan(desk.x + DESK.w);
+  });
+
+  it("stands the role's sign in front of the chairs, no wider than the desk", () => {
+    const desk = deskAt(0, 1);
+    const sign = signAt(desk);
+    // the sign's top is lower in the picture than the chairs' front feet above it
+    const feet = seatAt(desk, 0).y + 8;
+    expect(scr(sign.x, sign.y, sign.z)[1] - scr(sign.x - (sign.y - feet), feet)[1]).toBeGreaterThan(0);
+    expect(sign.x).toBeGreaterThanOrEqual(desk.x);
+    expect(sign.x + SIGN.w).toBeLessThanOrEqual(desk.x + DESK.w);
+  });
+
+  it.each([1, 5, 12, 30])("draws %i desks with nothing overlapping, inside the picture", (count) => {
+    const desks = Array.from({ length: count }, (_, i) => deskParts(i, count).map(outline));
+    const teacher = outline(teacherVolume(count));
+    const box = viewBox(count);
+    desks.forEach((parts, i) => {
+      const others = [teacher, ...desks.filter((_, j) => j !== i).flat()];
+      for (const a of parts) for (const b of others) expect(overlaps(a, b)).toBe(false);
+      for (const [x, y] of parts.flat()) {
+        expect(x).toBeGreaterThan(box.x);
+        expect(x).toBeLessThan(box.x + box.w);
+        expect(y).toBeGreaterThan(box.y);
+        expect(y).toBeLessThan(box.y + box.h);
+      }
+    });
+  });
+
+  it("never draws people too small to click, or their links on top of each other", () => {
+    expect(SEAT_LINK.w * MIN_SCALE).toBeGreaterThanOrEqual(16);
+    // side by side at a desk, the next seat is further along than a link is wide
+    const [a, b] = [0, 1].map((k) => scr(seatAt(deskAt(0, 1), k).x, seatAt(deskAt(0, 1), k).y));
+    expect(b[0] - a[0]).toBeGreaterThan(SEAT_LINK.w);
+    expect(minWidth(30)).toBe(Math.round(viewBox(30).w * MIN_SCALE));
+    expect(minWidth(30)).toBeGreaterThan(minWidth(1));
   });
 
   it("grows the room by a row for every three desks, and the picture with it", () => {
     expect(roomSize(1)).toEqual(roomSize(3));
-    expect(roomSize(4).d - roomSize(3).d).toBe(170);
-    expect(roomSize(40).w).toBe(roomSize(1).w);
-    expect(viewBox(40).h).toBeGreaterThan(viewBox(3).h);
+    expect(roomSize(4).d - roomSize(3).d).toBe(PITCH_Y);
+    expect(roomSize(12).w).toBe(roomSize(1).w);
+    expect(viewBox(12).h).toBeGreaterThan(viewBox(3).h);
   });
 
   it("lays a link over the picture in percent of it", () => {
@@ -95,6 +158,7 @@ describe("where things go in the room", () => {
       left: `${Number((((px - box.x) / box.w) * 100).toFixed(2))}%`,
       top: `${Number((((py - box.y) / box.h) * 100).toFixed(2))}%`,
     });
+    expect(unitsWide(3, box.w)).toBe("100cqw");
   });
 });
 

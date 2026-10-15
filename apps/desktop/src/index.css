@@ -23,8 +23,6 @@
   --color-red-ink: #A3242C;
   --color-red-bg: #FCE9EA;
   --color-grey-bg: #EEF1F4;
-  /* the classroom: a grey for the people nothing is asked of */
-  --color-grey: #8A95A5;
   --font-sans: Manrope, ui-sans-serif, system-ui, sans-serif;
   --shadow-soft: 0 6px 20px rgba(23, 32, 43, 0.08);
   --shadow-lift: 0 10px 30px rgba(23, 32, 43, 0.12);
@@ -97,19 +95,18 @@
   .classroom { padding: 20px 24px 40px; display: flex; flex-direction: column; gap: 16px; }
   .classroom h1 { margin: 0; font-size: 24px; font-weight: 800; letter-spacing: -0.3px; }
   .classroom h1:focus { outline: none; }
-  .room { position: relative; width: 100%; max-width: 1100px; margin: 0 auto; }
+  .roomwrap { overflow-x: auto; margin: 0 -24px; padding: 0 24px; }
+  .room { position: relative; margin: 0 auto; container-type: inline-size; }
   .roompic { display: block; width: 100%; height: auto; }
   .desks, .desks ul { list-style: none; margin: 0; padding: 0; }
-  .desktag { position: absolute; transform: translate(-50%, -100%); padding: 5px 12px; border-radius: 999px; background: #fff; border: 1px solid var(--color-line-2); box-shadow: var(--shadow-soft); color: var(--color-ink); font-size: 13px; font-weight: 800; white-space: nowrap; text-decoration: none; }
-  .desktag:hover { border-color: var(--color-blue); color: var(--color-blue-dark); }
-  .desktag .more { margin-left: 6px; color: var(--color-muted); }
-  .seat { position: absolute; width: 20px; height: 34px; transform: translate(-50%, -50%); border-radius: 8px; }
+  /* a role's sign: the face of the sign drawn in front of its desk, at its slant */
+  .desktag { position: absolute; box-sizing: border-box; display: flex; align-items: center; justify-content: center; gap: 0.4em; transform: matrix(0.866, 0.5, 0, 1, 0, 0); transform-origin: 0 0; background: #fff; border: 1px solid var(--color-line-2); border-radius: 3px; color: var(--color-ink); font-weight: 800; line-height: 1; white-space: nowrap; text-decoration: none; }
+  .desktag .name { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  .desktag:hover, .desktag:focus-visible { border-color: var(--color-blue); color: var(--color-blue-dark); background: var(--color-tint); }
+  .desktag .more { flex: none; color: var(--color-muted); }
+  .seat { position: absolute; transform: translate(-50%, -50%); border-radius: 999px; }
   .seat:hover { background: rgba(47, 111, 184, 0.15); }
-  .dot { width: 9px; height: 9px; border-radius: 999px; display: inline-block; }
-  .dot.green { background: var(--color-green); }
-  .dot.amber { background: var(--color-amber); }
-  .dot.red { background: var(--color-red); }
-  .dot.grey { background: var(--color-grey); }
+  .mark { flex: none; }
   .app { height: 100vh; display: flex; flex-direction: column; }
   .stage { position: relative; flex: 1; min-height: 0; overflow: hidden; }
   .stage > .classroom { height: 100%; overflow: auto; box-sizing: border-box; }

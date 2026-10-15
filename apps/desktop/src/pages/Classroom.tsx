@@ -3,14 +3,25 @@ import { Link } from "react-router-dom";
 import { api } from "../api/client";
 import type { Matrix } from "../api/types";
 import { useAuth } from "../auth/AuthContext";
-import { DESK, SEATS, TONE_WORDS, deskAt, desks as deskList, everyone, over, seatAt, tallyWords, unseated } from "../lib/classroom";
+import {
+  SEATS, SEAT_LINK, SIGN, TONE_WORDS, deskAt, desks as deskList, everyone, minWidth, over, seatAt, signAt, tallyWords,
+  unitsWide, unseated, viewBox,
+} from "../lib/classroom";
 import type { Tone } from "../lib/status";
 import { useLoad } from "../lib/useLoad";
-import { ClassroomPicture } from "../ui/ClassroomArt";
+import { ClassroomPicture, MarkIcon } from "../ui/ClassroomArt";
 import { Problem } from "../ui/Drawer";
 import { rememberOpener, takeReturnFocus } from "../ui/focusReturn";
 
 const KEY: Tone[] = ["green", "amber", "red", "grey"];
+
+/** As big as fits the window, up to a point, and never smaller than reads
+ * well: a big room scrolls instead. */
+function roomStyle(count: number) {
+  const box = viewBox(count);
+  const ratio = (box.w / box.h).toFixed(4);
+  return { width: `max(${minWidth(count)}px, min(100%, 1180px, calc((100vh - 220px) * ${ratio})))` };
+}
 
 const people = (n: number) => `${n} ${n === 1 ? "person" : "people"}`;
 
@@ -59,7 +70,7 @@ export function Classroom() {
           )}
         </div>
         <div className="flex flex-wrap gap-2" aria-label="Key">
-          {KEY.map((t) => <span key={t} className={`pill t-${t}`}><span className={`dot ${t}`} aria-hidden="true" />{TONE_WORDS[t]}</span>)}
+          {KEY.map((t) => <span key={t} className={`pill t-${t}`}><MarkIcon tone={t} />{TONE_WORDS[t]}</span>)}
         </div>
       </div>
       <Problem error={matrix.error} />
@@ -72,19 +83,24 @@ export function Classroom() {
         </div>
       )}
       {desks && desks.length > 0 && (
-        <div className="room">
+        <div className="roomwrap">
+        <div className="room" style={roomStyle(desks.length)}>
           <ClassroomPicture desks={desks} />
           <ul className="desks" aria-label="Desks">
             {desks.map((d, i) => {
-              const spot = deskAt(i);
+              const spot = deskAt(i, desks.length);
+              const sign = signAt(spot);
+              const u = (n: number) => unitsWide(desks.length, n);
               const words = tallyWords(d.tally);
               const more = d.people.length - SEATS;
               return (
                 <li key={d.key}>
+                  {/* the sign in front of the desk: its face, laid on the picture at the sign's slant */}
                   <Link to={`/matrix?role=${encodeURIComponent(d.key)}`} className="desktag" data-return-focus={`desk-${d.key}`}
-                        style={over(desks.length, spot.x + DESK.w / 2, spot.y, 70)}
-                        aria-label={`${d.name}: ${people(d.people.length)}, ${words}. Open in the matrix`}>
-                    {d.name}{more > 0 && <span className="more">+{more}</span>}
+                        style={{ ...over(desks.length, sign.x, sign.y, sign.z), width: u(SIGN.w), height: u(SIGN.h),
+                                 fontSize: u(13.5), padding: `0 ${u(7)}` }}
+                        aria-label={`${d.name}: ${people(d.people.length)}, ${words}. Open in the matrix`} title={d.name}>
+                    <span className="name">{d.name}</span>{more > 0 && <span className="more">+{more}</span>}
                   </Link>
                   {seesPeople && (
                     <ul aria-label={`At the ${d.name} desk`}>
@@ -93,7 +109,7 @@ export function Classroom() {
                         return (
                           <li key={p.code}>
                             <Link to={`/people?person=${encodeURIComponent(p.code)}`} className="seat"
-                                  data-return-focus={`person-${d.key}-${p.code}`} style={over(desks.length, seat.x, seat.y, 18)}
+                                  data-return-focus={`person-${d.key}-${p.code}`} style={{ ...over(desks.length, seat.x, seat.y, 48), width: u(SEAT_LINK.w), height: u(SEAT_LINK.h) }}
                                   aria-label={`${p.name}: ${TONE_WORDS[p.tone]}`} title={`${p.name}: ${TONE_WORDS[p.tone]}`} />
                           </li>
                         );
@@ -104,6 +120,7 @@ export function Classroom() {
               );
             })}
           </ul>
+        </div>
         </div>
       )}
     </main>

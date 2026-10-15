@@ -8,18 +8,35 @@ import type { Tone } from "./status";
 
 /** The most people drawn at one desk; the rest are counted ("+12"). */
 export const SEATS = 6;
-/** Desks in a row across the room; more roles make more rows. */
-export const COLS = 3;
-/** A desk's size in the room's units, as Simple WMS's pallets are. */
-export const DESK = { w: 150, d: 50, h: 34 };
-const PITCH_X = 210;
-const PITCH_Y = 170;
+/** A desk's size in the room's units (about 2 cm each): long enough for six. */
+export const DESK = { w: 170, d: 36, h: 32 };
+/** A seat's place along the desk, and how far apart they are. */
+const SEAT_FIRST = 20;
+export const SEAT_PITCH = 26;
+/** How far behind the desk's back edge a chair stands (its middle). */
+const SEAT_BACK = 9;
+/** The role's sign: a low board standing on the floor in front of the
+ * chairs, its face toward the viewer, clear of the chairs' legs. */
+export const SIGN = { inset: 8, w: 154, h: 26, behind: 50 };
+/** The tallest thing at a desk: a seated head with the mark over it. */
+export const TALLEST = 86;
+/** From one desk to the next across the room, and from row to row. */
+export const PITCH_X = 240;
+export const PITCH_Y = 150;
 /** The front of the room, before the first row: the board and the teacher's desk. */
-export const FRONT = 200;
-const SIDE = 40;
-/** How high the walls are drawn. */
-export const WALL = 120;
+export const FRONT = 250;
+const SIDE = 70;
+const BACK = 10;
+/** How high the walls are drawn, and how thick. */
+export const WALL = 140;
+export const WALL_T = 8;
 const MARGIN = 24;
+/** The picture is never drawn smaller than this many pixels a unit, so
+ * labels stay readable and people stay big enough to click: a big room
+ * scrolls instead. */
+export const MIN_SCALE = 0.8;
+/** A person's link: the size of a seated figure, head to seat. */
+export const SEAT_LINK = { w: 20, h: 46 };
 
 export interface Figure { code: string; name: string; tone: Tone }
 
@@ -100,29 +117,80 @@ export function everyone(matrix: Matrix): Record<Tone, number> {
   return tally(matrix.people.map(figure));
 }
 
-/** Desk i's corner on the floor: three to a row, front to back. */
-export function deskAt(i: number): Spot {
-  return { x: SIDE + (i % COLS) * PITCH_X, y: FRONT + Math.floor(i / COLS) * PITCH_Y };
+/** Desks across the room: three, until there are so many rows that a
+ * wider room keeps it nearer square (30 roles is five across, six deep). */
+export function columns(count: number): number {
+  return Math.max(3, Math.ceil(Math.sqrt((count * PITCH_Y) / PITCH_X)));
 }
 
-/** Seat k at a desk: a row of chairs behind it, facing the board. */
+/** Desk i's back corner on the floor, of `count`: row by row, front to back. */
+export function deskAt(i: number, count: number): Spot {
+  const cols = columns(count);
+  return { x: SIDE + (i % cols) * PITCH_X, y: FRONT + Math.floor(i / cols) * PITCH_Y };
+}
+
+/** Seat k at a desk: a row of chairs behind it, facing the board; the
+ * middle of the chair, on the floor. */
 export function seatAt(desk: Spot, k: number): Spot {
-  return { x: desk.x + 15 + k * 24, y: desk.y + DESK.d + 22 };
+  return { x: desk.x + SEAT_FIRST + k * SEAT_PITCH, y: desk.y + DESK.d + SEAT_BACK };
 }
 
-/** The room for this many desks: always three wide, as deep as its rows. */
+/** The sign's top left corner, on its face toward the viewer. */
+export function signAt(desk: Spot): Spot & { z: number } {
+  return { x: desk.x + SIGN.inset, y: desk.y + DESK.d + SIGN.behind, z: SIGN.h };
+}
+
+/** The room for this many desks: as wide as its columns, as deep as its rows. */
 export function roomSize(count: number): { w: number; d: number } {
-  const rows = Math.max(1, Math.ceil(count / COLS));
-  return { w: SIDE * 2 + (COLS - 1) * PITCH_X + DESK.w, d: FRONT + rows * PITCH_Y };
+  const cols = columns(count);
+  const rows = Math.max(1, Math.ceil(count / cols));
+  return { w: SIDE * 2 + (cols - 1) * PITCH_X + DESK.w, d: FRONT + rows * PITCH_Y + BACK };
+}
+
+/** The teacher's desk, at the front in the middle, and its chair between it
+ * and the board. */
+export function teacherDesk(count: number): Spot & { w: number; d: number; h: number } {
+  return { x: roomSize(count).w / 2 - 80, y: 100, w: 160, d: 50, h: 32 };
+}
+
+export interface Box3 { x0: number; x1: number; y0: number; y1: number; z0: number; z1: number }
+
+/** Everything drawn for desk i, as boxes in the room: the desk, the
+ * chairs with the people on them (to the top of the marks over their
+ * heads), and the sign standing in front. */
+export function deskParts(i: number, count: number): Box3[] {
+  const at = deskAt(i, count);
+  const sign = signAt(at);
+  const first = seatAt(at, 0);
+  const last = seatAt(at, SEATS - 1);
+  return [
+    { x0: at.x, x1: at.x + DESK.w, y0: at.y, y1: at.y + DESK.d, z0: 0, z1: DESK.h },
+    { x0: first.x - 12, x1: last.x + 12, y0: first.y - 8, y1: first.y + 8, z0: 0, z1: TALLEST },
+    { x0: sign.x, x1: sign.x + SIGN.w, y0: sign.y - 2, y1: sign.y, z0: 0, z1: SIGN.h },
+  ];
+}
+
+/** The teacher's desk and chair, with what is on the desk. */
+export function teacherVolume(count: number): Box3 {
+  const t = teacherDesk(count);
+  return { x0: t.x, x1: t.x + t.w, y0: t.y - 50, y1: t.y + t.d, z0: 0, z1: 60 };
+}
+
+/** The outline a box makes in the picture: the six corners of its hexagon. */
+export function outline(b: Box3): [number, number][] {
+  return [
+    scr(b.x0, b.y0, b.z1), scr(b.x1, b.y0, b.z1), scr(b.x1, b.y0, b.z0),
+    scr(b.x1, b.y1, b.z0), scr(b.x0, b.y1, b.z0), scr(b.x0, b.y1, b.z1),
+  ];
 }
 
 /** The picture's viewBox for this many desks: the floor's corners and the
  * walls' tops, with a margin. */
 export function viewBox(count: number): { x: number; y: number; w: number; h: number } {
   const { w, d } = roomSize(count);
-  const left = scr(0, d)[0];
-  const right = scr(w, 0)[0];
-  const top = scr(0, 0, WALL)[1];
+  const left = scr(-WALL_T, d)[0];
+  const right = scr(w, -WALL_T)[0];
+  const top = scr(-WALL_T, -WALL_T, WALL)[1];
   const bottom = scr(w, d)[1];
   return { x: left - MARGIN, y: top - MARGIN, w: right - left + 2 * MARGIN, h: bottom - top + 2 * MARGIN };
 }
@@ -134,4 +202,15 @@ export function over(count: number, x: number, y: number, z = 0): { left: string
   const [px, py] = scr(x, y, z);
   const pc = (v: number) => `${Number(v.toFixed(2))}%`;
   return { left: pc(((px - box.x) / box.w) * 100), top: pc(((py - box.y) / box.h) * 100) };
+}
+
+/** A length in the room's units as a share of the picture's width, for
+ * CSS inside the room (a container): it scales with the picture. */
+export function unitsWide(count: number, n: number): string {
+  return `${Number(((n * 100) / viewBox(count).w).toFixed(3))}cqw`;
+}
+
+/** The narrowest the picture may be drawn, in pixels. */
+export function minWidth(count: number): number {
+  return Math.round(viewBox(count).w * MIN_SCALE);
 }
