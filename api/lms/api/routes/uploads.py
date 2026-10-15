@@ -1,6 +1,7 @@
-"""Files: sent by the learner app before the ticket or signature that names
-them, or by the desktop before the module page that shows them; and shown
-only to who may see the person they belong to."""
+"""Files: sent by the learner app before the ticket, signature or sign-off
+that names them, or by the desktop before the module page that shows them;
+and shown only to who may see the person they belong to (or, on a
+sign-off, the learner it signs off)."""
 from __future__ import annotations
 
 import logging
@@ -21,7 +22,7 @@ from lms.services import uploads
 router = APIRouter(tags=["uploads"])
 log = logging.getLogger("lms.uploads")
 
-Purpose = Literal["ticket", "signature", "page-image", "page-pdf", "page-video"]
+Purpose = Literal["ticket", "signature", "page-image", "page-pdf", "page-video", "signoff-photo"]
 
 
 class UploadOut(BaseModel):
@@ -82,12 +83,22 @@ def send_file(db: DB, who: Principal = Depends(sender),
     return JSONResponse(status_code=201, content=upload_out(row).model_dump(mode="json"))
 
 
+def may_see(db, who: Principal, row: Upload) -> bool:
+    """Whoever may see the training of the person it belongs to; and a
+    sign-off's photo and signatures, whoever may see the learner too."""
+    if who.sees(db.get(Person, row.person_id)):
+        return True
+    learner = uploads.signed_off(db, row.id)
+    return learner is not None and who.sees(learner)
+
+
 @router.get("/uploads/{upload_id}", response_class=Response)
 def get_file(upload_id: uuid.UUID, db: DB, who: Who):
     """For the person it belongs to, their supervisor, and managers and
-    admins: whoever may see that person's training."""
+    admins: whoever may see that person's training. A sign-off's photo and
+    signatures, sent from the supervisor's phone, for the learner's too."""
     row = db.get(Upload, upload_id)
-    if row is None or not who.sees(db.get(Person, row.person_id)):
+    if row is None or not may_see(db, who, row):
         raise NotFound(f"no file {upload_id}")
     path = uploads.full_path(row)
     try:

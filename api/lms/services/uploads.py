@@ -1,5 +1,5 @@
-"""Files people send: a ticket's photos (or a PDF of it), policy
-signatures, and a module page's picture, PDF or video. Kept on disk under
+"""Files people send: a ticket's photos (or a PDF of it), signatures, a
+module page's picture, PDF or video, and a sign-off's photo. Kept on disk under
 LMS_UPLOAD_DIR, one file each, named by a random id; the row says whose it
 is and what it is. What a file is comes from its first bytes, never from
 what the request says. A file is written to disk as it arrives, never held
@@ -17,7 +17,7 @@ from sqlalchemy.orm import Session as Db
 
 from lms.api.errors import Refused
 from lms.config import get_settings
-from lms.models import Person, TicketSubmission, Upload
+from lms.models import Person, Signoff, TicketSubmission, Upload
 
 # what each purpose may be, and how big: 200 MB for a video, 20 MB for
 # anything else (the design's limits); a signature is a few kB
@@ -27,14 +27,18 @@ PURPOSES = {
     "page-image": ({"image/jpeg", "image/png"}, 20_000_000),
     "page-pdf": ({"application/pdf"}, 20_000_000),
     "page-video": ({"video/mp4", "video/webm"}, 200_000_000),
+    "signoff-photo": ({"image/jpeg", "image/png"}, 20_000_000),
 }
-# who may send each: anyone, for their own training; an editor, for a module
+# who may send each: anyone, for their own training (and a signature, on a
+# sign-off, for the learner beside them); an editor, for a module; whoever
+# signs off a practical, for its photo
 SENDERS = {
     "ticket": "training:write",
     "signature": "training:write",
     "page-image": "competencies:write",
     "page-pdf": "competencies:write",
     "page-video": "competencies:write",
+    "signoff-photo": "signoffs:write",
 }
 MAGIC = {"image/png": b"\x89PNG\r\n\x1a\n", "image/jpeg": b"\xff\xd8\xff",
          "application/pdf": b"%PDF-"}
@@ -185,6 +189,16 @@ def mine(db: Db, person: Person, upload_id: uuid.UUID | None, purpose: str) -> U
     if row is None or row.person_id != person.id or row.purpose != purpose:
         return None
     return row
+
+
+def signed_off(db: Db, upload_id: uuid.UUID) -> Person | None:
+    """The learner whose sign-off has this photo or signature on it, if one
+    does. They were sent from the supervisor's phone, so they are the
+    supervisor's; the learner may see them too."""
+    return db.execute(select(Person).join(Signoff, Signoff.person_id == Person.id).where(or_(
+        Signoff.photo_upload_id == upload_id,
+        Signoff.supervisor_signature_upload_id == upload_id,
+        Signoff.learner_signature_upload_id == upload_id))).scalar_one_or_none()
 
 
 def on_a_ticket(db: Db, upload_id: uuid.UUID) -> bool:
