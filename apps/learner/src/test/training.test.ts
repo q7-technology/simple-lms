@@ -51,4 +51,11 @@ describe("My training", () => {
     expect(nextStep({ ...module, status: "expiring" })).toEqual({ to: "/module/site-induction", label: "Start the module" });
     expect(nextStep({ ...module, status: "lapsed" })).toEqual({ to: "/module/site-induction", label: "Start the module" });
   });
+
+  it("says a practical is signed off with their supervisor", () => {
+    const practical = { ...item("Forklift practical", "missing"), kind: "practical" as const };
+    expect(nextStep(practical)).toEqual({ waiting: "Your supervisor signs this off with you" });
+    expect(nextStep({ ...practical, status: "expiring" })).toEqual({ waiting: "Your supervisor signs this off with you" });
+    expect(nextStep({ ...practical, status: "current" })).toBeNull();
+  });
 });

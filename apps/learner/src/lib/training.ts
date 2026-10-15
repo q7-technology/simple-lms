@@ -50,9 +50,11 @@ export type Step = { to: string; label: string } | { waiting: string } | null;
 
 /** What the learner can do about an item here: do a module or sign a
  * policy that isn't current, or send in a ticket that is missing, running
- * out or run out. A ticket already sent in waits for a manager. */
+ * out or run out. A ticket already sent in waits for a manager; a practical
+ * waits for their supervisor to watch them do it. */
 export function nextStep(item: TrainingItem): Step {
   const key = encodeURIComponent(item.key);
+  if (item.kind === "practical" && item.status !== "current") return { waiting: "Your supervisor signs this off with you" };
   if (item.kind === "module" && item.status !== "current") return { to: `/module/${key}`, label: "Start the module" };
   if (item.kind === "policy" && item.status !== "current") return { to: `/sign/${key}`, label: "Read and sign" };
   if (item.kind === "ticket") {
