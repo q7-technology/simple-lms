@@ -17,7 +17,9 @@ in UTC. Interactive docs are at `/docs`.
 - **Never deleted:** people and competencies are deactivated, not deleted.
   The training record and the extras and waivers are append-only: the latest
   row for a person and competency is the one that counts. Every quiz attempt
-  is kept, and a module version is frozen once it is published.
+  is kept, and a module version is frozen once it is published. A
+  practical's checklist versions and every sign-off, with what it ticked,
+  are kept as they were.
 - **Codes and keys:** a person's code is kept upper case (`ll042` finds
   `LL042`); role and competency keys are kept lower case. Emails are kept
   lower case.
@@ -27,15 +29,17 @@ in UTC. Interactive docs are at `/docs`.
 | Permission | Scopes (signed in with a password) |
 | --- | --- |
 | `learner` | `training:read`, `training:write` |
-| `supervisor` | `training:read`, `training:write`, `matrix:read`, `roles:read`, `competencies:read` |
+| `supervisor` | `training:read`, `training:write`, `matrix:read`, `roles:read`, `competencies:read`, `signoffs:write` |
 | `manager` | the supervisor's, plus `people:read`, `people:write`, `roles:write`, `competencies:write`, `records:write`, `tickets:verify` |
 | `admin` | `*` (everything, `settings:write` among it) |
 
 `training:write` is doing your own training: sending a file, signing a
-policy, sending in a ticket, reading a module and taking its quiz. A
-session signed in with a **PIN** carries
-`training:read` and `training:write` only, whoever it is: a PIN is short, so
-it opens the learner app's own training and nothing more.
+policy, sending in a ticket, reading a module and taking its quiz.
+`signoffs:write` is signing off someone else's practical. A session signed
+in with a **PIN** carries `training:read` and `training:write`, whoever it
+is, and `signoffs:write` too for a supervisor, manager or admin: a PIN is
+short, so it opens the learner app's own training, and signing off a
+practical on the phone where the learner is, and nothing more.
 
 A supervisor sees their own team (the people whose supervisor they are); a
 manager or admin sees everyone. Only an admin adds or changes a
@@ -157,8 +161,8 @@ where `people` is how many people have the role.
 Each competency: `{ "id", "key", "name", "kind", "refresher_months", "card_expires", "active", "created_at" }`;
 `card_expires` is `null` for anything but a ticket.
 Every kind can still be recorded by hand. Policies are signed in the
-learner app, tickets sent in from it and modules taken in it (below);
-practicals get their own way in with a later build step.
+learner app, tickets sent in from it and modules taken in it, and
+practicals are signed off on a supervisor's phone (below).
 
 ## Extras and waivers
 
@@ -184,13 +188,17 @@ practicals get their own way in with a later build step.
      "kind": "granted", "granted_on": "2026-03-01", "expires_on": "2031-03-01",
      "note": "LF 0012345, sighted", "recorded_by": { "code": "MG001", "name": "Mel Grant" },
      "policy_version": null, "signed_name": null, "signature": null, "ticket": null,
-     "quiz": null, "created_at": "…" }]
+     "quiz": null, "signoff": null, "created_at": "…" }]
   ```
   `policy_version` is the policy version a grant is for; `signed_name` and
   `signature` (an upload id) are there when it was signed in the learner
   app; `ticket` is the ticket's id when a manager approved one; `quiz` is
   `{ "version", "score", "pass_mark" }` when the person passed a module's
-  quiz (recorded as theirs).
+  quiz (recorded as theirs); `signoff` is `{ "version", "ticked", "note",
+  "photo", "supervisor_signature", "learner_signature" }` when a practical
+  was signed off on the phone (recorded by whoever signed it off): the
+  checklist version, the text of each item ticked in order, and upload ids
+  for the photo (or `null`) and both signatures.
 - `POST /v1/people/{code}/records` (`records:write`) — `{ "competency",
   "granted_on", "expires_on"?, "note"? }` → `201`. `granted_on` can't be in
   the future; `expires_on` (the last good day, e.g. a ticket's card date)
@@ -266,9 +274,9 @@ The learner app shows it as Overdue (`lapsed`, `missing`), Due soon
 
 ## Files
 
-Tickets' photos (or a PDF), policy signatures, and a module page's
-picture, PDF or video. Sent before the ticket, signature or page that names
-them; kept on the host under `LMS_UPLOAD_DIR` (`/data/uploads`), named by a
+Tickets' photos (or a PDF), signatures, a module page's picture, PDF or
+video, and a sign-off's photo. Sent before the ticket, signature, page or
+sign-off that names them; kept on the host under `LMS_UPLOAD_DIR` (`/data/uploads`), named by a
 random id, and written to disk as they arrive (never held in memory whole).
 
 - `POST /v1/uploads?purpose=…` — the file as the request body (any
@@ -282,6 +290,7 @@ random id, and written to disk as they arrive (never held in memory whole).
   | `page-image` | `competencies:write` | JPEG or PNG | 20 MB |
   | `page-pdf` | `competencies:write` | PDF | 20 MB |
   | `page-video` | `competencies:write` | MP4 or WebM | 200 MB |
+  | `signoff-photo` | `signoffs:write` | JPEG or PNG | 20 MB |
 
   An MP4 is one whose `ftyp` box names a major brand of `isom`, `iso2`,
   `iso4`, `iso5`, `iso6`, `mp41`, `mp42`, `avc1`, `dash` or `M4V `; a WebM
@@ -299,7 +308,10 @@ random id, and written to disk as they arrive (never held in memory whole).
   before the API sees it.
 - `GET /v1/uploads/{id}` — the file. Any signed-in session may ask (a PIN
   one too), but only someone who may see the file's owner gets it: that
-  person, their supervisor, and managers and admins. Anyone else gets `404`
+  person, their supervisor, and managers and admins. A sign-off's photo and
+  signatures are sent from the supervisor's phone, so they are the
+  supervisor's; whoever may see the learner they sign off gets them too.
+  Anyone else gets `404`
   (and so does a file missing from disk). Sent with `Cache-Control: private, no-store`,
   `Content-Security-Policy: default-src 'none'; sandbox`,
   `X-Content-Type-Options: nosniff` and `Content-Disposition:
@@ -308,9 +320,10 @@ random id, and written to disk as they arrive (never held in memory whole).
   so it is saved instead). Sent from disk a piece at a time, never read
   into memory whole.
 
-A ticket or signature may only name the caller's own uploads of the right
-purpose. Each upload goes on one record or ticket only: the database holds
-each signature to one record and each photo to one ticket.
+A ticket, signature or sign-off may only name the caller's own uploads of
+the right purpose. Each upload goes on one record, ticket or sign-off only:
+the database holds each signature to one record or sign-off and each photo
+to one ticket or sign-off, and the API holds a signature to one of either.
 
 - `GET /v1/media/{id}?session=&expires=&sig=` — a module page's file, by
   the link the API puts in the page (`file.link`, below). No token: an
@@ -431,6 +444,62 @@ Each version, as its editors see it (`correct` is only there for them):
 meanwhile, progress and attempts are `409 { "code": "new_version" }`, and
 they start the new one. A key that is not a module is `404` on all of these,
 and so are reading, progress and attempts before a version is published.
+
+## Practicals
+
+A practical is a competency of kind `practical`: a checklist of things a
+supervisor watches the learner do, published whole and never changed (the
+database refuses), so a sign-off always says what was ticked. A change is a
+new version; supervisors tick the newest from then on, and a new version
+asks nobody to be signed off again (sign-offs so far still count).
+
+- `POST /v1/practicals/{key}/versions` (`competencies:write`) — `{ "items":
+  [ … ], "note"? }` → `201`, the next version (1, 2, 3 …): 1 to 50 items, in
+  the order they are ticked, each up to 300 characters. A deactivated
+  practical is `409 { "code": "inactive" }`.
+- `GET /v1/practicals/{key}/versions` (`competencies:read`) — newest first:
+  `[{ "id", "version", "items": [{ "id", "text" }], "note", "published_by":
+  { "code", "name" }, "created_at" }]`.
+- `GET /v1/practicals/{key}` (`training:read`) — the checklist to tick now:
+  `{ "key", "name", "version": { … } }`; `404` until one is published.
+
+A key that is not a practical is `404` on all of these.
+
+## Signing off
+
+`signoffs:write`. A supervisor signs off their own team; a manager or admin
+signs off anyone. Nobody signs off themselves, admins included.
+
+- `GET /v1/signoffs/people` — the people the caller may sign off (their
+  team, or every active person for a manager or admin; never themselves),
+  by name, each with the practicals they are asked for and not let off:
+  `[{ "code", "name", "practicals": [{ "key", "name", "status", "expires_on" }] }]`.
+- `POST /v1/people/{code}/signoffs` — on the supervisor's phone, with the
+  learner beside them: `{ "competency", "version", "ticked": [item ids],
+  "note"?, "photo"?, "supervisor_signature", "learner_signature",
+  "learner_pin" }` → `201`, the record (above): a grant from today, recorded
+  by the caller, with `signoff` filled in; the competency's refresher, if
+  any, says when it runs out. `ticked` is every item on that version, and
+  nothing else (`422` on `ticked`). `photo` is an upload of purpose
+  `signoff-photo`; both signatures are uploads of purpose `signature`; all
+  three are the caller's own, sent from the phone (`422` on the field
+  otherwise). The two signatures differ, and each, like the photo, goes on
+  one record or sign-off only (`422`: sign or take it again).
+  `learner_pin` is the learner's own PIN, typed by them on the phone to say
+  it was them: never kept. It is checked last, and counts against the same
+  five tries as signing in: a wrong one is `422` on `learner_pin` ("that
+  isn't Kim Lee's PIN: try again"), the fifth locks the PIN until a manager
+  resets it, and a locked PIN, or none (someone who signs in with a
+  password), is `422` there too. `version` is the checklist ticked: if a
+  newer one was published meanwhile, `409 { "code": "new_version" }`, and
+  it is ticked again. Signing off yourself is `403 { "code": "own_signoff"
+  }`; someone a supervisor may not sign off is `404`; a learner (no
+  `signoffs:write`) is `403`. A competency that is not a practical is `422`
+  on `competency`, one with no checklist yet `404`, and a deactivated
+  practical or person `409 { "code": "inactive" }`.
+
+A sign-off is put right like any grant: revoke it with a note
+(`POST /v1/people/{code}/records/revoke`).
 
 ## Policies
 
