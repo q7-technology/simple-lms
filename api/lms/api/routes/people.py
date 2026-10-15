@@ -87,6 +87,8 @@ class PersonOut(BaseModel):
     has_pin: bool
     pin_locked: bool
     has_password: bool
+    # signed in with Microsoft before: their Entra object id is kept
+    entra_linked: bool
     created_at: datetime
     last_login_at: datetime | None
 
@@ -95,7 +97,8 @@ def person_out(p: Person) -> PersonOut:
     return PersonOut(id=p.id, code=p.code, name=p.name, email=p.email, permission=p.permission,
                      supervisor=person_ref(p.supervisor), roles=[role_ref(r) for r in p.roles],
                      active=p.active, has_pin=p.pin_hash is not None, pin_locked=p.pin_locked,
-                     has_password=p.password_hash is not None, created_at=p.created_at,
+                     has_password=p.password_hash is not None,
+                     entra_linked=p.entra_oid is not None, created_at=p.created_at,
                      last_login_at=p.last_login_at)
 
 
@@ -262,6 +265,18 @@ def set_password(code: str, body: PasswordIn, db: DB, who: Principal = require("
     p.password_failed_attempts = 0
     p.password_locked_until = None
     sessions.end_all(db, p, "password")
+    db.commit()
+    return person_out(p)
+
+
+@router.post("/people/{code}/entra/unlink", response_model=PersonOut)
+def unlink_entra(code: str, db: DB, who: Principal = require("people:write")):
+    """Forget their Microsoft account: the next time they sign in with
+    Microsoft they are matched by email again. Their Microsoft sessions end."""
+    p = get_person(db, code)
+    may_manage(who, p.permission)
+    p.entra_oid = None
+    sessions.end_all(db, p, "entra")
     db.commit()
     return person_out(p)
 
