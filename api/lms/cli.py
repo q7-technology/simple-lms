@@ -11,7 +11,7 @@ from sqlalchemy import or_, select
 from lms.api.schemas import normal_code
 from lms.db import get_sessionmaker
 from lms.models import PERMISSIONS, Person
-from lms.services import access, clock, daily
+from lms.services import access, clock, daily, settings
 
 
 def cmd_create_user(args) -> int:
@@ -59,6 +59,19 @@ def cmd_daily_job(args) -> int:
     return 0
 
 
+def cmd_clear_setting(args) -> int:
+    """Put a setting back to .env or the default, whatever Settings says:
+    the way back in if a setting ever keeps everyone out."""
+    if args.key not in settings.KEYS:
+        print(f"clear-setting: no setting {args.key!r}; one of {', '.join(settings.KEYS)}",
+              file=sys.stderr)
+        return 1
+    with get_sessionmaker()() as db:
+        settings.save(db, {args.key: None}, None)
+    print(f"{args.key} cleared: it comes from .env or the default now")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="lms")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -74,6 +87,11 @@ def main(argv: list[str] | None = None) -> int:
     p = sub.add_parser("daily-job", help="queue the reminders (and on a Monday the digests) now")
     p.add_argument("--on", type=_day, help="as if today were this date, YYYY-MM-DD (to try it out)")
     p.set_defaults(func=cmd_daily_job)
+
+    p = sub.add_parser("clear-setting",
+                       help="put a setting back to .env or the default, e.g. sign_in_pin")
+    p.add_argument("key")
+    p.set_defaults(func=cmd_clear_setting)
 
     args = parser.parse_args(argv)
     return args.func(args)
