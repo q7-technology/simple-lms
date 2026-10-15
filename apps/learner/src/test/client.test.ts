@@ -34,4 +34,16 @@ describe("The learner app's client", () => {
     expect(seen[0].body).toBe(photo);
     expect((seen[0].headers as Record<string, string>)["Content-Type"]).toBe("image/jpeg");
   });
+
+  it("puts JSON, as the progress through a module is kept", async () => {
+    const seen: { url: string; init: RequestInit }[] = [];
+    const client = new LearnerApi(async (url, init) => {
+      seen.push({ url, init });
+      return new Response(null, { status: 204 });
+    });
+    client.token = "lms_s.kim";
+    await client.put("/v1/modules/site-induction/progress", { version: 1, page: 2 });
+    expect(seen[0].init.method).toBe("PUT");
+    expect(seen[0].init.body).toBe('{"version":1,"page":2}');
+  });
 });

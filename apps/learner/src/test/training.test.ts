@@ -42,6 +42,13 @@ describe("My training", () => {
     expect(nextStep(item("Forklift licence", "expiring"))).toEqual({ to: "/ticket/forklift-licence", label: "Add your ticket" });
     expect(nextStep({ ...item("Forklift licence", "missing"), waiting: true })).toEqual({ waiting: "Sent in · waiting for a manager's check" });
     expect(nextStep(item("Forklift licence", "current"))).toBeNull();
-    expect(nextStep({ ...item("Site induction", "missing"), kind: "module" })).toBeNull();
+    expect(nextStep({ ...item("Site induction", "current"), kind: "module" })).toBeNull();
+  });
+
+  it("offers a module that isn't current", () => {
+    const module = { ...item("Site induction", "missing"), kind: "module" as const };
+    expect(nextStep(module)).toEqual({ to: "/module/site-induction", label: "Start the module" });
+    expect(nextStep({ ...module, status: "expiring" })).toEqual({ to: "/module/site-induction", label: "Start the module" });
+    expect(nextStep({ ...module, status: "lapsed" })).toEqual({ to: "/module/site-induction", label: "Start the module" });
   });
 });
