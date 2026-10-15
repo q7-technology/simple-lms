@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session as Db
 
 from lms.api.errors import Forbidden, Unauthorised
 from lms.db import get_sessionmaker
-from lms.models import Person, Session
+from lms.models import ApiKey, Person, Session
 from lms.services import api_keys, sessions
 
 
@@ -82,5 +82,40 @@ def require(scope: str):
         if not who.has_scope(scope):
             raise Forbidden(f"you do not have the {scope} scope")
         return who
+
+    return Depends(_check)
+
+
+@dataclass(slots=True)
+class KeyCaller:
+    """Another system, calling with an API key: no person, only the key's
+    scopes, and anyone those let it read."""
+
+    key: ApiKey
+
+    def has_scope(self, scope: str) -> bool:
+        return scope in self.key.scopes
+
+    def sees(self, other: Person) -> bool:
+        return True
+
+
+def require_reader(scope: str):
+    """Dependency: a person's session or an API key, carrying this scope.
+    Only the competency API takes a key."""
+
+    def _check(db: DB, authorization: Annotated[str | None, Header()] = None
+               ) -> Principal | KeyCaller:
+        raw = bearer_token(authorization)
+        if raw is not None and raw.startswith(api_keys.PREFIX):
+            key = api_keys.find(db, raw)
+            if key is None:
+                raise Unauthorised("API key unknown or revoked")
+            caller: Principal | KeyCaller = KeyCaller(key)
+        else:
+            caller = get_principal(db, authorization)
+        if not caller.has_scope(scope):
+            raise Forbidden(f"you do not have the {scope} scope")
+        return caller
 
     return Depends(_check)
