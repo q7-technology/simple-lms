@@ -87,3 +87,14 @@ def test_a_pin_session_only_does_its_own_training_whoever_has_it():
     assert sessions.scopes_for("admin", "pin") == ["training:read", "training:write"]
     assert sessions.scopes_for("admin", "password") == ["*"]
     assert sessions.scopes_for("learner", "password") == ["training:read", "training:write"]
+
+
+def test_a_microsoft_session_ends_after_a_working_day_however_busy(db, kim):
+    raw = sessions.start(db, kim, "entra", now=NOW)
+    assert sessions.find(db, raw, now=NOW + timedelta(hours=11, minutes=59)) is not None
+    assert sessions.find(db, raw, now=NOW + timedelta(hours=12)) is None
+
+
+def test_a_microsoft_session_carries_the_persons_own_permission():
+    assert sessions.scopes_for("admin", "entra") == ["*"]
+    assert "matrix:read" in sessions.scopes_for("supervisor", "entra")

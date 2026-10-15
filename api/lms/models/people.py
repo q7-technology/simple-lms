@@ -28,7 +28,8 @@ class Person(Base):
     code: Mapped[str] = mapped_column(String(32), unique=True)
     name: Mapped[str] = mapped_column(String(120))
     email: Mapped[str | None] = mapped_column(String(254), unique=True)
-    # Microsoft Entra object id, matched on first sign-in (build step 5)
+    # their Microsoft Entra object id (oid), kept the first time they sign in
+    # with Microsoft and matched from then on
     entra_oid: Mapped[str | None] = mapped_column(String(64), unique=True)
     # learner, supervisor, manager, admin: what they may do, not what they need
     permission: Mapped[str] = mapped_column(String(16), default="learner")
@@ -52,10 +53,10 @@ class Person(Base):
 
 class Session(Base):
     """One signed-in device. Only the token's hash is kept. A PIN session ends
-    after 15 minutes idle, a password one after 12 hours."""
+    after 15 minutes idle, a password or Microsoft (entra) one after 12 hours."""
 
     __tablename__ = "session"
-    __table_args__ = (CheckConstraint("method in ('password', 'pin')", name="method"),)
+    __table_args__ = (CheckConstraint("method in ('password', 'pin', 'entra')", name="method"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
     person_id: Mapped[int] = mapped_column(ForeignKey("person.id"), index=True)
