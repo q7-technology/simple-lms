@@ -2,10 +2,18 @@
 publishing freezes it. People take the newest published version."""
 from __future__ import annotations
 
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
+
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session as Db
 
-from lms.models import Competency, ModulePage, ModuleVersion, QuizQuestion
+from lms.config import get_settings
+from lms.models import Competency, ModulePage, ModuleVersion, QuizAttempt, QuizQuestion
+from lms.services import clock
+
+# this many goes in a row that didn't pass, and the learner waits
+TRIES = 3
 
 
 def newest(db: Db, module: Competency) -> ModuleVersion | None:
@@ -45,3 +53,33 @@ def start_draft(db: Db, module: Competency) -> ModuleVersion:
 def score(correct: int, total: int) -> int:
     """Out of 100, rounded down: 2 of 3 is 66, never a pass mark of 67."""
     return correct * 100 // total
+
+
+def retry_at(db: Db, person_id: int, module: Competency) -> datetime | None:
+    """When the person may next try the module's quiz, if they must wait:
+    their last three goes at it (any version) didn't pass, and the wait
+    (LMS_QUIZ_COOLDOWN_MINUTES) runs from the last of them. A pass starts
+    the count again. Worked out from the attempts, never stored."""
+    minutes = get_settings().quiz_cooldown_minutes
+    if minutes <= 0:
+        return None
+    last = db.execute(select(QuizAttempt.passed, QuizAttempt.created_at)
+                      .where(QuizAttempt.person_id == person_id,
+                             QuizAttempt.competency_id == module.id)
+                      .order_by(QuizAttempt.created_at.desc(), QuizAttempt.id.desc())
+                      .limit(TRIES)).all()
+    if len(last) < TRIES or any(passed for passed, _ in last):
+        return None
+    until = last[0].created_at + timedelta(minutes=minutes)
+    return until if until > clock.now() else None
+
+
+def said_at(when: datetime, now: datetime) -> str:
+    """A time as people say it where the business is: 2:15 pm, and the day
+    too when it isn't today, 1:00 am on Fri 16 Oct."""
+    zone = ZoneInfo(get_settings().timezone)
+    local, today = when.astimezone(zone), now.astimezone(zone).date()
+    out = f"{local.hour % 12 or 12}:{local:%M} {'am' if local.hour < 12 else 'pm'}"
+    if local.date() != today:
+        out += f" on {local:%a} {local.day} {local:%b}"
+    return out

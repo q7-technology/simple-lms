@@ -37,6 +37,10 @@ class Settings(BaseSettings):
     worker_poll_seconds: float = Field(default=5.0, gt=0)
     daily_hour: int = Field(default=6, ge=0, le=23)
 
+    # After three goes at a module's quiz in a row that didn't pass, how long
+    # the learner waits before the next, e.g. 1440 for a day. 0: no wait.
+    quiz_cooldown_minutes: int = Field(default=60, ge=0)
+
     @field_validator("timezone")
     @classmethod
     def _known_timezone(cls, value: str) -> str:

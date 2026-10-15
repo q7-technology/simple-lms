@@ -12,12 +12,15 @@ export class ApiError extends Error {
   /** Whether the API gave a reason of its own (a detail or field errors), not
    * just a status */
   hasDetail: boolean;
+  /** The API's answer as it came, for anything more it says (a retry_at, say) */
+  body: unknown;
   constructor(status: number, body: unknown) {
     const detail = (body as { detail?: unknown })?.detail;
     const errors = (body as { errors?: { field: string; message: string }[] })?.errors ?? [];
     super(typeof detail === "string" ? detail
       : errors.length > 0 ? errors.map((e) => e.message).join("; ") : `Simple LMS answered ${status}`);
     this.status = status;
+    this.body = body;
     this.errors = errors;
     this.hasDetail = typeof detail === "string" || errors.length > 0;
     const code = (body as { code?: unknown })?.code;

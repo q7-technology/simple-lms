@@ -34,12 +34,16 @@ class Conflict(Exception):
 
 class Refused(Exception):
     """A request refused with a status of its own: a file too big (413) or of
-    a kind we do not keep (415). `code` is for programs, `message` for people."""
+    a kind we do not keep (415). `code` is for programs, `message` for people;
+    `extra` goes in the body beside them, and `headers` with it."""
 
-    def __init__(self, status_code: int, code: str, message: str):
+    def __init__(self, status_code: int, code: str, message: str, *,
+                 extra: dict | None = None, headers: dict[str, str] | None = None):
         self.status_code = status_code
         self.code = code
         self.message = message
+        self.extra = extra or {}
+        self.headers = headers
         super().__init__(message)
 
 
@@ -101,8 +105,8 @@ def install(app: FastAPI) -> None:
 
     @app.exception_handler(Refused)
     async def _refused(request: Request, exc: Refused):
-        return JSONResponse(status_code=exc.status_code,
-                            content={"detail": exc.message, "code": exc.code})
+        return JSONResponse(status_code=exc.status_code, headers=exc.headers,
+                            content={"detail": exc.message, "code": exc.code, **exc.extra})
 
     @app.exception_handler(Unauthorised)
     async def _unauthorised(request: Request, exc: Unauthorised):

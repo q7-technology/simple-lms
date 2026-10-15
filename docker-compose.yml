@@ -25,6 +25,7 @@ services:
     environment:
       LMS_DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-lms}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-lms}
       LMS_TIMEZONE: ${LMS_TIMEZONE:-Australia/Melbourne}
+      LMS_QUIZ_COOLDOWN_MINUTES: ${LMS_QUIZ_COOLDOWN_MINUTES:-60}
     volumes:
       # tickets' photos and policy signatures (LMS_UPLOAD_DIR)
       - uploads:/data/uploads

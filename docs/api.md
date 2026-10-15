@@ -384,10 +384,12 @@ Each version, as its editors see it (`correct` is only there for them):
 - `GET /v1/modules/{key}` (`training:read`) — the version to take now, as
   the learner sees it: `{ "key", "name", "version": { "id", "version",
   "pass_mark", "pages": [ … ], "questions": [{ "prompt", "options" }] },
-  "resume_at" }`. Never which answer is right. `resume_at` is the page they
-  left off at (counting from 0; one past the last page is the quiz), on any
-  device; `0` for a version they haven't opened. `404` until a version is
-  published.
+  "resume_at", "retry_at" }`. Never which answer is right. `resume_at` is
+  the page they left off at (counting from 0; one past the last page is the
+  quiz), on any device; `0` for a version they haven't opened. `retry_at`
+  is when the caller may next try the quiz after three goes in a row that
+  didn't pass (below), or `null` when they may try now. `404` until a
+  version is published.
 - `PUT /v1/modules/{key}/progress` (`training:write`) — `{ "version",
   "page" }` → `204`: where the caller is now, theirs alone. Kept on the
   server, so nothing of theirs stays on a shared tablet. A page past the
@@ -398,7 +400,15 @@ Each version, as its editors see it (`correct` is only there for them):
   "total", "score", "pass_mark", "passed", "created_at" }`. Marked here:
   `score` is out of 100, rounded down, and a pass is a score of at least the
   pass mark. Every attempt is kept, pass or fail; try again as often as
-  needed. A pass is a grant from today, recorded as the learner's own (the
+  needed, but after three goes in a row that didn't pass (the caller's last
+  three at this module, any version, with no pass after them) wait
+  `LMS_QUIZ_COOLDOWN_MINUTES` (60 by default; 0 for no wait) from the third:
+  a go before then is `429 { "code": "cooldown", "detail": "Three tries in
+  a row didn't pass: try again after 2:15 pm", "retry_at": "<ISO>" }` (the
+  time in `LMS_TIMEZONE`, with the day when it isn't today; a `Retry-After`
+  header in seconds), and nothing is kept. It is worked out from the
+  attempts, once the person is locked, so goes sent at once can't slip
+  past. A pass is a grant from today, recorded as the learner's own (the
   one thing anybody earns alone), and the competency's refresher, if any,
   says when it runs out; it also starts the module from the top next time.
   Not one answer per question is `422` on `answers`, and one out of range

@@ -74,6 +74,8 @@ export interface Module {
   };
   /** the page to open at; one past the last is the quiz */
   resume_at: number;
+  /** after three goes in a row that didn't pass, when they may try again; null: now */
+  retry_at: string | null;
 }
 
 export interface Attempt {

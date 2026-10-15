@@ -10,7 +10,7 @@ const TRAINING = {
 };
 const link = (id: string) => `/v1/media/${id}?session=1&expires=1&sig=x`;
 const INDUCTION: Module = {
-  key: "site-induction", name: "Site induction", resume_at: 0,
+  key: "site-induction", name: "Site induction", resume_at: 0, retry_at: null,
   version: {
     id: 1, version: 1, pass_mark: 80,
     pages: [
@@ -225,6 +225,39 @@ describe("the module player", () => {
     await userEvent.click(screen.getByRole("button", { name: "Hand it in" }));
     await userEvent.click(await screen.findByRole("button", { name: "Read it again" }));
     expect(screen.getByLabelText("Page 1 of 5")).toBeInTheDocument();
+  });
+
+  it("says when they can try again after three goes that didn't pass, and offers the pages", async () => {
+    const soon = new Date(Date.now() + 30 * 60_000).toISOString();
+    stubModule({ ...INDUCTION, resume_at: 5, retry_at: soon });
+    renderApp(KIM, Date.now(), "/module/site-induction");
+    expect(await screen.findByRole("status", { name: "Wait to try again" })).toHaveTextContent(
+      /^Three tries in a row didn't pass\. You can try again after \d{1,2}:\d{2} (am|pm)( on .+)?\.$/);
+    expect(screen.queryByRole("button", { name: "Hand it in" })).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Read it again" }));
+    expect(screen.getByLabelText("Page 1 of 5")).toBeInTheDocument();
+  });
+
+  it("takes the quiz once the wait is over", async () => {
+    stubModule({ ...INDUCTION, resume_at: 5, retry_at: new Date(Date.now() - 60_000).toISOString() });
+    renderApp(KIM, Date.now(), "/module/site-induction");
+    expect(await screen.findByRole("button", { name: "Hand it in" })).toBeInTheDocument();
+    expect(screen.queryByRole("status", { name: "Wait to try again" })).not.toBeInTheDocument();
+  });
+
+  it("says when they can try again when the hand-in is turned away", async () => {
+    const soon = new Date(Date.now() + 60 * 60_000).toISOString();
+    stubModule({ ...INDUCTION, resume_at: 5 }, [json(429, {
+      detail: "Three tries in a row didn't pass: try again after 2:15 pm", code: "cooldown", retry_at: soon })]);
+    renderApp(KIM, Date.now(), "/module/site-induction");
+    await userEvent.click(await screen.findByLabelText("The canteen"));
+    await userEvent.click(screen.getByLabelText("Your PPE"));
+    await userEvent.click(screen.getByRole("button", { name: "Hand it in" }));
+    const wait = await screen.findByRole("status", { name: "Wait to try again" });
+    expect(wait).toHaveTextContent(/^Three tries in a row didn't pass\. You can try again after \d{1,2}:\d{2} (am|pm)( on .+)?\.$/);
+    expect(document.activeElement).toBe(wait);
+    expect(screen.queryByRole("button", { name: "Hand it in" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Read it again" })).toBeInTheDocument();
   });
 
   it("starts the new version when one came out while they read", async () => {
