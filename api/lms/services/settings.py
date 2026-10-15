@@ -60,15 +60,27 @@ class Effective:
     # signatures) in 24 hours; an editor's module files have limits of their own
     upload_files_per_day: int = 30
     upload_mb_per_day: int = 200
+    # printing: Platen's intake address and key, and the printers (a Platen
+    # printer's id or name) certificates and skills cards go to; an empty
+    # skills card printer is the certificates' one
+    platen_url: str = ""
+    platen_key: str = ""
+    certificate_printer: str = "office"
+    skills_card_printer: str = ""
+
+    @property
+    def skills_card_printer_or_default(self) -> str:
+        return self.skills_card_printer.strip() or self.certificate_printer
 
 
 KEYS = tuple(f.name for f in fields(Effective))
 DEFAULTS = Effective()
 # the ones .env can give too, by the same name (LMS_<KEY>)
 FROM_ENV = ("quiz_cooldown_minutes", "timezone", "daily_hour", "smtp_host", "smtp_port",
-            "smtp_user", "smtp_password", "smtp_from", "smtp_security", "public_url")
+            "smtp_user", "smtp_password", "smtp_from", "smtp_security", "public_url",
+            "platen_url", "platen_key", "certificate_printer", "skills_card_printer")
 # never sent back: only whether there is one
-SECRET = ("smtp_password",)
+SECRET = ("smtp_password", "platen_key")
 
 # line breaks and other control characters
 CONTROL = re.compile(r"[\x00-\x1f\x7f-\x9f  ]")
@@ -100,9 +112,14 @@ class Changes(BaseModel):
     upload_files_per_day: Annotated[Int, Field(ge=1, le=100_000)] | None = None
     # up to a terabyte
     upload_mb_per_day: Annotated[Int, Field(ge=1, le=1_000_000)] | None = None
+    platen_url: Annotated[str, Field(max_length=2000)] | None = None
+    platen_key: Annotated[str, Field(max_length=500)] | None = None
+    certificate_printer: Annotated[str, Field(max_length=64)] | None = None
+    skills_card_printer: Annotated[str, Field(max_length=64)] | None = None
 
     @field_validator("timezone", "smtp_host", "smtp_user", "smtp_password", "smtp_from",
-                     "public_url")
+                     "public_url", "platen_url", "platen_key", "certificate_printer",
+                     "skills_card_printer")
     @classmethod
     def _one_line(cls, value: str | None) -> str | None:
         if value is not None and CONTROL.search(value):
@@ -147,6 +164,17 @@ class Changes(BaseModel):
         value = value.strip().rstrip("/")
         if value and not re.fullmatch(r"https?://[^\s/?#]+(/[^\s?#]*)?", value):
             raise ValueError("a web address starting https://, e.g. https://lms.example.com.au")
+        return value
+
+    @field_validator("platen_url")
+    @classmethod
+    def _intake(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        value = value.strip()
+        if value and not re.fullmatch(r"https?://[^\s/?#]+(/[^\s?#]*)?", value):
+            raise ValueError("Platen's intake address, "
+                             "e.g. https://platen.example.com.au/intake/jobs")
         return value
 
 

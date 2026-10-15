@@ -30,19 +30,36 @@ class Standing:
         keys |= {c for (p, c), kind in self.overrides.items() if p == person_id and kind == "extra"}
         return {c for c in keys if c in self.competencies}
 
-    def status(self, person_id: int, competency_id: int) -> Status:
+    def _latest(self, person_id: int, competency_id: int) -> Latest | None:
         record = self.records.get((person_id, competency_id))
-        latest = None if record is None else Latest(record.kind, record.granted_on,
-                                                    record.expires_on, record.policy_version_id)
+        return None if record is None else Latest(record.kind, record.granted_on,
+                                                  record.expires_on, record.policy_version_id)
+
+    def status(self, person_id: int, competency_id: int) -> Status:
         override = self.overrides.get((person_id, competency_id))
         return work_out(
             by_role=(person_id, competency_id) in self.by_role,
             override=None if override == "clear" else override,
-            latest=latest,
+            latest=self._latest(person_id, competency_id),
             refresher_months=self.competencies[competency_id].refresher_months,
             today=self.today,
             current_version=self.versions.get(competency_id),
         )
+
+    def held(self, person_id: int) -> dict[int, Status]:
+        """What they are current for now, asked of them or not: each active
+        competency their latest record makes current or expiring, as
+        status.py works it out for one that is asked of them."""
+        held = {}
+        for (p, c) in self.records:
+            if p != person_id or c not in self.competencies:
+                continue
+            s = work_out(by_role=True, override=None, latest=self._latest(p, c),
+                         refresher_months=self.competencies[c].refresher_months,
+                         today=self.today, current_version=self.versions.get(c))
+            if s.status in ("current", "expiring"):
+                held[c] = s
+        return held
 
 
 def latest_rows(db: Db, model, person_ids: list[int]):

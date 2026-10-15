@@ -23,14 +23,15 @@ TOUCH_EVERY = timedelta(minutes=1)
 # are the admin's "*" alone: settings:write (Settings: sign-in methods,
 # email, printing, webhooks and API keys).
 # training:write is doing your own training: signing a policy, adding a
-# ticket. tickets:verify is checking someone else's ticket.
+# ticket. tickets:verify is checking someone else's ticket. printing:write
+# is sending a certificate or a skills card to Platen.
 SCOPES: dict[str, list[str]] = {
     "learner": ["training:read", "training:write"],
     "supervisor": ["training:read", "training:write", "matrix:read", "roles:read",
                    "competencies:read"],
     "manager": ["training:read", "training:write", "matrix:read", "roles:read",
                 "competencies:read", "people:read", "people:write", "roles:write",
-                "competencies:write", "records:write", "tickets:verify"],
+                "competencies:write", "records:write", "tickets:verify", "printing:write"],
     "admin": ["*"],
 }
 # A PIN is short, so a PIN session is for the learner app's own training,

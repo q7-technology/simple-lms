@@ -7,7 +7,7 @@ from lms.api import errors, logs
 from lms.api.deps import DB
 from lms.api.routes import (
     api_keys, auth, competencies, learning, matrix, media, modules, overrides, people, policies,
-    records, roles, settings, statuses, tickets, uploads, webhooks,
+    printing, records, roles, settings, statuses, tickets, uploads, webhooks,
 )
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
@@ -40,6 +40,7 @@ v1.include_router(settings.router)
 v1.include_router(webhooks.router)
 v1.include_router(api_keys.router)
 v1.include_router(statuses.router)
+v1.include_router(printing.router)
 
 
 @v1.get("/health", tags=["system"])

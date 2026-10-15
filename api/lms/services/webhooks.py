@@ -142,15 +142,15 @@ def client(allow_private: bool | None = None) -> httpx.Client:
 
 # --- sending one ----------------------------------------------------------------
 
-def said(resp: httpx.Response, deadline: float) -> str:
+def said(resp: httpx.Response, deadline: float, limit: int = SAID) -> str:
     """The start of what a receiver answered, no more: a huge or dripping
     answer can't hold the worker."""
     got = b""
     for chunk in resp.iter_bytes():
         got += chunk
-        if len(got) >= SAID * 4 or time.monotonic() > deadline:
+        if len(got) >= limit * 4 or time.monotonic() > deadline:
             break
-    return got.decode(resp.encoding or "utf-8", errors="replace")[:SAID]
+    return got.decode(resp.encoding or "utf-8", errors="replace")[:limit]
 
 
 def deliver(http: httpx.Client, row: Outbox) -> str | None:

@@ -1,5 +1,5 @@
-"""Drains the outbox (emails, and events for the webhooks) and runs the
-daily job. Run as `python -m lms.worker`.
+"""Drains the outbox (emails, events for the webhooks, and print jobs for
+Platen) and runs the daily job. Run as `python -m lms.worker`.
 
 A failed try is tried again after 1 min, 5, 30 and 2 h. The try after the
 2 h wait is the last: if it fails too, the row is `failed` and stays, with
@@ -29,7 +29,7 @@ from sqlalchemy.orm import Session
 from lms.config import get_settings
 from lms.db import get_sessionmaker
 from lms.models import Outbox
-from lms.services import daily, mail, settings, webhooks
+from lms.services import daily, mail, printing, settings, webhooks
 from lms.services.outbox import GiveUp
 
 log = logging.getLogger("lms.worker")
@@ -38,7 +38,7 @@ BACKOFF = (60, 300, 1800, 7200)
 # after the daily job fails, how long before it is tried again
 DAILY_RETRY = timedelta(minutes=5)
 # what the outbox holds, in the order each takes its turn
-KINDS = ("email", "webhook")
+KINDS = ("email", "webhook", "print")
 
 
 def clock() -> datetime:
@@ -69,25 +69,35 @@ def _claim(session: Session, kind: str, now: datetime) -> Outbox | None:
 
 
 def _ready(kind: str) -> bool:
-    """Emails wait, untried, until SMTP is set up; events always go."""
-    return mail.set_up() if kind == "email" else True
+    """Emails wait, untried, until SMTP is set up, and print jobs until
+    Platen is; events always go."""
+    if kind == "email":
+        return mail.set_up()
+    if kind == "print":
+        return printing.set_up()
+    return True
 
 
-def _send(kind: str, http: httpx.Client | None, row: Outbox) -> str | None:
+# the client each kind posts with (none for an email)
+Clients = dict[str, "httpx.Client | None"]
+
+
+def _send(kind: str, clients: Clients, row: Outbox) -> str | None:
     if kind == "email":
         return mail.send(row.payload)
-    return webhooks.deliver(http, row)
+    if kind == "print":
+        return printing.send(clients["print"], row)
+    return webhooks.deliver(clients["webhook"], row)
 
 
-def _send_one(session: Session, kind: str, http: httpx.Client | None,
-              now: datetime | None) -> bool:
+def _send_one(session: Session, kind: str, clients: Clients, now: datetime | None) -> bool:
     """Send the next row of this kind that is due, if there is one."""
     row = _claim(session, kind, now or clock())
     if row is None:
         return False
     give_up = False
     try:
-        error = _send(kind, http, row)
+        error = _send(kind, clients, row)
     except GiveUp as e:
         error, give_up = str(e), True
     except Exception as e:  # a bad row (or password) must not stop the rows after it
@@ -114,12 +124,12 @@ def _send_one(session: Session, kind: str, http: httpx.Client | None,
     return True
 
 
-def _drain(session: Session, http: httpx.Client | None, now: datetime | None, limit: int,
+def _drain(session: Session, clients: Clients, now: datetime | None, limit: int,
            kinds: list[str]) -> int:
     tried = dict.fromkeys(kinds, 0)
     while kinds:
         for kind in list(kinds):
-            if tried[kind] < limit and _send_one(session, kind, http, now):
+            if tried[kind] < limit and _send_one(session, kind, clients, now):
                 tried[kind] += 1
             else:
                 kinds.remove(kind)
@@ -127,14 +137,17 @@ def _drain(session: Session, http: httpx.Client | None, now: datetime | None, li
 
 
 def send_due(session: Session, http: httpx.Client | None = None, now: datetime | None = None,
-             limit: int = 50, kinds: tuple[str, ...] = KINDS) -> int:
+             limit: int = 50, kinds: tuple[str, ...] = KINDS,
+             print_http: httpx.Client | None = None) -> int:
     """Send what is due, a row of each kind in turn, up to `limit` of each.
-    Returns how many were tried."""
+    `http` posts the events (and the print jobs, unless `print_http` is
+    given); without one, the guarded webhook client and Platen's own are
+    made for this pass. Returns how many were tried."""
     ready = [k for k in kinds if _ready(k)]
     if http is None and any(k != "email" for k in ready):
-        with webhooks.client() as client:
-            return _drain(session, client, now, limit, ready)
-    return _drain(session, http, now, limit, ready)
+        with webhooks.client() as hooks, printing.client() as platen:
+            return _drain(session, {"webhook": hooks, "print": platen}, now, limit, ready)
+    return _drain(session, {"webhook": http, "print": print_http or http}, now, limit, ready)
 
 
 def send_emails(session: Session, now: datetime | None = None, limit: int = 50) -> int:
@@ -163,7 +176,7 @@ class Daily:
 
 
 def run_once(session: Session, today: Daily, now: datetime | None = None,
-             http: httpx.Client | None = None) -> int:
+             http: httpx.Client | None = None, print_http: httpx.Client | None = None) -> int:
     """The daily job if it is due, then whatever is due in the outbox.
     Returns how many rows were tried."""
     day = today.due(now or clock())
@@ -180,7 +193,7 @@ def run_once(session: Session, today: Daily, now: datetime | None = None,
             today.not_before = None
             log.info("daily job for %s: %d reminders, %d digests, %d events queued", day,
                      queued["reminders"], queued["digests"], queued["events"])
-    return send_due(session, http, now)
+    return send_due(session, http, now, print_http=print_http)
 
 
 def wait_for_schema(session: Session, timeout: float = 120, poll: float = 2) -> None:
@@ -217,11 +230,13 @@ def main() -> None:
     log.info("worker started, polling every %ss; daily job from %02d:00 %s", poll,
              s.daily_hour, s.timezone)
     today = Daily()
-    with webhooks.client() as http:
+    # events only to public addresses (unless LMS_WEBHOOK_ALLOW_PRIVATE);
+    # Platen wherever its address in Settings says
+    with webhooks.client() as http, printing.client() as print_http:
         while True:
             try:
                 with make_session() as session:
-                    done = run_once(session, today, http=http)
+                    done = run_once(session, today, http=http, print_http=print_http)
             except Exception:  # keep the loop alive; log and back off
                 log.exception("worker loop error")
                 done = 0

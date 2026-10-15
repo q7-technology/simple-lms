@@ -35,6 +35,16 @@ class Settings(BaseSettings):
     # starttls (port 587), ssl (port 465) or none (a relay on the same network)
     smtp_security: Literal["starttls", "ssl", "none"] = "starttls"
 
+    # Printing, through Platen (or any print service that takes the same job):
+    # its intake address (https://<platen>/intake/jobs), a Platen key, and the
+    # printers (a Platen printer's id or name) certificates and skills cards
+    # go to. Without the address nothing can be printed. Settings wins.
+    platen_url: str = ""
+    platen_key: str = ""
+    certificate_printer: str = "office"
+    # empty: the certificates' printer
+    skills_card_printer: str = ""
+
     # The worker: how long it waits when there is nothing to send, and the
     # hour (in LMS_TIMEZONE) from which it runs the daily job each day.
     worker_poll_seconds: float = Field(default=5.0, gt=0)

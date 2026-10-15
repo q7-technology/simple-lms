@@ -264,3 +264,12 @@ def test_an_address_given_for_a_webhook_is_checked(url, refused, monkeypatch):
     from lms.config import get_settings
     monkeypatch.setattr(get_settings(), "webhook_allow_private", True)
     assert webhooks.check_url(url) is None
+
+
+def test_left_to_itself_the_worker_uses_the_guarded_client(db):
+    db.add(Webhook(name="Metadata", url="http://169.254.169.254/latest", secret="s",
+                   events=["*"]))
+    db.commit()
+    r = fired(db)
+    worker.send_due(db, now=T0)
+    assert "internal address" in row(db, r).last_error
