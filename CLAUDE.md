@@ -88,6 +88,13 @@ docker-compose.yml   api, worker, db, caddy
   touches are per viewer, kept in the browser (`lms.game`,
   `lms.learner.game`) and never sent to the API, and everything the
   classroom offers stays reachable with Game Mode off.
+- Sign-in: code and PIN (learner app), email and password, or Microsoft
+  Entra ID, each switchable in Settings (`sign_in_*`; `lms clear-setting
+  sign_in_password` is the way back in). The Entra tenant, client and
+  secret stay in `.env`. Entra is OIDC's code flow with PKCE, done by the API; the app
+  gets a one-time hand-off code after the `#`, never a token in a URL. A
+  Microsoft sign-in never creates a person: match by `entra_oid`, else the
+  first time by `email` with `xms_edov`, never by `preferred_username`.
 - Sister apps: nothing in Simple WMS or Simple TMS changes for Simple LMS. It
   publishes signed events and a competency API (build step 6).
 - Settings: everyday settings (sign-in methods, the quiz wait, reminder

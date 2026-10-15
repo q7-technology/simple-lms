@@ -6,18 +6,18 @@ and licences, and signed policies. It answers one question for a business and
 its auditors: is each person current for everything their job needs? It sits
 beside Simple WMS, Simple TMS and Platen and works without any of them.
 
-Status: **build step 7, Game Mode, is done.** People with a code and PIN
-or an email and password, roles and the competencies each requires, extras
-and waivers, completions recorded by hand on the desktop, the matrix (with a
-CSV export), and a learner app that shows each person's training. People
-take online modules (pages, then a quiz), sign policies and send in their
-tickets from the learner app; a manager checks each ticket in the desktop's
-Inbox; the worker emails reminders and a Monday digest. The desktop opens on
-a classroom, a desk for each role with its people sitting at it in green,
-amber or red, and every screen in a drawer over it; the learner app shows a
-ring for how much is done and says Ding! out loud. Practicals, Entra sign-in
-and the outward links (build steps 4 to 6) are still to come, as
-`docs/plans/2026-10-12-simple-lms-design.md` sets out.
+Status: **build steps 1 to 5 and 7 are done.** People sign in with a
+code and PIN, an email and password, or their Microsoft work account; roles
+and the competencies each requires, extras and waivers, completions recorded
+by hand on the desktop, the matrix (with a CSV export), and a learner app
+that shows each person's training. People take online modules (pages, then
+a quiz), sign policies, send in their tickets and are signed off on
+practicals; a manager checks each ticket in the desktop's Inbox; the worker
+emails reminders and a Monday digest. The desktop opens on a classroom, a
+desk for each role with its people sitting at it in green, amber or red,
+and every screen in a drawer over it; the learner app shows a ring for how
+much is done and says Ding! out loud. The outward links (build step 6) are
+still to come, as `docs/plans/2026-10-12-simple-lms-design.md` describes.
 
 ## What is in this repo
 
@@ -50,7 +50,7 @@ admin unless you give `--permission`.
 
 **Settings.** An admin changes the everyday settings on the desktop's
 **Settings** screen, and they take effect within a few seconds, with no
-restart: sign-in methods (code and PIN, email and password), the quiz wait,
+restart: sign-in methods (code and PIN, email and password, Microsoft), the quiz wait,
 the reminder days, the daily job's hour and the time zone, the email server
 (with **Send a test email**), and the web address for links in emails.
 Each says where its value comes from: set there, from `.env`, or the
@@ -58,8 +58,8 @@ default; a value set there wins over `.env`, so an install that only has
 `.env` keeps working. What has to be known before Simple LMS starts, or
 could lock everyone out, stays in `.env` only: the database and its
 password, the ports, the domain, the upload folder and Caddy. Email and
-password sign-in can't be switched off while it is the only way an admin
-can sign in (until Microsoft Entra sign-in arrives, always), and
+password and Microsoft sign-in can't both be off, nor can an admin switch
+off the way they signed in (see "Sign in with Microsoft" below), and
 `docker compose exec api lms clear-setting <key>` puts any setting back to
 `.env` or the default.
 
@@ -177,6 +177,64 @@ ports 80 and 443: set `LMS_HTTP_PORT` and `LMS_HTTPS_PORT` in `.env` (say
 LMS site on the Caddy that holds 80 and 443 and start only
 `docker compose up -d db api`, as Simple TMS's README describes.
 
+## Sign in with Microsoft
+
+People can sign in to either app with their Microsoft work account
+(Microsoft Entra ID). Simple LMS never adds anyone this way: a manager adds
+the person first, with the email Microsoft has for them, and their first
+Microsoft sign-in is matched to them by that email. From then on it is
+matched by their Microsoft account itself, whatever their email becomes.
+Someone Simple LMS doesn't know is told "Ask your manager to add you."
+
+Register Simple LMS in your tenant once, in the Microsoft Entra admin
+center (an Application Administrator can):
+
+1. **App registrations → New registration.** Name it *Simple LMS*. Supported
+   account types: *Accounts in this organizational directory only* (single
+   tenant). Redirect URI: platform *Web*, and
+   `https://<LMS_DOMAIN>/v1/auth/entra/callback`: exactly the web address
+   (**Settings → Web address**, or `LMS_PUBLIC_URL`) followed by
+   `/v1/auth/entra/callback`, port and all if it isn't 443. Change the web
+   address later and this must change with it.
+   Register.
+2. From **Overview**, copy the *Directory (tenant) ID* and the
+   *Application (client) ID*.
+3. **Certificates & secrets → New client secret.** Copy its *Value* (not
+   its Secret ID) at once: it is shown once. It runs out (24 months at
+   most): put a reminder in to make a new one and change `.env` before it
+   does.
+4. **API permissions.** Microsoft Graph's delegated `openid`, `profile` and
+   `email` (the `User.Read` it starts with can stay). **Grant admin
+   consent**, so nobody is asked.
+5. **Token configuration → Add optional claim → ID:** tick `email` and
+   `xms_edov` (if `xms_edov` isn't offered, add it to the manifest's
+   `optionalClaims.idToken`). `xms_edov` is Microsoft saying your tenant
+   owns the email's domain: without it a first sign-in can't be matched by
+   email, and is refused.
+
+Then in `.env` set `LMS_ENTRA_TENANT_ID`, `LMS_ENTRA_CLIENT_ID` and
+`LMS_ENTRA_CLIENT_SECRET` (in `.env` only, not on the Settings screen: the
+secret is a secret), make sure the web address is set (**Settings → Web
+address**, or `LMS_PUBLIC_URL`), and `docker compose up -d api`. Both sign-in pages now offer **Sign in with
+Microsoft**. The learner app asks Microsoft for the password every time, so
+a shared tablet never signs the next person in as the last; the desktop
+lets people pick their account. Open Simple LMS at its web address to sign
+in this way: Microsoft sends people back there, to the tab they started in.
+A Microsoft session lasts a working day (12
+hours) at most, since Simple LMS hears nothing from Microsoft once someone
+is in: deactivate a person who leaves, as always. If a person was matched
+to the wrong account, **Unlink Microsoft** on their record under **People**.
+
+Under **Settings → Sign-in** an admin switches each way of signing in on or
+off: code and PIN, email and password, Microsoft (which says there whether
+it is set up). Someone already signed in stays signed in until their
+session ends. To keep anyone from being locked out, email and password or
+Microsoft always stays on (a PIN never opens the desktop), and an admin
+can't switch off the way they signed in: so to switch passwords off, sign
+in with Microsoft first. If it goes wrong anyway (say the client secret ran
+out with passwords off), anyone with the server's command line can put it
+back: `docker compose exec api lms clear-setting sign_in_password`.
+
 ## Who may do what
 
 | | Learner | Supervisor | Manager | Admin |
@@ -188,6 +246,7 @@ LMS site on the Caddy that holds 80 and 443 and start only
 | Write and publish a module's pages and quiz | | | ✓ | ✓ |
 | Record or revoke a completion (never their own) | | | ✓ | ✓ |
 | Approve or reject a ticket (never their own) | | | ✓ | ✓ |
+| Unlink someone's Microsoft account | | | ✓ | ✓ |
 | Add or change a manager or an admin | | | | ✓ |
 
 A supervisor's team is the people whose supervisor they are, and only
