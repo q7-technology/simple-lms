@@ -1,11 +1,11 @@
-import { screen, waitFor, within } from "@testing-library/react";
+import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { Competency, ModuleVersion } from "../api/types";
 import { json, renderApp, stubApi, type Call } from "./harness";
 
 const INDUCTION: Competency = { id: 1, key: "site-induction", name: "Site induction", kind: "module", refresher_months: 24, card_expires: true, active: true };
 const MEL = { code: "MG001", name: "Mel Grant" };
-const EMPTY: ModuleVersion = { id: 1, version: 1, pass_mark: 80, published_at: null, published_by: null, pages: [], questions: [], created_at: "2026-10-12T01:00:00Z" };
+const EMPTY: ModuleVersion = { id: 1, version: 1, pass_mark: 80, published_at: null, published_by: null, pages: [], questions: [], created_at: "2026-10-12T01:00:00Z", saved_at: "2026-10-12T01:00:00Z" };
 const V1: ModuleVersion = {
   ...EMPTY, published_at: "2026-10-12T02:00:00Z", published_by: MEL,
   pages: [
@@ -18,19 +18,24 @@ const V1: ModuleVersion = {
 };
 
 /** Competencies with the site induction, whose versions are `versions`;
- * starting a draft adds `draft`, and publishing publishes it. */
-function stubModule(versions: ModuleVersion[], draft: ModuleVersion = EMPTY) {
+ * starting a draft adds `draft`, and publishing publishes it. A file is
+ * kept once `sent` settles; a save is answered by `saved` when given. */
+function stubModule(versions: ModuleVersion[], draft: ModuleVersion = EMPTY,
+                    { sent, saved }: { sent?: Promise<void>; saved?: () => Response } = {}) {
   let list = versions;
-  return stubApi((method, url, body) => {
+  return stubApi(async (method, url, body) => {
     if (url === "/v1/competencies") return json(200, { items: [INDUCTION], total: 1 });
     if (url === "/v1/modules/site-induction/versions") return json(200, list);
     if (method === "POST" && url === "/v1/modules/site-induction/draft") { list = [draft, ...list]; return json(201, draft); }
-    if (method === "PUT" && url === "/v1/modules/site-induction/draft") return json(200, { ...list[0], ...(body as object) });
+    if (method === "PUT" && url === "/v1/modules/site-induction/draft") {
+      return saved?.() ?? json(200, { ...list[0], ...(body as object), saved_at: "2026-10-12T02:30:00Z" });
+    }
     if (method === "POST" && url === "/v1/modules/site-induction/draft/publish") {
       list = [{ ...list[0], published_at: "2026-10-12T03:00:00Z", published_by: MEL }, ...list.slice(1)];
       return json(200, list[0]);
     }
     if (method === "POST" && url.startsWith("/v1/uploads?purpose=")) {
+      await sent;
       return json(201, { id: "u-1", purpose: url.split("=")[1], content_type: "video/mp4", size_bytes: 4_200_000, created_at: "2026-10-12T01:00:00Z" });
     }
     return null;
@@ -89,6 +94,7 @@ describe("a module's pages and quiz", () => {
         { kind: "link", title: "SafeWork", url: "https://www.safework.nsw.gov.au", body: null },
       ],
       questions: [{ prompt: "Where do you sign in?", options: ["The canteen", "The gatehouse"], correct: 1 }],
+      based_on: "2026-10-12T01:00:00Z",
     });
   });
 
@@ -108,6 +114,106 @@ describe("a module's pages and quiz", () => {
     await userEvent.click(within(drawer).getByRole("button", { name: "Save draft" }));
     await waitFor(() => expect(put(calls)).toMatchObject({
       pages: [{ kind: "video", title: "Lifting safely", file: "u-1", body: null }] }));
+  });
+
+  it("puts a file on its own page, even when the page moved while it was sending", async () => {
+    let arrive = () => {};
+    const { calls } = stubModule([EMPTY], EMPTY, { sent: new Promise((done) => { arrive = done; }) });
+    const drawer = await openInduction();
+    await within(drawer).findByText(/Version 1 is a draft/);
+    await addPage(drawer, "Video");
+    await userEvent.type(within(within(drawer).getByRole("group", { name: "Page 1" })).getByLabelText("Title"), "Lifting safely");
+    await addPage(drawer, "Text");
+    const two = within(drawer).getByRole("group", { name: "Page 2" });
+    await userEvent.type(within(two).getByLabelText("Title"), "Welcome");
+    await userEvent.type(within(two).getByLabelText("Text"), "Sign in at the gatehouse.");
+    const video = new File([new Uint8Array([0, 0, 0, 0x18])], "lifting.mp4", { type: "video/mp4" });
+    await userEvent.upload(within(drawer).getByLabelText("File"), video);
+    await userEvent.click(within(drawer).getByRole("button", { name: "Move page 1 down" }));
+    act(() => arrive());
+    expect(await within(within(drawer).getByRole("group", { name: "Page 2" })).findByText("MP4 · 4.2 MB")).toBeInTheDocument();
+    await userEvent.click(within(drawer).getByRole("button", { name: "Save draft" }));
+    await waitFor(() => expect((put(calls) as { pages: unknown[] }).pages).toEqual([
+      { kind: "text", title: "Welcome", body: "Sign in at the gatehouse." },
+      { kind: "video", title: "Lifting safely", file: "u-1", body: null }]));
+  });
+
+  it("says how far a file has got, and stops sending it on Cancel", async () => {
+    const { sending } = stubModule([EMPTY], EMPTY, { sent: new Promise(() => {}) });
+    const drawer = await openInduction();
+    await within(drawer).findByText(/Version 1 is a draft/);
+    await addPage(drawer, "Video");
+    const page = within(drawer).getByRole("group", { name: "Page 1" });
+    const video = new File([new Uint8Array([0, 0, 0, 0x18])], "lifting.mp4", { type: "video/mp4" });
+    await userEvent.upload(within(page).getByLabelText("File"), video);
+    act(() => sending[0].progress(42, 100));
+    expect(within(page).getByRole("status")).toHaveTextContent("Sending… 42%");
+    // nothing saved without it while it is on its way
+    expect(within(drawer).getByRole("button", { name: "Save draft" })).toBeDisabled();
+    await userEvent.click(within(page).getByRole("button", { name: "Cancel sending" }));
+    expect(sending[0].aborted).toBe(true);
+    expect(within(page).queryByRole("status")).not.toBeInTheDocument();
+    expect(within(page).queryByRole("alert")).not.toBeInTheDocument();
+    expect(within(page).getByLabelText("File")).toBeEnabled();
+    expect(within(drawer).getByRole("button", { name: "Save draft" })).toBeEnabled();
+  });
+
+  it("asks before closing on changes that aren't saved", async () => {
+    stubModule([EMPTY]);
+    const drawer = await openInduction();
+    await within(drawer).findByText(/Version 1 is a draft/);
+    // nothing changed yet: it just closes
+    await userEvent.click(within(drawer).getByRole("button", { name: "Close" }));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+
+    const again = await openInduction();
+    await within(again).findByText(/Version 1 is a draft/);
+    await addPage(again, "Text");
+    await userEvent.click(within(again).getByRole("button", { name: "Close" }));
+    expect(within(again).getByText("This draft has changes that aren't saved. Close it anyway?")).toBeInTheDocument();
+    await userEvent.click(within(again).getByRole("button", { name: "Keep editing" }));
+    expect(screen.getByRole("dialog", { name: "Site induction" })).toBeInTheDocument();
+    expect(within(again).getByRole("group", { name: "Page 1" })).toBeInTheDocument();
+
+    await userEvent.keyboard("{Escape}");
+    await userEvent.click(within(again).getByRole("button", { name: "Close anyway" }));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("says plainly when someone else saved the draft meanwhile, and reloads it", async () => {
+    const versions = [EMPTY];
+    const { calls } = stubModule(versions, EMPTY, { saved: () => {
+      // Mel saved it from another desk meanwhile
+      versions[0] = { ...EMPTY, pass_mark: 90, saved_at: "2026-10-12T02:00:00Z" };
+      return json(409, { detail: "the draft was saved by someone else since: reload it", code: "changed" });
+    } });
+    const drawer = await openInduction();
+    await within(drawer).findByText(/Version 1 is a draft/);
+    const mark = within(drawer).getByLabelText("Pass mark (%)");
+    await userEvent.clear(mark);
+    await userEvent.type(mark, "70");
+    await userEvent.click(within(drawer).getByRole("button", { name: "Save draft" }));
+    expect(await within(drawer).findByRole("alert")).toHaveTextContent(
+      "Someone else saved this draft since you opened it: reload to see their changes");
+    const loads = calls.filter((c) => c.url.endsWith("/versions")).length;
+    await userEvent.click(within(drawer).getByRole("button", { name: "Reload" }));
+    await waitFor(() => expect(calls.filter((c) => c.url.endsWith("/versions")).length).toBe(loads + 1));
+    await waitFor(() => expect(within(drawer).getByLabelText("Pass mark (%)")).toHaveValue(90));
+    expect(within(drawer).queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("won't save a link that isn't a web address", async () => {
+    const { calls } = stubModule([EMPTY]);
+    const drawer = await openInduction();
+    await within(drawer).findByText(/Version 1 is a draft/);
+    await addPage(drawer, "Link");
+    const page = within(drawer).getByRole("group", { name: "Page 1" });
+    await userEvent.type(within(page).getByLabelText("Title"), "SafeWork");
+    await userEvent.type(within(page).getByLabelText("Web address"), "javascript:alert(1)");
+    await userEvent.click(within(drawer).getByRole("button", { name: "Save draft" }));
+    expect(await within(drawer).findByRole("alert")).toHaveTextContent(
+      "Page 1's web address needs to start with https:// or http:// and name a site.");
+    expect(calls.some((c) => c.method === "PUT")).toBe(false);
   });
 
   it("won't send a video over 200 MB", async () => {
@@ -150,7 +256,7 @@ describe("a module's pages and quiz", () => {
     const { calls } = stubModule([{ ...V1, published_at: null, published_by: null }]);
     const drawer = await openInduction();
     await userEvent.click(await within(drawer).findByRole("button", { name: "Publish version 1" }));
-    expect(within(drawer).getByText("Publish version 1? Its pages and questions are frozen once it is, and everyone takes it from now.")).toBeInTheDocument();
+    expect(within(drawer).getByText("Publish version 1? Its pages and questions are frozen once it is, and everyone takes it from now. People who already passed don't have to sit it again.")).toBeInTheDocument();
     await userEvent.click(within(drawer).getByRole("button", { name: "Cancel" }));
     expect(calls.some((c) => c.method !== "GET")).toBe(false);
 

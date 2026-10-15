@@ -144,4 +144,6 @@ export interface ModuleVersion {
   pages: ModulePage[];
   questions: Question[];
   created_at: string;
+  /** changed by every save: sent back as `based_on`, so a save meanwhile isn't undone */
+  saved_at: string;
 }
