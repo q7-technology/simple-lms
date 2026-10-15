@@ -140,7 +140,7 @@ describe("competencies", () => {
       if (url === "/v1/uploads/s-1") return new Response(new Uint8Array([0x89, 0x50]), { status: 200, headers: { "Content-Type": "image/png" } });
       return null;
     });
-    renderApp("/");
+    renderApp("/matrix");
     await userEvent.click(await screen.findByRole("button", { name: /Kim Lee, WHS policy/ }));
     const drawer = await screen.findByRole("dialog", { name: "WHS policy" });
     expect(await within(drawer).findByText("Signed version 2 as “Kim Lee”")).toBeInTheDocument();

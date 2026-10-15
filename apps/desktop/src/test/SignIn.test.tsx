@@ -14,7 +14,7 @@ describe("signing in to the desktop", () => {
     expect(await screen.findByRole("heading", { name: "Sign in" })).toBeInTheDocument();
   });
 
-  it("signs a manager in and opens the matrix", async () => {
+  it("signs a manager in and opens the classroom", async () => {
     const { calls } = stubApi((_method, url) => {
       if (url === "/v1/auth/login") return json(200, { token: "lms_s.new", person: MEL });
       if (url.startsWith("/v1/matrix")) return json(200, EMPTY);
@@ -25,7 +25,7 @@ describe("signing in to the desktop", () => {
     await userEvent.type(await screen.findByLabelText("Email"), "mel@example.com.au");
     await userEvent.type(screen.getByLabelText("Password"), "correct horse battery");
     await userEvent.click(screen.getByRole("button", { name: "Sign in" }));
-    expect(await screen.findByRole("heading", { name: "Matrix" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Classroom" })).toBeInTheDocument();
     expect(api.token).toBe("lms_s.new");
     expect(calls.find((c) => c.url === "/v1/auth/login")?.body).toEqual({
       email: "mel@example.com.au", password: "correct horse battery" });

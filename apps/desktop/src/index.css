@@ -23,6 +23,8 @@
   --color-red-ink: #A3242C;
   --color-red-bg: #FCE9EA;
   --color-grey-bg: #EEF1F4;
+  /* the classroom: a grey for the people nothing is asked of */
+  --color-grey: #8A95A5;
   --font-sans: Manrope, ui-sans-serif, system-ui, sans-serif;
   --shadow-soft: 0 6px 20px rgba(23, 32, 43, 0.08);
   --shadow-lift: 0 10px 30px rgba(23, 32, 43, 0.12);
@@ -89,4 +91,31 @@
   .dhead { display: flex; align-items: flex-start; gap: 12px; padding: 20px 24px 12px; }
   .dhead h2 { margin: 0; font-size: 20px; font-weight: 800; }
   .dbody { flex: 1; overflow: auto; padding: 0 24px 32px; display: flex; flex-direction: column; gap: 16px; }
+
+  /* Game Mode: its switch, and the classroom */
+  .btn[aria-pressed="true"] { background: var(--color-tint); border-color: var(--color-blue); color: var(--color-blue-dark); }
+  .classroom { padding: 20px 24px 40px; display: flex; flex-direction: column; gap: 16px; }
+  .classroom h1 { margin: 0; font-size: 24px; font-weight: 800; letter-spacing: -0.3px; }
+  .classroom h1:focus { outline: none; }
+  .room { position: relative; width: 100%; max-width: 1100px; margin: 0 auto; }
+  .roompic { display: block; width: 100%; height: auto; }
+  .desks, .desks ul { list-style: none; margin: 0; padding: 0; }
+  .desktag { position: absolute; transform: translate(-50%, -100%); padding: 5px 12px; border-radius: 999px; background: #fff; border: 1px solid var(--color-line-2); box-shadow: var(--shadow-soft); color: var(--color-ink); font-size: 13px; font-weight: 800; white-space: nowrap; text-decoration: none; }
+  .desktag:hover { border-color: var(--color-blue); color: var(--color-blue-dark); }
+  .desktag .more { margin-left: 6px; color: var(--color-muted); }
+  .seat { position: absolute; width: 20px; height: 34px; transform: translate(-50%, -50%); border-radius: 8px; }
+  .seat:hover { background: rgba(47, 111, 184, 0.15); }
+  .dot { width: 9px; height: 9px; border-radius: 999px; display: inline-block; }
+  .dot.green { background: var(--color-green); }
+  .dot.amber { background: var(--color-amber); }
+  .dot.red { background: var(--color-red); }
+  .dot.grey { background: var(--color-grey); }
+}
+
+/* Someone who needs training hops now and then, unless the viewer asked
+ * their computer for less movement. */
+@keyframes lms-hop { 0%, 84%, 100% { transform: translateY(0); } 92% { transform: translateY(-5px); } }
+.hop { animation: lms-hop 2.8s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) {
+  .hop { animation: none; }
 }

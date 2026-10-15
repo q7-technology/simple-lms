@@ -15,7 +15,9 @@ export function AppRoutes() {
       <Route path="/sign-in" element={<SignIn />} />
       <Route element={<RequireAuth />}>
         <Route element={<Layout />}>
-          <Route index element={<Matrix />} />
+          {/* Game Mode draws the classroom here; without it the desktop opens on the matrix */}
+          <Route index element={<Navigate to="/matrix" replace />} />
+          <Route path="/matrix" element={<Matrix />} />
           <Route path="/people" element={<People />} />
           <Route path="/roles" element={<Roles />} />
           <Route path="/competencies" element={<Competencies />} />

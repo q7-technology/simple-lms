@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { api } from "../api/client";
 import type { CompetencyRef, Matrix as MatrixData, MatrixRow, Page, Permission, Person, Role, Status } from "../api/types";
 import { useAuth } from "../auth/AuthContext";
@@ -12,7 +13,9 @@ const SUPERVISES: Permission[] = ["supervisor", "manager", "admin"];
 /** People down the side, what they are asked for across the top. */
 export function Matrix() {
   const { me } = useAuth();
-  const [role, setRole] = useState("");
+  // a desk in the classroom opens the matrix at its role
+  const [params] = useSearchParams();
+  const [role, setRole] = useState(() => params.get("role") ?? "");
   const [supervisor, setSupervisor] = useState("");
   const [status, setStatus] = useState<"" | Status>("");
   // the row and competency as they were when opened: a filter can hide them after a change

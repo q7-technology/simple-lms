@@ -307,7 +307,7 @@ describe("a module passed", () => {
       if (url.startsWith("/v1/people/LL042/records")) return json(200, [passed]);
       return null;
     });
-    renderApp("/");
+    renderApp("/matrix");
     await userEvent.click(await screen.findByRole("button", { name: /Kim Lee, Site induction/ }));
     const drawer = await screen.findByRole("dialog", { name: "Site induction" });
     expect(await within(drawer).findByText("Passed the quiz on version 1 with 100% (pass mark 80%)")).toBeInTheDocument();

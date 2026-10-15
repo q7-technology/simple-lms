@@ -32,7 +32,7 @@ describe("the matrix", () => {
       if (url === "/v1/roles") return json(200, { items: [], total: 0 });
       return null;
     });
-    renderApp("/");
+    renderApp("/matrix");
     const missing = await screen.findByRole("button", { name: "Kim Lee, Forklift licence: Missing" });
     expect(missing).toHaveClass("t-red");
     const expiring = screen.getByRole("button", { name: "Kim Lee, Site induction: Expiring: good until 20 Oct 2026" });
@@ -45,7 +45,7 @@ describe("the matrix", () => {
       if (url === "/v1/roles") return json(200, { items: [{ key: "picker", name: "Picker", competencies: [], people: 0 }], total: 1 });
       return null;
     });
-    renderApp("/");
+    renderApp("/matrix");
     await screen.findByRole("button", { name: /Kim Lee, Forklift licence/ });
     await userEvent.selectOptions(screen.getByLabelText("Status"), "lapsed");
     await userEvent.selectOptions(screen.getByLabelText("Role"), "picker");
@@ -68,7 +68,7 @@ describe("the matrix", () => {
       }
       return null;
     });
-    renderApp("/");
+    renderApp("/matrix");
     await userEvent.click(await screen.findByRole("button", { name: "Kim Lee, Forklift licence: Missing" }));
     const drawer = await screen.findByRole("dialog", { name: "Forklift licence" });
     expect(await within(drawer).findByText("Nothing recorded yet.")).toBeInTheDocument();
@@ -92,7 +92,7 @@ describe("the matrix", () => {
       if (url.startsWith("/v1/people/MG001/records")) return json(200, []);
       return null;
     });
-    renderApp("/");
+    renderApp("/matrix");
     await userEvent.click(await screen.findByRole("button", { name: "Mel Grant, Forklift licence: Missing" }));
     expect(await screen.findByText("Nobody records their own competency: ask another manager.")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Record completion" })).not.toBeInTheDocument();
@@ -104,7 +104,7 @@ describe("the matrix", () => {
       if (url === "/v1/roles") return json(200, { items: [], total: 0 });
       return null;
     });
-    renderApp("/");
+    renderApp("/matrix");
     expect(await screen.findByRole("rowheader", { name: /Kim Lee/ })).toBeInTheDocument();
   });
 
@@ -120,7 +120,7 @@ describe("the matrix", () => {
       }
       return null;
     });
-    renderApp("/");
+    renderApp("/matrix");
     await screen.findByRole("button", { name: /Kim Lee, Forklift licence/ });
     await userEvent.selectOptions(screen.getByLabelText("Status"), "missing");
     await userEvent.click(await screen.findByRole("button", { name: "Kim Lee, Forklift licence: Missing" }));
@@ -139,7 +139,7 @@ describe("the matrix", () => {
       if (url === "/v1/roles") return json(200, { items: [], total: 0 });
       return null;
     });
-    renderApp("/");
+    renderApp("/matrix");
     await screen.findByRole("button", { name: /Kim Lee, Forklift licence/ });
     await userEvent.click(screen.getByRole("button", { name: "Export CSV" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("The export failed. Try again.");
@@ -158,7 +158,7 @@ describe("the matrix", () => {
       if (url.startsWith("/v1/people?")) return json(200, { items: people, total: people.length });
       return null;
     });
-    renderApp("/");
+    renderApp("/matrix");
     const select = await screen.findByLabelText("Supervisor");
     await within(select).findByRole("option", { name: "Ari Bell" });
     await userEvent.selectOptions(select, "SV002");

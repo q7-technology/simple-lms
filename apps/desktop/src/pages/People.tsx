@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from "react";
+import { useSearchParams } from "react-router-dom";
 import { api } from "../api/client";
 import type { Competency, Override, Page, Permission, Person, Role } from "../api/types";
 import { useAuth } from "../auth/AuthContext";
@@ -11,9 +12,11 @@ const SUPERVISES: Permission[] = ["supervisor", "manager", "admin"];
 /** People: added, changed, deactivated. Never deleted. */
 export function People() {
   const { can } = useAuth();
+  // a person in the classroom opens People at their drawer
+  const [params] = useSearchParams();
   const [q, setQ] = useState("");
   const [showInactive, setShowInactive] = useState(false);
-  const [open, setOpen] = useState<string | "new" | null>(null);
+  const [open, setOpen] = useState<string | "new" | null>(() => params.get("person"));
   const people = useLoad(() => api.get<Page<Person>>("/v1/people", { q, active: showInactive ? undefined : true }),
                          [q, showInactive]);
   const everyone = useLoad(() => api.get<Page<Person>>("/v1/people", { active: true }), []);
