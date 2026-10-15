@@ -57,20 +57,25 @@ def start(db: Db, person: Person, method: str, now: datetime | None = None) -> s
     return raw
 
 
+def alive(db: Db, row: Session, now: datetime | None = None) -> bool:
+    """Not ended, not too old and not idle too long; marked as just used."""
+    now = now or datetime.now(UTC)
+    if (row.revoked_at is not None or row.expires_at <= now
+            or now - row.last_seen_at > IDLE[row.method]):
+        return False
+    if now - row.last_seen_at >= TOUCH_EVERY:
+        row.last_seen_at = now
+        db.flush()
+    return True
+
+
 def find(db: Db, raw: str, now: datetime | None = None) -> Session | None:
     """The live session for this token, marked as just used; None if it is
     not ours, ended, too old or idle too long."""
     if not raw.startswith(PREFIX):
         return None
-    now = now or datetime.now(UTC)
     row = db.execute(select(Session).where(Session.token_hash == _hash(raw))).scalar_one_or_none()
-    if (row is None or row.revoked_at is not None or row.expires_at <= now
-            or now - row.last_seen_at > IDLE[row.method]):
-        return None
-    if now - row.last_seen_at >= TOUCH_EVERY:
-        row.last_seen_at = now
-        db.flush()
-    return row
+    return row if row is not None and alive(db, row, now) else None
 
 
 def end(db: Db, raw: str) -> None:

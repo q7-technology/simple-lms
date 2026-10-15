@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session as Db
 
 from lms.api.errors import Forbidden, Unauthorised
 from lms.db import get_sessionmaker
-from lms.models import Person
+from lms.models import Person, Session
 from lms.services import sessions
 
 
@@ -27,6 +27,8 @@ class Principal:
     person: Person
     method: str  # password | pin
     scopes: list[str]
+    # the session itself: links to a module's files are made for it
+    session: Session
 
     def has_scope(self, scope: str) -> bool:
         area = scope.split(":")[0]
@@ -63,7 +65,7 @@ def get_principal(db: DB, authorization: Annotated[str | None, Header()] = None)
         raise Unauthorised("session expired or invalid")
     db.commit()  # keeps the touch on last_seen_at
     return Principal(person=person, method=row.method,
-                     scopes=sessions.scopes_for(person.permission, row.method))
+                     scopes=sessions.scopes_for(person.permission, row.method), session=row)
 
 
 Who = Annotated[Principal, Depends(get_principal)]

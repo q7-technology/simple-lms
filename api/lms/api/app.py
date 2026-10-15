@@ -6,7 +6,8 @@ from sqlalchemy import text
 from lms.api import errors
 from lms.api.deps import DB
 from lms.api.routes import (
-    auth, competencies, matrix, overrides, people, policies, records, roles, tickets, uploads,
+    auth, competencies, matrix, media, overrides, people, policies, records, roles, tickets,
+    uploads,
 )
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
@@ -29,6 +30,7 @@ v1.include_router(overrides.router)
 v1.include_router(records.router)
 v1.include_router(matrix.router)
 v1.include_router(uploads.router)
+v1.include_router(media.router)
 v1.include_router(policies.router)
 v1.include_router(tickets.router)
 

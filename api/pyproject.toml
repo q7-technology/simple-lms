@@ -5,6 +5,8 @@ description = "Simple LMS API"
 requires-python = ">=3.12"
 dependencies = [
   "fastapi>=0.115",
+  # Range requests in FileResponse, so a phone can seek a module's video
+  "starlette>=0.40",
   "uvicorn[standard]>=0.30",
   "pydantic>=2.8",
   "pydantic-settings>=2.4",
