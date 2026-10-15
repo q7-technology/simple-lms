@@ -26,7 +26,9 @@ def test_microsofts_token_for_this_sign_in_is_taken(entra):
     ({"iss": "https://login.microsoftonline.com/someone-else/v2.0"}, "Invalid issuer"),
     ({"aud": "another-app"}, "Audience doesn't match"),
     ({"exp": int(time.time()) - 120}, "Signature has expired"),
-    ({"nbf": int(time.time()) + 600}, "not yet valid"),
+    # a day ahead: worked out when the tests are collected, so it must still be
+    # in the future however long the suite takes to reach it
+    ({"nbf": int(time.time()) + 24 * 3600}, "not yet valid"),
     ({"nonce": "another-sign-in"}, "its nonce"),
     ({"nonce": None}, 'Token is missing the "nonce" claim'),
     ({"oid": None}, 'Token is missing the "oid" claim'),
