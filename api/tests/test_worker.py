@@ -149,8 +149,12 @@ def test_the_connection_is_encrypted_as_the_settings_say(monkeypatch):
     made = []
 
     class SMTP:
-        def __init__(self, host, port, timeout, context=None):
+        def __init__(self, timeout, context=None):
+            pass
+
+        def connect(self, host, port):
             made.append((type(self).__name__, host, port))
+            return 220, b"hello"
 
         def starttls(self, context):
             made.append("starttls")

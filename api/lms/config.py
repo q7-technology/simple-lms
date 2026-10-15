@@ -66,6 +66,9 @@ class Settings(BaseSettings):
     daily_hour: int = Field(default=6, ge=0, le=23)
     # How long the worker waits for a webhook (or Platen) to answer.
     worker_http_timeout_seconds: float = Field(default=10.0, gt=0)
+    # The most one send (a webhook, a print job, an email) may take in all,
+    # however its answer trickles in: a byte now and then can't extend it.
+    worker_send_deadline_seconds: float = Field(default=15.0, gt=0)
     # Webhooks go to public addresses only: the worker refuses to connect to
     # a loopback, private, link-local or otherwise internal address (checked
     # after the name is looked up, where the connection is made), so a

@@ -844,7 +844,7 @@ webhook that wants it, as Simple WMS does: the same envelope and the same
 signature, with `X-LMS-` headers where Simple WMS has `X-WMS-`. Events are
 queued in the same transaction as the change (nothing is told of a change
 that wasn't kept), sent by the worker, and a refusal (anything but `2xx`)
-or no answer within 10 seconds is tried again after 1 minute, 5, 30 and 2
+or no answer in time (10 seconds for any step, 15 in all) is tried again after 1 minute, 5, 30 and 2
 hours, then left `failed` for an admin to send again. At least once: a
 receiver keeps the `event_id`s it has had and ignores one it has seen.
 
@@ -936,8 +936,12 @@ machine), but no redirect is followed for it either.
 
 The worker also follows no redirect (a `3xx` is a refusal like any other),
 takes no proxy from the environment, waits at most
-`LMS_WORKER_HTTP_TIMEOUT_SECONDS` (10) for each step of an answer, and keeps
-only the start of a refusal's body as its `last_error`.
+`LMS_WORKER_HTTP_TIMEOUT_SECONDS` (10) for each step of an answer and
+`LMS_WORKER_SEND_DEADLINE_SECONDS` (15) for the whole of it (a receiver
+that sends its answer a byte at a time is cut off there, however often the
+bytes come), and keeps only the start of a refusal's body as its
+`last_error`. Print jobs to Platen and emails are held to the same
+deadline.
 
 ## API keys
 

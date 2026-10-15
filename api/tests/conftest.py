@@ -5,6 +5,9 @@ import pytest
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import Session
 
+# the trickler and short fixtures, for the worker's deadline
+pytest_plugins = ("trickler",)
+
 # The compose db listens on 127.0.0.1:5435 (Simple WMS has 5433, Simple TMS
 # 5434), user lms.
 TEST_DATABASE_URL = os.environ.get(

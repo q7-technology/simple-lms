@@ -5,7 +5,6 @@ sends it, and Platen prints it, as Simple TMS sends its run sheets."""
 from __future__ import annotations
 
 import json
-import time
 import uuid
 from datetime import UTC, date, datetime
 
@@ -14,7 +13,7 @@ from sqlalchemy.orm import Session as Db
 
 from lms.config import get_settings
 from lms.models import CompetencyRecord, Outbox, Person
-from lms.services import settings, standing, webhooks
+from lms.services import deadline, settings, standing, webhooks
 from lms.services.daily import formatted
 from lms.services.status import expiry
 from lms.services.webhooks import USER_AGENT
@@ -75,9 +74,10 @@ def queue(db: Db, template: str, version: str, printer: str, reference: dict,
 def client() -> httpx.Client:
     """The worker's client for Platen. Platen's address is an admin's own
     setting and is often on this machine or the local network, so it isn't
-    held to a webhook's public addresses; but no redirect is followed (the
-    key goes nowhere else) and no proxy is taken from the environment."""
-    return httpx.Client(follow_redirects=False, trust_env=False)
+    held to a webhook's public addresses; but it is held to the deadline,
+    no redirect is followed (the key goes nowhere else) and no proxy is
+    taken from the environment."""
+    return deadline.client(deadline.Backend())
 
 
 def send(http: httpx.Client, row: Outbox) -> str | None:
@@ -89,13 +89,15 @@ def send(http: httpx.Client, row: Outbox) -> str | None:
     if s.platen_key:
         headers["Authorization"] = f"Bearer {s.platen_key}"
     body = json.dumps(row.payload, separators=(",", ":")).encode()
-    timeout = get_settings().worker_http_timeout_seconds
+    env = get_settings()
     try:
-        with http.stream("POST", s.platen_url, content=body, headers=headers, timeout=timeout,
-                         follow_redirects=False) as resp:
+        with deadline.within(env.worker_send_deadline_seconds), \
+                http.stream("POST", s.platen_url, content=body, headers=headers,
+                            timeout=env.worker_http_timeout_seconds,
+                            follow_redirects=False) as resp:
             if 200 <= resp.status_code < 300:
                 return None
-            text = webhooks.said(resp, time.monotonic() + timeout, limit=2000)
+            text = webhooks.said(resp, limit=2000)
     except httpx.HTTPError as e:
         return f"{type(e).__name__}: {e}"
     try:

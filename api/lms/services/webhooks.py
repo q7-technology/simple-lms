@@ -9,8 +9,9 @@ What the worker won't do for a webhook: connect to an internal address
 (loopback, private, link-local, shared, reserved, or an IPv6 address that
 carries or tunnels to one; checked on the address the name resolves to,
 where the connection is made, so a name re-pointed inside is caught too) unless LMS_WEBHOOK_ALLOW_PRIVATE says so; follow a redirect;
-read proxies from the environment; wait more than the timeout; or read more
-than the start of an answer."""
+read proxies from the environment; wait more than the timeout for any one
+step, or more than the deadline for the whole send, however the answer
+trickles in; or read more than the start of an answer."""
 from __future__ import annotations
 
 import hashlib
@@ -19,7 +20,6 @@ import ipaddress
 import json
 import secrets
 import socket
-import time
 from urllib.parse import urlsplit
 
 import httpcore
@@ -27,6 +27,7 @@ import httpx
 
 from lms.config import get_settings
 from lms.models import Outbox
+from lms.services import deadline
 from lms.services.outbox import GiveUp
 
 USER_AGENT = "simple-lms/0.1"
@@ -119,7 +120,7 @@ class GuardedBackend(httpcore.NetworkBackend):
 
     def __init__(self, allow_private: bool = False) -> None:
         self.allow_private = allow_private
-        self._sockets = httpcore.SyncBackend()
+        self._sockets = deadline.Backend()
 
     def connect_tcp(self, host, port, timeout=None, local_address=None, socket_options=None):
         try:
@@ -148,27 +149,31 @@ class GuardedBackend(httpcore.NetworkBackend):
 
 
 def client(allow_private: bool | None = None) -> httpx.Client:
-    """The worker's client for webhooks: guarded, no redirects followed, no
-    proxies or certificates taken from the environment."""
+    """The worker's client for webhooks: guarded, held to the deadline, no
+    redirects followed, no proxies or certificates taken from the
+    environment."""
     allow = _allow_private() if allow_private is None else allow_private
-    transport = httpx.HTTPTransport()
-    # httpx has no argument for httpcore's network backend, so its pool is
-    # made again with the guarded one (the same settings httpx gives it)
-    transport._pool = httpcore.ConnectionPool(ssl_context=httpx.create_ssl_context(),
-                                              network_backend=GuardedBackend(allow))
-    return httpx.Client(transport=transport, follow_redirects=False, trust_env=False)
+    return deadline.client(GuardedBackend(allow))
 
 
 # --- sending one ----------------------------------------------------------------
 
-def said(resp: httpx.Response, deadline: float, limit: int = SAID) -> str:
+class TimedOut(str):
+    """What went wrong, when it was no answer in time: the worker leaves
+    the rest of that webhook's events for its next pass."""
+
+
+def said(resp: httpx.Response, limit: int = SAID) -> str:
     """The start of what a receiver answered, no more: a huge or dripping
-    answer can't hold the worker."""
+    answer can't hold the worker (the deadline ends a dripping one)."""
     got = b""
-    for chunk in resp.iter_bytes():
-        got += chunk
-        if len(got) >= limit * 4 or time.monotonic() > deadline:
-            break
+    try:
+        for chunk in resp.iter_bytes():
+            got += chunk
+            if len(got) >= limit * 4:
+                break
+    except httpx.TimeoutException:
+        pass
     return got.decode(resp.encoding or "utf-8", errors="replace")[:limit]
 
 
@@ -187,13 +192,17 @@ def deliver(http: httpx.Client, row: Outbox) -> str | None:
         "X-LMS-Event-Type": row.payload["event_type"],
         "User-Agent": USER_AGENT,
     }
-    timeout = get_settings().worker_http_timeout_seconds
+    s = get_settings()
     try:
-        with http.stream("POST", hook.url, content=body, headers=headers, timeout=timeout,
-                         follow_redirects=False) as resp:
+        with deadline.within(s.worker_send_deadline_seconds), \
+                http.stream("POST", hook.url, content=body, headers=headers,
+                            timeout=s.worker_http_timeout_seconds,
+                            follow_redirects=False) as resp:
             if 200 <= resp.status_code < 300:
                 return None
-            return f"HTTP {resp.status_code}: {said(resp, time.monotonic() + timeout)}"
+            return f"HTTP {resp.status_code}: {said(resp)}"
+    except httpx.TimeoutException as e:
+        return TimedOut(f"{type(e).__name__}: {e}")
     except httpx.HTTPError as e:
         return f"{type(e).__name__}: {e}"
 
