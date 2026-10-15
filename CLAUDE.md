@@ -17,8 +17,10 @@ systems only ever talk to the API.
 ## Four rules that never bend
 1. **The training record is append-only.** Never UPDATE or DELETE a
    `competency_record`, `quiz_attempt` or `signoff` row (nor a
-   `person_override` or `policy_version`; a `ticket_submission` is decided
-   once and never deleted). A mistake is corrected by a new row (`revoked`,
+   `person_override`, `policy_version` or `upload`; a `ticket_submission` is
+   decided once and never deleted; a `module_version` is frozen once
+   published, and its `module_page` and `quiz_question` rows change only
+   while it is a draft). A mistake is corrected by a new row (`revoked`,
    with a note). People are deactivated, never deleted.
 2. **Status is worked out, never stored by hand.** It comes from the records
    and the date, so it cannot drift. `competency.expiring` and
@@ -65,6 +67,18 @@ docker-compose.yml   api, worker, db, caddy
   `waived`, `not_required`, worked out by `lms/services/status.py` and
   nowhere else. The latest record for a person and competency is the one
   that counts.
+- Modules: a new version asks nobody to take it again (unlike a policy);
+  passes still count and the refresher brings people back. The right
+  answers (`correct`) go only to a caller with `competencies:write`; the API
+  marks every attempt. Where a person is in a module (`module_progress`) is
+  kept on the server, not the device, and is not part of the record.
+- Files: written to disk as they arrive, checked by their first bytes, and
+  served only through the API: a video is an MP4 (one of the brands in
+  `lms/services/uploads.py`, never QuickTime) or a WebM up to 200 MB, and
+  anything else 20 MB. Caddy refuses a bigger body first (210 MB on
+  `/v1/uploads`, 16 MB elsewhere). A module's files open by `/v1/media/`
+  links signed for one session; never put a session token in a URL, and
+  keep the signature out of the logs (`lms/api/logs.py`).
 - Sister apps: nothing in Simple WMS or Simple TMS changes for Simple LMS. It
   publishes signed events and a competency API (build step 6).
 - Printing: Simple LMS never renders a document. Certificates and skills

@@ -6,14 +6,14 @@ and licences, and signed policies. It answers one question for a business and
 its auditors: is each person current for everything their job needs? It sits
 beside Simple WMS, Simple TMS and Platen and works without any of them.
 
-Status: **build step 2, policies and tickets, is done.** People with a
-code and PIN or an email and password, roles and the competencies each
-requires, extras and waivers, completions recorded by hand on the desktop,
-the matrix (with a CSV export), and a learner app that shows each person's
-training. People sign policies and send in their tickets from the learner
-app; a manager checks each ticket in the desktop's Inbox; the worker emails
-reminders and a Monday digest. Modules, practicals, Entra sign-in and the
-outward links come with the next steps in
+Status: **build step 3, modules, is done.** People with a code and PIN
+or an email and password, roles and the competencies each requires, extras
+and waivers, completions recorded by hand on the desktop, the matrix (with a
+CSV export), and a learner app that shows each person's training. People
+take online modules (pages, then a quiz), sign policies and send in their
+tickets from the learner app; a manager checks each ticket in the desktop's
+Inbox; the worker emails reminders and a Monday digest. Practicals, Entra
+sign-in and the outward links come with the next steps in
 `docs/plans/2026-10-12-simple-lms-design.md`.
 
 ## What is in this repo
@@ -64,6 +64,29 @@ again; the matrix shows them red (missing) until they do. A policy signed on
 paper can still be recorded by hand: it counts for the version people are
 asked to sign now. Each signature goes on one record only.
 
+**Modules.** Add a competency of kind *Online module* (with a refresher,
+say 24 months, if it should be taken again) and open it under
+**Competencies**. Start version 1 and add its pages: text, a picture (JPEG
+or PNG), a PDF, a video (MP4 or WebM, up to 200 MB, played as uploaded: an
+iPhone's `.mov` needs converting to MP4 first) or a link, which opens in a
+new tab. Pictures and PDFs may be up to 20 MB. A file shows how much has
+sent and can be cancelled while it goes. Move pages up and down or take
+them out, write the quiz (2 to 6 answers a question, one of them right)
+and the pass mark, and save the draft as often as you like. Closing it
+with changes not saved asks first, and if someone else saved the draft
+since you opened it, saving says so rather than undoing their work.
+Publishing asks once, then freezes that version: its pages and questions
+never change, so every attempt stays what was asked. To change it, start
+the next version, a copy of the last; people keep taking the old one until
+you publish it, and their passes still count: a new version asks nobody to
+take it again, the refresher brings them back. The right answers are only
+ever sent to those who may edit modules. In the learner app a person reads
+one page at a time (where they are is kept by Simple LMS, so they can carry
+on from any device), then takes the quiz: a pass says Ding! and counts as
+current until the refresher runs out; a fail gives the score and another
+go. Every attempt is kept. A video that is playing counts as a tap, so a
+PIN session doesn't end in the middle of it.
+
 **Tickets.** A competency of kind *Ticket or licence* says whether its card
 has an expiry date. A person adds a photo of the front and back (or a PDF),
 the number and the expiry in the learner app; each photo goes on one ticket
@@ -97,8 +120,14 @@ interactive docs at `/docs`, and it is also published on `127.0.0.1:8033`
 (`LMS_API_PORT`) for local work. Rebuild an app (`npm run build`) after
 pulling changes to it; Caddy serves each `dist` as it is. After editing
 `deploy/Caddyfile`, `docker compose restart caddy` picks it up. Back up
-the `uploads` volume (tickets' photos and policy signatures) along with the
-database: the records name the files in it.
+the `uploads` volume (tickets' photos, policy signatures and modules'
+pictures, PDFs and videos) along with the database: the records and pages
+name the files in it. Files are written to disk as they arrive, never held
+in memory whole, and Caddy refuses a body bigger than 210 MB on
+`/v1/uploads` (16 MB anywhere else in `/v1`) before the API reads it. A
+module's files open by links Simple LMS signs for each session, so a
+session's token never goes in a URL, and the API's access log leaves out a
+link's signature.
 
 On a machine that already runs Simple WMS or Simple TMS, their Caddy has
 ports 80 and 443: set `LMS_HTTP_PORT` and `LMS_HTTPS_PORT` in `.env` (say
@@ -111,9 +140,10 @@ LMS site on the Caddy that holds 80 and 443 and start only
 | | Learner | Supervisor | Manager | Admin |
 | --- | --- | --- | --- | --- |
 | See their own training | ✓ | ✓ | ✓ | ✓ |
-| Sign a policy, send in their own ticket | ✓ | ✓ | ✓ | ✓ |
+| Take a module, sign a policy, send in their own ticket | ✓ | ✓ | ✓ | ✓ |
 | See the matrix | | own team | everyone | everyone |
 | Add and change people, roles, competencies, extras and waivers | | | ✓ | ✓ |
+| Write and publish a module's pages and quiz | | | ✓ | ✓ |
 | Record or revoke a completion (never their own) | | | ✓ | ✓ |
 | Approve or reject a ticket (never their own) | | | ✓ | ✓ |
 | Add or change a manager or an admin | | | | ✓ |
