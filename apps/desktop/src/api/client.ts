@@ -1,3 +1,5 @@
+import type { Upload } from "./types";
+
 /** The desktop is an ordinary API client with a session token. Nothing here
  * a partner could not do with the same API (rule 4). */
 
@@ -64,14 +66,16 @@ export class ApiClient {
     } catch { /* private mode: signed in for this page only */ }
   }
 
+  /** JSON, or a file (a Blob) sent as it is. */
   private async send(method: string, path: string, body?: unknown): Promise<Response> {
     const headers: Record<string, string> = { Accept: "application/json" };
-    if (body !== undefined) headers["Content-Type"] = "application/json";
+    const file = body instanceof Blob ? body : null;
+    if (body !== undefined) headers["Content-Type"] = file ? file.type || "application/octet-stream" : "application/json";
     const token = this.token;
     if (token) headers.Authorization = `Bearer ${token}`;
     let res: Response;
     try {
-      res = await this.fetcher(path, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
+      res = await this.fetcher(path, { method, headers, body: body === undefined ? undefined : file ?? JSON.stringify(body) });
     } catch {
       throw new Unreachable();
     }
@@ -101,6 +105,12 @@ export class ApiClient {
   post<T>(path: string, body: unknown = {}) { return this.request<T>("POST", path, body); }
   patch<T>(path: string, body: unknown) { return this.request<T>("PATCH", path, body); }
   put<T>(path: string, body: unknown) { return this.request<T>("PUT", path, body); }
+
+  /** A module page's picture, PDF or video, kept by the API before the
+   * page that shows it is saved. What counts is its first bytes. */
+  upload(purpose: "page-image" | "page-pdf" | "page-video", file: Blob) {
+    return this.request<Upload>("POST", `/v1/uploads?purpose=${purpose}`, file);
+  }
 
   /** A file kept by the API (a ticket's photo, a signature), fetched with the
    * session's token: an <img> can't send it. */

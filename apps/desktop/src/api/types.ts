@@ -117,3 +117,4 @@ export interface Ticket {
   decided_at: string | null;
   created_at: string;
 }
+export interface Upload { id: string; purpose: string; content_type: string; size_bytes: number; created_at: string }

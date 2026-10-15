@@ -53,6 +53,16 @@ describe("ApiClient", () => {
     await expect(client.get("/v1/matrix")).rejects.toThrow("Can't reach Simple LMS right now.");
   });
 
+  it("sends a module's file as it is, with its own type", async () => {
+    client.token = "lms_s.abc";
+    answers.push(json(201, { id: "u-1", purpose: "page-video", content_type: "video/mp4", size_bytes: 3 }));
+    const video = new Blob([new Uint8Array([0, 0, 0])], { type: "video/mp4" });
+    expect((await client.upload("page-video", video)).id).toBe("u-1");
+    expect(calls[0].url).toBe("/v1/uploads?purpose=page-video");
+    expect(calls[0].init.body).toBe(video);
+    expect(new Headers(calls[0].init.headers).get("Content-Type")).toBe("video/mp4");
+  });
+
   it("fetches a kept file with the token", async () => {
     client.token = "lms_s.abc";
     answers.push(new Response(new Uint8Array([0xff, 0xd8, 0xff]), { status: 200, headers: { "Content-Type": "image/jpeg" } }));
