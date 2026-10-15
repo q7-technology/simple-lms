@@ -1,7 +1,9 @@
-"""Files people send: a ticket's photos (or a PDF of it) and policy
-signatures. Kept on disk under LMS_UPLOAD_DIR, one file each, named by a
-random id; the row says whose it is and what it is. What a file is comes
-from its first bytes, never from what the request says."""
+"""Files people send: a ticket's photos (or a PDF of it), policy
+signatures, and a module page's picture, PDF or video. Kept on disk under
+LMS_UPLOAD_DIR, one file each, named by a random id; the row says whose it
+is and what it is. What a file is comes from its first bytes, never from
+what the request says. A file is written to disk as it arrives, never held
+in memory whole: a video may be 200 MB."""
 from __future__ import annotations
 
 import hashlib
@@ -17,21 +19,42 @@ from lms.api.errors import Refused
 from lms.config import get_settings
 from lms.models import Person, TicketSubmission, Upload
 
-# what each purpose may be, and how big: 20 MB for a ticket (the design's
-# limit for anything that is not a video); a signature is a few kB
+# what each purpose may be, and how big: 200 MB for a video, 20 MB for
+# anything else (the design's limits); a signature is a few kB
 PURPOSES = {
     "ticket": ({"image/jpeg", "image/png", "application/pdf"}, 20_000_000),
     "signature": ({"image/png"}, 1_000_000),
+    "page-image": ({"image/jpeg", "image/png"}, 20_000_000),
+    "page-pdf": ({"application/pdf"}, 20_000_000),
+    "page-video": ({"video/mp4", "video/webm"}, 200_000_000),
+}
+# who may send each: anyone, for their own training; an editor, for a module
+SENDERS = {
+    "ticket": "training:write",
+    "signature": "training:write",
+    "page-image": "competencies:write",
+    "page-pdf": "competencies:write",
+    "page-video": "competencies:write",
 }
 MAGIC = {"image/png": b"\x89PNG\r\n\x1a\n", "image/jpeg": b"\xff\xd8\xff",
          "application/pdf": b"%PDF-"}
-EXT = {"image/png": "png", "image/jpeg": "jpg", "application/pdf": "pdf"}
+EXT = {"image/png": "png", "image/jpeg": "jpg", "application/pdf": "pdf",
+       "video/mp4": "mp4", "video/webm": "webm"}
+# enough of the start of a file to say what it is
+HEAD = 64
 
 
 def sniff(data: bytes) -> str | None:
     for content_type, magic in MAGIC.items():
         if data.startswith(magic):
             return content_type
+    # an MP4 starts with its ftyp box; QuickTime's own brand is a .mov, which
+    # most browsers won't play
+    if data[4:8] == b"ftyp" and data[8:12] != b"qt  ":
+        return "video/mp4"
+    # a WebM is a Matroska file whose header says webm (an .mkv says matroska)
+    if data.startswith(b"\x1a\x45\xdf\xa3") and b"webm" in data[:HEAD]:
+        return "video/webm"
     return None
 
 
@@ -39,40 +62,78 @@ def full_path(row: Upload) -> Path:
     return Path(get_settings().upload_dir) / row.path
 
 
-def _write(target: Path, data: bytes) -> None:
-    """All of it or none of it: a half-written file never has the real name."""
-    target.parent.mkdir(parents=True, exist_ok=True)
-    fd, tmp = tempfile.mkstemp(dir=target.parent, prefix=".upload-")
+def too_large(purpose: str) -> Refused:
+    _, limit = PURPOSES[purpose]
+    return Refused(413, "too_large", f"a {purpose} file may be {limit // 1_000_000} MB at most")
+
+
+class Incoming:
+    """A file as it arrives: written to a temporary file beside where it
+    will be kept, counted and hashed as it comes, and refused the moment it
+    passes its purpose's limit. Nothing has the real name until store()."""
+
+    def __init__(self, purpose: str):
+        self.purpose = purpose
+        self.size = 0
+        self.head = b""
+        self._hash = hashlib.sha256()
+        folder = Path(get_settings().upload_dir)
+        folder.mkdir(parents=True, exist_ok=True)
+        fd, name = tempfile.mkstemp(dir=folder, prefix=".upload-")
+        self.path = Path(name)
+        self._file = os.fdopen(fd, "wb")
+
+    def write(self, chunk: bytes) -> None:
+        self.size += len(chunk)
+        if self.size > PURPOSES[self.purpose][1]:
+            raise too_large(self.purpose)
+        if len(self.head) < HEAD:
+            self.head += chunk[:HEAD - len(self.head)]
+        self._hash.update(chunk)
+        self._file.write(chunk)
+
+    def finish(self) -> str:
+        """All of it on disk, and what it is; refused if it is not what its
+        purpose may be."""
+        self._file.flush()
+        os.fsync(self._file.fileno())
+        self._file.close()
+        allowed, _ = PURPOSES[self.purpose]
+        content_type = sniff(self.head)
+        if content_type not in allowed:
+            wanted = ", ".join(sorted(EXT[t].upper() for t in allowed))
+            raise Refused(415, "unsupported_type",
+                          f"a {self.purpose} file must be one of: {wanted}")
+        self.content_type = content_type
+        return content_type
+
+    @property
+    def sha256(self) -> str:
+        return self._hash.hexdigest()
+
+    def discard(self) -> None:
+        self._file.close()
+        self.path.unlink(missing_ok=True)
+
+
+def store(db: Db, person: Person, file: Incoming) -> Upload:
+    """The row, then the file under its real name. A row that can't be
+    saved leaves nothing on disk; what is left to go wrong is the commit,
+    and the route removes the file then."""
     try:
-        with os.fdopen(fd, "wb") as f:
-            f.write(data)
-            f.flush()
-            os.fsync(f.fileno())
-        os.replace(tmp, target)
-    except BaseException:
-        Path(tmp).unlink(missing_ok=True)
-        raise
-
-
-def store(db: Db, person: Person, purpose: str, data: bytes) -> Upload:
-    allowed, limit = PURPOSES[purpose]
-    if len(data) > limit:
-        raise Refused(413, "too_large", f"a {purpose} file may be {limit // 1_000_000} MB at most")
-    content_type = sniff(data)
-    if content_type not in allowed:
-        wanted = ", ".join(sorted(EXT[t].upper() for t in allowed))
-        raise Refused(415, "unsupported_type", f"a {purpose} file must be one of: {wanted}")
-    upload_id = uuid.uuid4()
-    relative = f"{upload_id.hex[:2]}/{upload_id}.{EXT[content_type]}"
-    row = Upload(id=upload_id, person_id=person.id, purpose=purpose, content_type=content_type,
-                 size_bytes=len(data), sha256=hashlib.sha256(data).hexdigest(), path=relative)
-    db.add(row)
-    # the row first, then the file: a row that can't be saved leaves nothing
-    # on disk, and a file that can't be written is never committed. What is
-    # left to go wrong is the commit, and the route removes the file then.
-    db.flush()
-    _write(Path(get_settings().upload_dir) / relative, data)
-    return row
+        upload_id = uuid.uuid4()
+        relative = f"{upload_id.hex[:2]}/{upload_id}.{EXT[file.content_type]}"
+        row = Upload(id=upload_id, person_id=person.id, purpose=file.purpose,
+                     content_type=file.content_type, size_bytes=file.size, sha256=file.sha256,
+                     path=relative)
+        db.add(row)
+        db.flush()
+        target = Path(get_settings().upload_dir) / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        os.replace(file.path, target)
+        return row
+    finally:
+        file.discard()
 
 
 def mine(db: Db, person: Person, upload_id: uuid.UUID | None, purpose: str) -> Upload | None:

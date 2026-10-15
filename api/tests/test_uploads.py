@@ -7,7 +7,7 @@ import uuid
 import pytest
 
 from conftest import bearer, make_person, pin_login
-from files import JPEG, PDF, PNG, send, sent
+from files import JPEG, MOV, MP4, PDF, PNG, WEBM, send, sent
 from lms.services import uploads
 
 
@@ -174,4 +174,67 @@ def test_a_file_whose_row_cannot_be_saved_is_not_kept_either(
     monkeypatch.setattr(uploads, "store", store_with_a_failing_flush)
     with pytest.raises(RuntimeError):
         send(client, learner_headers)
+    assert not [p for p in upload_dir.rglob("*") if p.is_file()]
+
+
+@pytest.mark.parametrize("purpose, data, content_type", [
+    ("page-image", JPEG, "image/jpeg"),
+    ("page-image", PNG, "image/png"),
+    ("page-pdf", PDF, "application/pdf"),
+    ("page-video", MP4, "video/mp4"),
+    ("page-video", WEBM, "video/webm"),
+])
+def test_an_editor_sends_a_module_pages_files(client, manager_headers, upload_dir, purpose, data,
+                                              content_type):
+    r = send(client, manager_headers, purpose, data, "application/octet-stream")
+    assert r.status_code == 201, r.text
+    out = r.json()
+    assert (out["purpose"], out["content_type"]) == (purpose, content_type)
+    assert [p.name for p in upload_dir.rglob("*") if p.is_file()] == [
+        f"{out['id']}.{uploads.EXT[content_type]}"]
+
+
+@pytest.mark.parametrize("data", [MOV, PDF, b"\x1a\x45\xdf\xa3\x42\x82\x88matroska" + b"x" * 40])
+def test_a_video_is_an_mp4_or_a_webm(client, manager_headers, upload_dir, data):
+    r = send(client, manager_headers, "page-video", data, "video/quicktime")
+    assert r.status_code == 415 and r.json() == {
+        "detail": "a page-video file must be one of: MP4, WEBM", "code": "unsupported_type"}
+    assert not [p for p in upload_dir.rglob("*") if p.is_file()]
+
+
+def test_only_an_editor_sends_a_modules_files(client, learner_headers, supervisor_headers):
+    for headers in (learner_headers, supervisor_headers):
+        r = send(client, headers, "page-video", MP4, "video/mp4")
+        assert r.status_code == 403 and r.json()["code"] == "forbidden"
+
+
+def test_a_video_may_be_200_mb_and_anything_else_20(client, manager_headers):
+    assert uploads.PURPOSES["page-video"][1] == 200_000_000
+    assert {uploads.PURPOSES[p][1] for p in ("ticket", "page-image", "page-pdf")} == {20_000_000}
+    # declared too big: refused before the body is read
+    r = client.post("/v1/uploads", params={"purpose": "page-image"}, content=JPEG,
+                    headers={**manager_headers, "Content-Length": "20000001"})
+    assert r.status_code == 413 and r.json() == {
+        "detail": "a page-image file may be 20 MB at most", "code": "too_large"}
+
+
+def test_a_file_goes_to_disk_as_it_comes(upload_dir):
+    """Never held whole in memory: each piece is on disk once it is written."""
+    file = uploads.Incoming("page-video")
+    for n in range(1, 4):
+        file.write(MP4 if n == 1 else b"\x00" * 1_000_000)
+        file._file.flush()
+        assert file.path.stat().st_size == file.size
+    assert file.path.parent == upload_dir and file.path.name.startswith(".upload-")
+    assert file.finish() == "video/mp4"
+    file.discard()
+    assert not file.path.exists()
+
+
+def test_a_refused_file_leaves_nothing_behind(client, learner_headers, upload_dir, monkeypatch):
+    monkeypatch.setitem(uploads.PURPOSES, "ticket", ({"image/jpeg"}, 50))
+    r = client.post("/v1/uploads", params={"purpose": "ticket"},
+                    content=iter([JPEG[:40], JPEG[40:]]),
+                    headers={**learner_headers, "Content-Type": "image/jpeg"})
+    assert r.status_code == 413
     assert not [p for p in upload_dir.rglob("*") if p.is_file()]
