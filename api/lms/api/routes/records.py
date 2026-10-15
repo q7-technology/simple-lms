@@ -18,7 +18,7 @@ from lms.api.routes.competencies import get_competency
 from lms.api.routes.people import get_person
 from lms.api.schemas import CompetencyRef, PersonRef, competency_ref, normal_key, person_ref
 from lms.models import Competency, CompetencyRecord
-from lms.services import clock, policies
+from lms.services import clock, events, policies
 
 router = APIRouter(tags=["records"])
 
@@ -136,6 +136,7 @@ def grant(code: str, body: GrantIn, db: DB, who: Principal = require("records:wr
                          granted_on=body.granted_on, expires_on=body.expires_on,
                          note=body.note or None, recorded_by=who.person, policy_version=version)
     db.add(r)
+    events.granted(db, r)
     db.commit()
     return _created(r)
 
@@ -151,5 +152,6 @@ def revoke(code: str, body: RevokeIn, db: DB, who: Principal = require("records:
     r = CompetencyRecord(person_id=p.id, competency=c, kind="revoked", note=body.note,
                          recorded_by=who.person)
     db.add(r)
+    events.revoked(db, r)
     db.commit()
     return _created(r)

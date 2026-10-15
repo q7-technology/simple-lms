@@ -20,7 +20,7 @@ from lms.api.routes.people import get_person
 from lms.api.routes.records import one_at_a_time
 from lms.api.schemas import CompetencyRef, PersonRef, competency_ref, person_ref
 from lms.models import CompetencyRecord, TicketSubmission
-from lms.services import clock, uploads
+from lms.services import clock, events, uploads
 
 router = APIRouter(tags=["tickets"])
 
@@ -158,10 +158,12 @@ def approve(ticket_id: int, db: DB, who: Principal = require("tickets:verify")):
     if t.expires_on is not None and t.expires_on <= today:
         raise Conflict("card_ran_out", "this card ran out while it waited: send it back and ask "
                                        "for the new one")
-    db.add(CompetencyRecord(person_id=t.person_id, competency_id=t.competency_id, kind="granted",
-                            granted_on=today, expires_on=t.expires_on,
-                            note=f"Ticket {t.number}, checked", recorded_by=who.person,
-                            ticket_submission_id=t.id))
+    r = CompetencyRecord(person_id=t.person_id, competency_id=t.competency_id, kind="granted",
+                         granted_on=today, expires_on=t.expires_on,
+                         note=f"Ticket {t.number}, checked", recorded_by=who.person,
+                         ticket_submission_id=t.id)
+    db.add(r)
+    events.granted(db, r)
     t.status = "approved"
     t.decided_by = who.person
     t.decided_at = datetime.now(UTC)

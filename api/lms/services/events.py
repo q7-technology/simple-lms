@@ -11,7 +11,9 @@ from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session as Db
 
-from lms.models import EventSeen, Outbox, Webhook
+from lms.models import Competency, CompetencyRecord, EventSeen, Outbox, Person, Webhook
+from lms.services import clock, standing
+from lms.services.status import Status, expiry
 
 EVENT_TYPES = ("competency.granted", "competency.revoked", "competency.expiring",
                "competency.lapsed", "person.updated")
@@ -55,3 +57,61 @@ def once(db: Db, key: str, event_type: str, data: dict, now: datetime | None = N
         return False
     emit(db, event_type, data, now, event_id)
     return True
+
+
+# --- what each event says ----------------------------------------------------
+
+def person_ref(p: Person) -> dict:
+    return {"code": p.code, "name": p.name}
+
+
+def competency_ref(c: Competency) -> dict:
+    return {"key": c.key, "name": c.name, "kind": c.kind}
+
+
+def _iso(d) -> str | None:
+    return d.isoformat() if d is not None else None
+
+
+def status_now(db: Db, person_id: int, competency_id: int) -> Status:
+    """status.py's word on it as it stands in this transaction, as the
+    competency API would answer."""
+    st = standing.load(db, [person_id], clock.today())
+    if competency_id not in st.competencies:
+        return Status("not_required")
+    return st.status(person_id, competency_id)
+
+
+# TODO(step 4): fire competency.granted for a sign-off grant. Where step 4's
+# sign-off route adds the CompetencyRecord for a practical signed off, call
+# events.granted(db, r) after db.add(r) and before db.commit(), as records.py,
+# tickets.py, policies.py and learning.py do, and add its test to
+# tests/test_competency_events.py (the TODO there).
+def granted(db: Db, r: CompetencyRecord) -> uuid.UUID:
+    """competency.granted, for a grant just added: by hand, a ticket checked,
+    a policy signed, a module passed or a practical signed off. Call it
+    after db.add(r) and before the commit, so the event is kept only with
+    the grant."""
+    db.flush()
+    c = db.get(Competency, r.competency_id)
+    return emit(db, "competency.granted", {
+        "person": person_ref(db.get(Person, r.person_id)), "competency": competency_ref(c),
+        "record_id": r.id, "granted_on": _iso(r.granted_on),
+        # its last good day, worked out as status.py does: the card's date,
+        # or the refresher after the grant, or none
+        "expires_on": _iso(expiry(r.granted_on, r.expires_on, c.refresher_months)),
+        "status": status_now(db, r.person_id, r.competency_id).status,
+        "recorded_by": person_ref(db.get(Person, r.recorded_by_id)),
+    })
+
+
+def revoked(db: Db, r: CompetencyRecord) -> uuid.UUID:
+    """competency.revoked, for a revoke just added, with why."""
+    db.flush()
+    return emit(db, "competency.revoked", {
+        "person": person_ref(db.get(Person, r.person_id)),
+        "competency": competency_ref(db.get(Competency, r.competency_id)),
+        "record_id": r.id, "note": r.note,
+        "status": status_now(db, r.person_id, r.competency_id).status,
+        "recorded_by": person_ref(db.get(Person, r.recorded_by_id)),
+    })

@@ -21,7 +21,7 @@ from lms.api.routes.people import get_person
 from lms.api.routes.records import one_at_a_time
 from lms.api.schemas import CompetencyRef, competency_ref, normal_key
 from lms.models import Competency, CompetencyRecord, ModuleProgress, ModuleVersion, QuizAttempt
-from lms.services import clock, modules
+from lms.services import clock, events, modules
 
 router = APIRouter(tags=["modules"])
 
@@ -189,8 +189,10 @@ def take_quiz(key: str, body: AttemptIn, db: DB, who: Principal = require("train
     db.add(attempt)
     db.flush()
     if attempt.passed:
-        db.add(CompetencyRecord(person_id=p.id, competency=c, kind="granted",
-                                granted_on=clock.today(), recorded_by=p, quiz_attempt=attempt))
+        r = CompetencyRecord(person_id=p.id, competency=c, kind="granted",
+                             granted_on=clock.today(), recorded_by=p, quiz_attempt=attempt)
+        db.add(r)
+        events.granted(db, r)
         # done: next time, it starts from the top
         db.execute(delete(ModuleProgress).where(ModuleProgress.person_id == p.id,
                                                 ModuleProgress.competency_id == c.id))

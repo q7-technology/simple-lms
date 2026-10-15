@@ -17,7 +17,7 @@ from lms.api.routes.competencies import get_competency
 from lms.api.routes.records import RecordOut, latest_record, one_at_a_time, record_out
 from lms.api.schemas import PersonRef, person_ref
 from lms.models import Competency, CompetencyRecord, PolicyVersion
-from lms.services import clock, policies, uploads
+from lms.services import clock, events, policies, uploads
 
 router = APIRouter(tags=["policies"])
 
@@ -129,5 +129,6 @@ def sign(key: str, body: SignIn, db: DB, who: Principal = require("training:writ
                          recorded_by=p, policy_version=v, signed_name=body.signed_name,
                          signature_upload_id=signature.id)
     db.add(r)
+    events.granted(db, r)
     db.commit()
     return JSONResponse(status_code=201, content=record_out(r).model_dump(mode="json"))
