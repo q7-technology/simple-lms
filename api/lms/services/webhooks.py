@@ -17,6 +17,7 @@ import hashlib
 import hmac
 import ipaddress
 import json
+import secrets
 import socket
 import time
 from urllib.parse import urlsplit
@@ -176,3 +177,8 @@ def deliver(http: httpx.Client, row: Outbox) -> str | None:
             return f"HTTP {resp.status_code}: {said(resp, time.monotonic() + timeout)}"
     except httpx.HTTPError as e:
         return f"{type(e).__name__}: {e}"
+
+
+def new_secret() -> str:
+    """What a webhook's bodies are signed with: 256 random bits."""
+    return "whsec_" + secrets.token_urlsafe(32)
