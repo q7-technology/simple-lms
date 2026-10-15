@@ -18,8 +18,19 @@ http://{$LMS_DOMAIN} {
 		Referrer-Policy same-origin
 	}
 
-	# The API is the only door.
+	# The API is the only door. Caddy refuses a body too big before the API
+	# reads it: an upload may be a 200 MB video, and anything else is JSON,
+	# a module's draft the biggest (100 pages of 20,000 characters, a few MB).
+	handle /v1/uploads* {
+		request_body {
+			max_size 210MB
+		}
+		reverse_proxy api:8000
+	}
 	handle /v1/* {
+		request_body {
+			max_size 16MB
+		}
 		reverse_proxy api:8000
 	}
 	handle /docs* {
