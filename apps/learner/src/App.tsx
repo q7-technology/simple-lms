@@ -3,6 +3,7 @@ import { SessionProvider, useSession } from "./auth/Session";
 import { AddTicket } from "./pages/AddTicket";
 import { ModulePlayer } from "./pages/ModulePlayer";
 import { MyTraining } from "./pages/MyTraining";
+import { SignOff, SignOffPeople } from "./pages/SignOff";
 import { SignPolicy } from "./pages/SignPolicy";
 import { SignIn } from "./pages/SignIn";
 
@@ -20,6 +21,8 @@ export function AppRoutes() {
         <Route path="/sign/:key" element={<SignPolicy />} />
         <Route path="/ticket/:key" element={<AddTicket />} />
         <Route path="/module/:key" element={<ModulePlayer />} />
+        <Route path="/signoff" element={<SignOffPeople />} />
+        <Route path="/signoff/:code/:key" element={<SignOff />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

@@ -1,5 +1,5 @@
-"""Files people send: a ticket's photos (or a PDF of it), policy
-signatures, and a module page's picture, PDF or video. Kept on disk under
+"""Files people send: a ticket's photos (or a PDF of it), signatures, a
+module page's picture, PDF or video, and a sign-off's photo. Kept on disk under
 LMS_UPLOAD_DIR, one file each, named by a random id; the row says whose it
 is and what it is. What a file is comes from its first bytes, never from
 what the request says. A file is written to disk as it arrives, never held
@@ -7,9 +7,12 @@ in memory whole: a video may be 200 MB."""
 from __future__ import annotations
 
 import hashlib
+import logging
+import math
 import os
 import tempfile
 import uuid
+from datetime import timedelta
 from pathlib import Path
 
 from sqlalchemy import exists, or_, select
@@ -17,7 +20,10 @@ from sqlalchemy.orm import Session as Db
 
 from lms.api.errors import Refused
 from lms.config import get_settings
-from lms.models import Person, TicketSubmission, Upload
+from lms.models import Person, Signoff, TicketSubmission, Upload
+from lms.services import clock, settings
+
+log = logging.getLogger(__name__)
 
 # what each purpose may be, and how big: 200 MB for a video, 20 MB for
 # anything else (the design's limits); a signature is a few kB
@@ -27,15 +33,34 @@ PURPOSES = {
     "page-image": ({"image/jpeg", "image/png"}, 20_000_000),
     "page-pdf": ({"application/pdf"}, 20_000_000),
     "page-video": ({"video/mp4", "video/webm"}, 200_000_000),
+    "signoff-photo": ({"image/jpeg", "image/png"}, 20_000_000),
 }
-# who may send each: anyone, for their own training; an editor, for a module
+# who may send each: anyone, for their own training (and a signature, on a
+# sign-off, for the learner beside them); an editor, for a module; whoever
+# signs off a practical, for its photo
 SENDERS = {
     "ticket": "training:write",
     "signature": "training:write",
     "page-image": "competencies:write",
     "page-pdf": "competencies:write",
     "page-video": "competencies:write",
+    "signoff-photo": "signoffs:write",
 }
+# how much one person may send in a rolling day, so no session can fill the
+# uploads volume: a learner's own (tickets, signatures) as Settings say; an
+# editor's module files, these
+DAY = timedelta(hours=24)
+MB = 1_000_000
+LEARNER_PURPOSES = ("ticket", "signature")
+PAGE_PURPOSES = ("page-image", "page-pdf", "page-video")
+PAGE_FILES_PER_DAY = 200
+PAGE_BYTES_PER_DAY = 5_000 * MB
+# supervisors, managers and admins send two signatures and a photo for each
+# practical they sign off, so their own files count on their own, more freely
+STAFF = ("supervisor", "manager", "admin")
+STAFF_PURPOSES = ("ticket", "signature", "signoff-photo")
+STAFF_FILES_PER_DAY = 200
+STAFF_BYTES_PER_DAY = 2_000 * MB
 MAGIC = {"image/png": b"\x89PNG\r\n\x1a\n", "image/jpeg": b"\xff\xd8\xff",
          "application/pdf": b"%PDF-"}
 EXT = {"image/png": "png", "image/jpeg": "jpg", "application/pdf": "pdf",
@@ -106,6 +131,59 @@ def full_path(row: Upload) -> Path:
 def too_large(purpose: str) -> Refused:
     _, limit = PURPOSES[purpose]
     return Refused(413, "too_large", f"a {purpose} file may be {limit // 1_000_000} MB at most")
+
+
+def _size(n: int) -> str:
+    return f"{n // (1000 * MB)} GB" if n % (1000 * MB) == 0 else f"{n // MB} MB"
+
+
+def _no_room(detail: str, when=None, now=None) -> Refused:
+    if when is None:
+        return Refused(429, "too_many_uploads", detail)
+    # said where the business is, as the quiz's wait is
+    from lms.services.modules import said_at
+    return Refused(429, "too_many_uploads", f"{detail} You can send more after "
+                   f"{said_at(when, now)}.",
+                   headers={"Retry-After": str(max(1, math.ceil((when - now).total_seconds())))})
+
+
+def check_room(db: Db, person: Person, purpose: str, incoming: int) -> None:
+    """Refused (429) if this person has sent their day's worth for this
+    kind of file, counted from the uploads kept in the last 24 hours, or
+    would with `incoming` bytes more; the detail says when they can send
+    more. A learner's limits are in Settings; an editor's module files,
+    and a supervisor's, manager's or admin's own files, count on their own."""
+    if purpose in PAGE_PURPOSES:
+        group, files, most, what = PAGE_PURPOSES, PAGE_FILES_PER_DAY, PAGE_BYTES_PER_DAY, \
+            "module files"
+    elif person.permission in STAFF:
+        group, files, most, what = STAFF_PURPOSES, STAFF_FILES_PER_DAY, STAFF_BYTES_PER_DAY, \
+            "files"
+    else:
+        s = settings.current()
+        group, files, most, what = LEARNER_PURPOSES, s.upload_files_per_day, \
+            s.upload_mb_per_day * MB, "files"
+    now = clock.now()
+    rows = db.execute(select(Upload.created_at, Upload.size_bytes)
+                      .where(Upload.person_id == person.id, Upload.purpose.in_(group),
+                             Upload.created_at > now - DAY)
+                      .order_by(Upload.created_at)).all()
+    if len(rows) >= files:
+        # when enough of the oldest have gone out of the day to send one more
+        raise _no_room(f"You've sent {len(rows)} {what} in the last 24 hours, the most for "
+                       "a day.", rows[len(rows) - files].created_at + DAY, now)
+    total = sum(size for _, size in rows)
+    if total + incoming <= most:
+        return
+    if incoming > most:
+        raise _no_room(f"A file this big is more than the {_size(most)} a person can send "
+                       "in a day.")
+    for created_at, size in rows:
+        total -= size
+        if total + incoming <= most:
+            raise _no_room(f"That would take you past the {_size(most)} a person can send "
+                           "in a day.", created_at + DAY, now)
+    raise AssertionError("unreachable: with every row gone, it fits")
 
 
 class Incoming:
@@ -185,6 +263,22 @@ def mine(db: Db, person: Person, upload_id: uuid.UUID | None, purpose: str) -> U
     if row is None or row.person_id != person.id or row.purpose != purpose:
         return None
     return row
+
+
+def signed_off(db: Db, upload_id: uuid.UUID) -> Person | None:
+    """The learner whose sign-off has this photo or signature on it, if one
+    does. They were sent from the supervisor's phone, so they are the
+    supervisor's; the learner may see them too. The API puts each on one
+    sign-off only; if one is ever on more, the first counts and the log says so."""
+    rows = db.execute(select(Signoff.id, Person).join(Person, Signoff.person_id == Person.id)
+                      .where(or_(Signoff.photo_upload_id == upload_id,
+                                 Signoff.supervisor_signature_upload_id == upload_id,
+                                 Signoff.learner_signature_upload_id == upload_id))
+                      .order_by(Signoff.id)).all()
+    if len(rows) > 1:
+        log.warning("upload %s is on %d sign-offs (%s): only one should have it", upload_id,
+                    len(rows), ", ".join(str(r.id) for r in rows))
+    return rows[0].Person if rows else None
 
 
 def on_a_ticket(db: Db, upload_id: uuid.UUID) -> bool:

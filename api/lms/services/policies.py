@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import uuid
 
-from sqlalchemy import exists, select
+from sqlalchemy import exists, or_, select
 from sqlalchemy.orm import Session as Db
 
-from lms.models import Competency, CompetencyRecord, PolicyVersion
+from lms.models import Competency, CompetencyRecord, PolicyVersion, Signoff
 
 
 def newest(db: Db, competency: Competency) -> PolicyVersion | None:
@@ -21,8 +21,10 @@ def same_name(typed: str, name: str) -> bool:
 
 
 def signature_used(db: Db, upload_id: uuid.UUID) -> bool:
-    """A drawn signature goes on one record only: it can't be put on another
-    version later. The signer's row is locked while they sign, so two at once
-    can't both find it unused."""
-    return db.execute(select(exists().where(
-        CompetencyRecord.signature_upload_id == upload_id))).scalar()
+    """A drawn signature goes on one record or sign-off only: it can't be
+    put on another version, or another sign-off, later. Whoever sent it is
+    locked while it is used, so two at once can't both find it unused."""
+    return db.execute(select(
+        exists().where(CompetencyRecord.signature_upload_id == upload_id)
+        | exists().where(or_(Signoff.supervisor_signature_upload_id == upload_id,
+                             Signoff.learner_signature_upload_id == upload_id)))).scalar()

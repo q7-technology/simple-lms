@@ -24,6 +24,8 @@ const SETTINGS: Settings = {
   smtp_from: { value: "", source: "default" },
   smtp_security: { value: "starttls", source: "default" },
   public_url: { value: "https://lms.example.com.au", source: "env" },
+  upload_files_per_day: { value: 30, source: "default" },
+  upload_mb_per_day: { value: 200, source: "default" },
 };
 
 /** Settings as the API has them, for `me`; a PUT answers `put`, or the settings changed. */

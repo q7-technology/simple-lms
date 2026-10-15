@@ -8,10 +8,12 @@ export const TICKET_MOST = 20_000_000;
 
 /** A photo of the card (the phone offers its camera) or a PDF, made small on
  * the phone before it is kept. */
-export function PhotoPicker({ label, hint, file, onFile, removable = false }: {
+export function PhotoPicker({ label, hint, file, onFile, removable = false, pdf: takesPdf = true }: {
   label: string; hint: string; file: Blob | null; onFile: (b: Blob | null) => void;
   /** offer to take it away again (for a photo that is optional) */
   removable?: boolean;
+  /** a PDF will do instead of a photo (a ticket's, not a sign-off's) */
+  pdf?: boolean;
 }) {
   const [url, setUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -26,6 +28,7 @@ export function PhotoPicker({ label, hint, file, onFile, removable = false }: {
   async function picked(chosen: File | undefined) {
     if (!chosen) return;
     setError(null);
+    if (!takesPdf && chosen.type === "application/pdf") { setError("Choose a photo, not a PDF."); return; }
     let ready: Blob;
     try {
       ready = await forSending(chosen);
@@ -42,7 +45,7 @@ export function PhotoPicker({ label, hint, file, onFile, removable = false }: {
       <label className="pickbox">
         {url && <img src={url} alt={label} />}
         <span><b>{file ? `${label}: added` : label}</b><small>{pdf ? "PDF added · tap to change" : file ? "Tap to take it again" : hint}</small></span>
-        <input type="file" accept="image/*,application/pdf" className="sr-only"
+        <input type="file" accept={takesPdf ? "image/*,application/pdf" : "image/*"} className="sr-only"
                onChange={(e) => { void picked(e.target.files?.[0]); e.target.value = ""; }} />
       </label>
       {removable && file && (

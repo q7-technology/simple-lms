@@ -32,24 +32,28 @@ TOUCH_EVERY = timedelta(minutes=1)
 # are the admin's "*" alone: settings:write (Settings, sign-in methods among
 # them) now, webhooks and API keys with their step.
 # training:write is doing your own training: signing a policy, adding a
-# ticket. tickets:verify is checking someone else's ticket.
+# ticket. tickets:verify is checking someone else's ticket. signoffs:write
+# is signing off someone else's practical.
 SCOPES: dict[str, list[str]] = {
     "learner": ["training:read", "training:write"],
     "supervisor": ["training:read", "training:write", "matrix:read", "roles:read",
-                   "competencies:read"],
+                   "competencies:read", "signoffs:write"],
     "manager": ["training:read", "training:write", "matrix:read", "roles:read",
                 "competencies:read", "people:read", "people:write", "roles:write",
-                "competencies:write", "records:write", "tickets:verify"],
+                "competencies:write", "records:write", "tickets:verify", "signoffs:write"],
     "admin": ["*"],
 }
-# A PIN is short, so a PIN session is for the learner app's own training,
-# whoever signs in with it: seeing it, signing a policy, adding a ticket.
+# A PIN is short, so a PIN session is for the learner app: your own
+# training, whoever signs in with it (seeing it, signing a policy, adding a
+# ticket), and for a supervisor, manager or admin, signing off a practical
+# on the phone, where the learner is.
 PIN_SCOPES = ["training:read", "training:write"]
+SIGNS_OFF = ("supervisor", "manager", "admin")
 
 
 def scopes_for(permission: str, method: str) -> list[str]:
     if method == "pin":
-        return list(PIN_SCOPES)
+        return PIN_SCOPES + (["signoffs:write"] if permission in SIGNS_OFF else [])
     return list(SCOPES.get(permission, []))
 
 

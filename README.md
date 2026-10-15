@@ -6,18 +6,20 @@ and licences, and signed policies. It answers one question for a business and
 its auditors: is each person current for everything their job needs? It sits
 beside Simple WMS, Simple TMS and Platen and works without any of them.
 
-Status: **build steps 1 to 5 and 7 are done.** People sign in with a
-code and PIN, an email and password, or their Microsoft work account; roles
-and the competencies each requires, extras and waivers, completions recorded
-by hand on the desktop, the matrix (with a CSV export), and a learner app
-that shows each person's training. People take online modules (pages, then
-a quiz), sign policies, send in their tickets and are signed off on
-practicals; a manager checks each ticket in the desktop's Inbox; the worker
-emails reminders and a Monday digest. The desktop opens on a classroom, a
-desk for each role with its people sitting at it in green, amber or red,
-and every screen in a drawer over it; the learner app shows a ring for how
-much is done and says Ding! out loud. The outward links (build step 6) are
-still to come, as `docs/plans/2026-10-12-simple-lms-design.md` describes.
+Status: **build steps 1 to 5 and 7 (Game Mode) are done.** People sign in
+with a code and PIN, an email and password, or their Microsoft work account;
+roles and the competencies each requires, extras and waivers, completions
+recorded by hand on the desktop, the matrix (with a CSV export), and a
+learner app that shows each person's training. People take online modules
+(pages, then a quiz), sign policies and send in their tickets from the
+learner app; a supervisor signs off practicals on their phone, with the
+learner beside them; a manager checks each ticket in the desktop's Inbox;
+the worker emails reminders and a Monday digest. The desktop opens on a
+classroom, a desk for each role with its people sitting at it in green,
+amber or red, and every screen in a drawer over it; the learner app shows a
+ring for how much is done and says Ding! out loud. The outward links (build
+step 6) are still to come, as `docs/plans/2026-10-12-simple-lms-design.md`
+sets out.
 
 ## What is in this repo
 
@@ -52,7 +54,10 @@ admin unless you give `--permission`.
 **Settings** screen, and they take effect within a few seconds, with no
 restart: sign-in methods (code and PIN, email and password, Microsoft), the quiz wait,
 the reminder days, the daily job's hour and the time zone, the email server
-(with **Send a test email**), and the web address for links in emails.
+(with **Send a test email**), the web address for links in emails, and
+how much a learner can send of their own in a day (30 files and 200 MB by
+default; supervisors, managers and admins, who send two signatures and a
+photo for every sign-off, have 200 files and 2 GB).
 Each says where its value comes from: set there, from `.env`, or the
 default; a value set there wins over `.env`, so an install that only has
 `.env` keeps working. What has to be known before Simple LMS starts, or
@@ -125,6 +130,25 @@ wait is handed in. Every attempt
 is kept. A video that is playing counts as a tap, so a
 PIN session doesn't end in the middle of it.
 
+**Practicals.** Add a competency of kind *Practical sign-off* (with a
+refresher, say 12 months, if it should be done again), open it under
+**Competencies** and write its checklist: the things to see someone do, in
+order (up to 50). Publishing asks once, then freezes that version: to
+change it, edit the copy the drawer offers and publish the next version;
+sign-offs so far still count. A supervisor signs off their own team on
+their phone (a manager or admin anyone, and nobody themselves): in the
+learner app, **Sign someone off**, choose the person and the practical,
+watch them do it and tick each item, add a note or a photo if you like,
+sign, and hand the phone over. The learner checks what was ticked, signs
+with a finger, and types their own PIN to say it was them: they never sign
+in on the supervisor's phone, and their PIN is never kept (a wrong one
+counts against the same five tries as signing in). Ding! It counts as
+current until the refresher runs out, and the history shows what was
+ticked, the note, the photo and both signatures. The learner needs a PIN
+for this even where signing in with a PIN is switched off in Settings (it
+confirms, it doesn't sign in): set one under **People**. If the checklist
+changes before they confirm, the phone says so and it is ticked again.
+
 **Tickets.** A competency of kind *Ticket or licence* says whether its card
 has an expiry date. A person adds a photo of the front and back (or a PDF),
 the number and the expiry in the learner app; each photo goes on one ticket
@@ -147,7 +171,7 @@ The learner app is at `https://<LMS_DOMAIN>/learn/`. A person signs in with
 their code and PIN (set when they are added, or reset by a manager under
 **People**), or their email and password, and sees **My training**: Overdue,
 Due soon and Done, with a ring for how much is done ("3 of 5 done"). A pass
-on a module or a signed policy says Ding!, out loud unless **Sound** beside
+on a module, a signed policy or a practical signed off says Ding!, out loud unless **Sound** beside
 Sign out is off; that switch is the device's, so on a shared tablet it stays
 as the last person left it. A PIN session ends after 15 minutes without a tap, and the
 app forgets that person on the device then too, even if nobody touches it, so
@@ -162,11 +186,15 @@ interactive docs at `/docs`, and it is also published on `127.0.0.1:8033`
 (`LMS_API_PORT`) for local work. Rebuild an app (`npm run build`) after
 pulling changes to it; Caddy serves each `dist` as it is. After editing
 `deploy/Caddyfile`, `docker compose restart caddy` picks it up. Back up
-the `uploads` volume (tickets' photos, policy signatures and modules'
-pictures, PDFs and videos) along with the database: the records and pages
-name the files in it. Files are written to disk as they arrive, never held
+the `uploads` volume (tickets' photos, signatures, modules' pictures, PDFs
+and videos, and sign-offs' photos) along with the database: the records,
+pages and sign-offs name the files in it. Files are written to disk as they arrive, never held
 in memory whole, and Caddy refuses a body bigger than 210 MB on
-`/v1/uploads` (16 MB anywhere else in `/v1`) before the API reads it. A
+`/v1/uploads` (16 MB anywhere else in `/v1`) before the API reads it. So
+that no one session can fill the volume, each person can send only so much
+in any 24 hours: of their own tickets' photos and signatures, 30 files and
+200 MB (set on the Settings screen, under **Uploads**); of module files, 200
+files and 5 GB. Past that, the API says when they can send more. A
 module's files open by links Simple LMS signs for each session, so a
 session's token never goes in a URL, and the API's access log leaves out a
 link's signature.
@@ -247,7 +275,8 @@ back: `docker compose exec api lms clear-setting sign_in_password`.
 | Take a module, sign a policy, send in their own ticket | ✓ | ✓ | ✓ | ✓ |
 | See the matrix | | own team | everyone | everyone |
 | Add and change people, roles, competencies, extras and waivers | | | ✓ | ✓ |
-| Write and publish a module's pages and quiz | | | ✓ | ✓ |
+| Write and publish a module's pages and quiz, or a practical's checklist | | | ✓ | ✓ |
+| Sign off a practical on the phone (never their own) | | own team | everyone | everyone |
 | Record or revoke a completion (never their own) | | | ✓ | ✓ |
 | Approve or reject a ticket (never their own) | | | ✓ | ✓ |
 | Unlink someone's Microsoft account | | | ✓ | ✓ |
@@ -258,8 +287,9 @@ someone with the supervisor, manager or admin permission can be one. Someone
 who still supervises active people can't be taken below supervisor or
 deactivated until their team has another supervisor, and nobody changes
 their own permission or deactivates themselves. Signing in with a PIN only
-ever shows your own training, whoever you are, and the desktop turns a
-learner away to the learner app.
+ever shows your own training, whoever you are (and, for a supervisor,
+manager or admin, signs off practicals), and the desktop turns a learner
+away to the learner app.
 
 ## Run the API outside Docker
 

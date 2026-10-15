@@ -20,8 +20,10 @@ systems only ever talk to the API.
    `person_override`, `policy_version` or `upload`; a `ticket_submission` is
    decided once and never deleted; a `module_version` is frozen once
    published, and its `module_page` and `quiz_question` rows change only
-   while it is a draft). A mistake is corrected by a new row (`revoked`,
-   with a note). People are deactivated, never deleted.
+   while it is a draft; a `practical_version` and its `practical_item`
+   rows, and a `signoff`'s `signoff_item` rows, are written together and
+   never after). A mistake is corrected by a new row (`revoked`, with a
+   note). People are deactivated, never deleted.
 2. **Status is worked out, never stored by hand.** It comes from the records
    and the date, so it cannot drift. `competency.expiring` and
    `competency.lapsed` fire from the daily job, each once, each with an event
@@ -95,6 +97,10 @@ docker-compose.yml   api, worker, db, caddy
   gets a one-time hand-off code after the `#`, never a token in a URL. A
   Microsoft sign-in never creates a person: match by `entra_oid`, else the
   first time by `email` with `xms_edov`, never by `preferred_username`.
+- Sign-offs: who may sign off whom is `practicals.may_sign_off()` and
+  nowhere else. The learner confirms on the supervisor's phone with their
+  PIN, which counts against their five tries and is never stored or logged;
+  never give the learner a session on someone else's device.
 - Sister apps: nothing in Simple WMS or Simple TMS changes for Simple LMS. It
   publishes signed events and a competency API (build step 6).
 - Settings: everyday settings (sign-in methods, the quiz wait, reminder
@@ -106,8 +112,8 @@ docker-compose.yml   api, worker, db, caddy
   `.env` fallback if it has one. What is needed before the app starts or
   could lock everyone out (database, ports, domain, upload folder, Caddy)
   stays in `.env` only. A secret is write-only: never sent back. Their
-  table, `setting`, came in migration `0003b`; the next migration (`0004`)
-  goes after it.
+  table, `setting`, came in migration `0003b`; practicals came in `0004`,
+  Entra sign-in in `0005`, and the next migration (`0006`) goes after it.
 - Printing: Simple LMS never renders a document. Certificates and skills
   cards go to Platen (or any print service) as `template` + JSON `data`
   through the queue.

@@ -181,3 +181,17 @@ describe("the learner app", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("That didn't work. Try again, or ask your manager.");
   });
 });
+
+describe("signing someone off", () => {
+  it("is offered on My training to someone who signs off practicals, and to nobody else", async () => {
+    stubApi(answers);
+    const { unmount } = renderApp({ ...KIM, code: "SV001", name: "Sam Vu", permission: "supervisor",
+                                    scopes: ["training:read", "training:write", "signoffs:write"] });
+    expect(await screen.findByRole("link", { name: "Sign someone off" })).toHaveAttribute("href", "/signoff");
+    unmount();
+    window.localStorage.clear();
+    renderApp(KIM);
+    expect(await screen.findByRole("heading", { name: "My training" })).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Sign someone off" })).not.toBeInTheDocument();
+  });
+});

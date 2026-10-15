@@ -102,9 +102,14 @@ jobs:
           # the append-only triggers, the ticket's decide-once one, and the
           # module's: published once, pages and questions changed only in a
           # draft, attempts only at a published version, a quiz's grant only
-          # from that person's own passing attempt
+          # from that person's own passing attempt. And the practical's: a
+          # checklist's items and a sign-off's ticks written with them and
+          # never after, a sign-off's grant only by its supervisor; and every
+          # PIN set, kept with who set it
           docker compose exec -T db psql -U lms -d lms -tAc \
-            "select count(*) from pg_trigger where tgname like '%_append_only'" | grep -qx 5
+            "select count(*) from pg_trigger where tgname like '%_append_only'" | grep -qx 10
+          docker compose exec -T db psql -U lms -d lms -tAc \
+            "select count(*) from pg_trigger where tgname like '%_written_with_%' or tgname = 'competency_record_signoff'" | grep -qx 3
           docker compose exec -T db psql -U lms -d lms -tAc \
             "select count(*) from pg_trigger where tgname = 'ticket_submission_decide_once'" | grep -qx 1
           docker compose exec -T db psql -U lms -d lms -tAc \
@@ -114,6 +119,9 @@ jobs:
           # the settings an admin changes on the Settings screen
           docker compose exec -T db psql -U lms -d lms -tAc \
             "select count(*) from information_schema.tables where table_name = 'setting'" | grep -qx 1
+          # and Microsoft sign-ins under way (0005 adds no triggers)
+          docker compose exec -T db psql -U lms -d lms -tAc \
+            "select count(*) from information_schema.tables where table_name = 'entra_sign_in'" | grep -qx 1
           # Microsoft isn't offered until LMS_ENTRA_* are set
           curl -fsS http://127.0.0.1:8033/v1/auth/methods | grep -qx '{"pin":true,"password":true,"entra":false}'
           for i in $(seq 1 30); do

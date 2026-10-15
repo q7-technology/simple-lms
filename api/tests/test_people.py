@@ -185,3 +185,23 @@ def test_nobody_changes_their_own_permission(client, admin_headers):
     assert r.status_code == 409 and r.json()["code"] == "self"
     r = client.patch("/v1/people/AD001", headers=admin_headers, json={"name": "Leighton L"})
     assert r.status_code == 200 and r.json()["permission"] == "admin"
+
+
+def pin_changes(db, code):
+    from sqlalchemy import select
+
+    from lms.models import Person, PinChange
+
+    rows = db.execute(select(PinChange).join(Person, Person.id == PinChange.person_id)
+                      .where(Person.code == code).order_by(PinChange.id)).scalars()
+    return [db.get(Person, r.changed_by_id).code for r in rows]
+
+
+def test_every_pin_set_is_kept_with_who_set_it(client, db, manager_headers, admin_headers):
+    make(client, manager_headers, KIM)
+    make(client, manager_headers, {"code": "LL043", "name": "Lee Park"})
+    assert pin_changes(db, "LL042") == ["MG001"] and pin_changes(db, "LL043") == []
+    client.post("/v1/people/LL042/pin", headers=admin_headers, json={"pin": "1122"})
+    client.post("/v1/people/LL043/pin", headers=manager_headers, json={"pin": "1122"})
+    assert pin_changes(db, "LL042") == ["MG001", "AD001"]
+    assert pin_changes(db, "LL043") == ["MG001"]

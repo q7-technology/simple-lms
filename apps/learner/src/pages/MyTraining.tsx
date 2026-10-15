@@ -36,7 +36,8 @@ function Group({ title, tone, items, empty }: { title: string; tone: string; ite
 }
 
 /** What is overdue, what is due soon and what is done; a policy to sign or a
- * ticket to send in opens from its item. */
+ * ticket to send in opens from its item. Someone who signs off practicals
+ * starts one from here. */
 export function MyTraining() {
   const { person, signOut } = useSession();
   const [prefs, setPrefs] = useGamePrefs();
@@ -55,6 +56,7 @@ export function MyTraining() {
   useEffect(() => { void load(); }, [load]);
 
   const g = training ? groupTraining(training.items) : null;
+  const signsOff = person?.scopes.some((s) => s === "*" || s === "signoffs:write");
   return (
     <main className="screen">
       <div className="top"><Logo />{person?.name}
@@ -63,6 +65,7 @@ export function MyTraining() {
                 onClick={() => setPrefs({ sound: !prefs.sound })}><SoundIcon on={prefs.sound} />Sound</button>
         <button type="button" className="chip" style={{ border: 0, cursor: "pointer", marginLeft: 0 }} onClick={signOut}>Sign out</button>
       </div>
+      {signsOff && <Link to="/signoff" className="big primary as-button">Sign someone off</Link>}
       <h1 style={{ margin: 0, fontSize: 26, fontWeight: 800 }}>My training</h1>
       {error && (
         <>
