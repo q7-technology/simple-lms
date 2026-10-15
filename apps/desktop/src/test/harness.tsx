@@ -16,7 +16,7 @@ export const MEL: Me = {
   idle_seconds: 43200,
 };
 
-export interface Call { method: string; url: string; body: unknown }
+export interface Call { method: string; url: string; body: unknown; contentType?: string }
 type Handler = (method: string, url: string, body: unknown) => Response | null | Promise<Response | null>;
 
 /** Signed in as `me` (Mel, a manager); `more` answers everything else, or it is a 404. */
@@ -24,8 +24,9 @@ export function stubApi(more: Handler = () => null, me: Me = MEL) {
   const calls: Call[] = [];
   const fetchMock = vi.fn(async (url: string, init: RequestInit = {}) => {
     const method = init.method ?? "GET";
-    const body = init.body ? JSON.parse(init.body as string) : undefined;
-    calls.push({ method, url, body });
+    // JSON is read back; a file (a Blob) is kept as it was sent
+    const body = typeof init.body === "string" ? JSON.parse(init.body) : init.body ?? undefined;
+    calls.push({ method, url, body, contentType: (init.headers as Record<string, string> | undefined)?.["Content-Type"] });
     if (url === "/v1/auth/me") return json(200, me);
     if (url === "/v1/auth/logout") return new Response(null, { status: 204 });
     const answer = await more(method, url, body);

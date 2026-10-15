@@ -118,3 +118,28 @@ export interface Ticket {
   created_at: string;
 }
 export interface Upload { id: string; purpose: string; content_type: string; size_bytes: number; created_at: string }
+
+export type PageKind = "text" | "image" | "pdf" | "video" | "link";
+
+export interface ModulePage {
+  kind: PageKind;
+  title: string;
+  body: string | null;
+  url: string | null;
+  /** a picture, PDF or video; `link` opens it without the token, for a few hours */
+  file: { id: string; content_type: string; size_bytes: number; link: string } | null;
+}
+
+export interface Question { prompt: string; options: string[]; correct: number }
+
+export interface ModuleVersion {
+  id: number;
+  version: number;
+  pass_mark: number;
+  /** null while it is a draft */
+  published_at: string | null;
+  published_by: PersonRef | null;
+  pages: ModulePage[];
+  questions: Question[];
+  created_at: string;
+}
