@@ -93,3 +93,17 @@ export interface Attempt {
   retry_at: string | null;
   retry_at_text: string | null;
 }
+
+/** Someone the caller may sign off, and the practicals they are asked for. */
+export interface SignsOff {
+  code: string;
+  name: string;
+  practicals: { key: string; name: string; status: Status; expires_on: string | null }[];
+}
+
+/** A practical and the checklist to tick now. */
+export interface Practical {
+  key: string;
+  name: string;
+  version: { id: number; version: number; note: string | null; items: { id: number; text: string }[] };
+}
