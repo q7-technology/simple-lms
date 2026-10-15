@@ -1,4 +1,5 @@
-import { ApiClient, ApiError, Unreachable } from "../api/client";
+import { ApiClient, ApiError, Cancelled, Unreachable } from "../api/client";
+import { FakeXhr } from "./harness";
 
 function json(status: number, body: unknown) {
   return new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
@@ -7,16 +8,22 @@ function json(status: number, body: unknown) {
 describe("ApiClient", () => {
   let calls: { url: string; init: RequestInit }[];
   let answers: (Response | Error)[];
+  let sent: FakeXhr[];
   let client: ApiClient;
 
   beforeEach(() => {
     calls = [];
     answers = [];
+    sent = [];
     client = new ApiClient(async (url, init) => {
       calls.push({ url, init });
       const a = answers.shift() ?? json(500, { detail: "no answer queued" });
       if (a instanceof Error) throw a;
       return a;
+    }, () => {
+      const x = new FakeXhr();
+      sent.push(x);
+      return x as unknown as XMLHttpRequest;
     });
   });
 
@@ -54,21 +61,45 @@ describe("ApiClient", () => {
   });
 
   it("says a file is too big when the proxy refuses it, not that Simple LMS can't be reached", async () => {
-    answers.push(new Response("Request Entity Too Large", { status: 413, headers: { "Content-Type": "text/plain" } }));
-    const e = (await client.upload("page-video", new Blob([new Uint8Array([0])])).catch((x) => x)) as ApiError;
+    const sending = client.upload("page-video", new Blob([new Uint8Array([0])]));
+    sent[0].answer(413, "Request Entity Too Large");
+    const e = (await sending.catch((x) => x)) as ApiError;
     expect(e).toBeInstanceOf(ApiError);
     expect(e.status).toBe(413);
     expect(e.message).toBe("That file is too big: the most is 200 MB for a video, 20 MB otherwise.");
   });
 
-  it("sends a module's file as it is, with its own type", async () => {
+  it("sends a module's file as it is, with its own type and the token", async () => {
     client.token = "lms_s.abc";
-    answers.push(json(201, { id: "u-1", purpose: "page-video", content_type: "video/mp4", size_bytes: 3 }));
     const video = new Blob([new Uint8Array([0, 0, 0])], { type: "video/mp4" });
-    expect((await client.upload("page-video", video)).id).toBe("u-1");
-    expect(calls[0].url).toBe("/v1/uploads?purpose=page-video");
-    expect(calls[0].init.body).toBe(video);
-    expect(new Headers(calls[0].init.headers).get("Content-Type")).toBe("video/mp4");
+    const sending = client.upload("page-video", video);
+    expect(sent[0].method).toBe("POST");
+    expect(sent[0].url).toBe("/v1/uploads?purpose=page-video");
+    expect(sent[0].body).toBe(video);
+    expect(sent[0].headers["Content-Type"]).toBe("video/mp4");
+    expect(sent[0].headers.Authorization).toBe("Bearer lms_s.abc");
+    sent[0].answer(201, JSON.stringify({ id: "u-1", purpose: "page-video", content_type: "video/mp4", size_bytes: 3 }));
+    expect((await sending).id).toBe("u-1");
+  });
+
+  it("says how far a file has got, and stops sending it when asked", async () => {
+    const seen: number[] = [];
+    const sending = client.upload("page-video", new Blob([new Uint8Array([0])]), (done) => seen.push(done));
+    sent[0].progress(42, 100);
+    sent[0].progress(100, 100);
+    expect(seen).toEqual([0.42, 1]);
+    sending.abort();
+    expect(sent[0].aborted).toBe(true);
+    await expect(sending).rejects.toBeInstanceOf(Cancelled);
+  });
+
+  it("gives the API's errors for a file, and says when it can't be reached", async () => {
+    const refused = client.upload("page-pdf", new Blob([new Uint8Array([0])]));
+    sent[0].answer(422, JSON.stringify({ errors: [{ field: "file", message: "isn't a PDF" }] }));
+    await expect(refused).rejects.toThrow("file: isn't a PDF");
+    const lost = client.upload("page-pdf", new Blob([new Uint8Array([0])]));
+    sent[1].fail();
+    await expect(lost).rejects.toBeInstanceOf(Unreachable);
   });
 
   it("fetches a kept file with the token", async () => {

@@ -19,6 +19,36 @@ export const MEL: Me = {
 export interface Call { method: string; url: string; body: unknown; contentType?: string }
 type Handler = (method: string, url: string, body: unknown) => Response | null | Promise<Response | null>;
 
+/** An XMLHttpRequest as far as the client uses one: a test answers it, says
+ * how far it has got, fails it, or sees it aborted. */
+export class FakeXhr {
+  method = "";
+  url = "";
+  headers: Record<string, string> = {};
+  body: unknown = undefined;
+  aborted = false;
+  status = 0;
+  responseText = "";
+  upload: { onprogress: ((e: ProgressEvent) => void) | null } = { onprogress: null };
+  onload: (() => void) | null = null;
+  onerror: (() => void) | null = null;
+  onabort: (() => void) | null = null;
+  open(method: string, url: string) { this.method = method; this.url = url; }
+  setRequestHeader(name: string, value: string) { this.headers[name] = value; }
+  send(body: unknown) { this.body = body; }
+  abort() { this.aborted = true; this.onabort?.(); }
+  answer(status: number, text: string) {
+    if (this.aborted) return;
+    this.status = status;
+    this.responseText = text;
+    this.onload?.();
+  }
+  progress(loaded: number, total: number) {
+    this.upload.onprogress?.({ lengthComputable: true, loaded, total } as ProgressEvent);
+  }
+  fail() { this.onerror?.(); }
+}
+
 /** Signed in as `me` (Mel, a manager); `more` answers everything else, or it is a 404. */
 export function stubApi(more: Handler = () => null, me: Me = MEL) {
   const calls: Call[] = [];
@@ -33,7 +63,17 @@ export function stubApi(more: Handler = () => null, me: Me = MEL) {
     return answer ?? json(404, { detail: `no stub for ${method} ${url}` });
   });
   vi.stubGlobal("fetch", fetchMock);
-  return { calls, fetchMock };
+  // a file goes by XMLHttpRequest, for its progress: answered the same way
+  const sending: FakeXhr[] = [];
+  vi.stubGlobal("XMLHttpRequest", class extends FakeXhr {
+    constructor() { super(); sending.push(this); }
+    send(body: unknown) {
+      super.send(body);
+      void fetchMock(this.url, { method: this.method, headers: this.headers, body: body as BodyInit })
+        .then(async (res) => this.answer(res.status, await res.text()), () => this.fail());
+    }
+  });
+  return { calls, fetchMock, sending };
 }
 
 function Where() {

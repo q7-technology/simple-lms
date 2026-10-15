@@ -32,6 +32,16 @@ export class Unreachable extends Error {
   }
 }
 
+/** A file stopped on purpose (Cancel), not lost on the way. */
+export class Cancelled extends Error {
+  constructor() {
+    super("Stopped sending it.");
+  }
+}
+
+/** A file on its way: settles as the upload does; abort() stops it. */
+export type Sending<T> = Promise<T> & { abort: () => void };
+
 type Fetcher = (url: string, init: RequestInit) => Promise<Response>;
 type Params = Record<string, string | number | boolean | null | undefined>;
 
@@ -47,13 +57,30 @@ function query(params?: Params): string {
   return qs ? `?${qs}` : "";
 }
 
+/** The API's answer as JSON, or why there isn't one. */
+function answer<T>(status: number, text: string): T {
+  let parsed: unknown;
+  try {
+    parsed = text ? JSON.parse(text) : null;
+  } catch {
+    // Caddy refusing a body too big before the API sees it: say so plainly
+    if (status === 413) throw new ApiError(413, { detail: TOO_BIG, code: "too_large" });
+    // a proxy's error page, say: not the API's own answer
+    throw new Unreachable();
+  }
+  if (status < 200 || status >= 300) throw new ApiError(status, parsed);
+  return parsed as T;
+}
+
 export class ApiClient {
   /** Called when the API stops taking the token: idle too long, or signed out elsewhere. */
   onSignedOut: (() => void) | null = null;
   private fetcher: Fetcher;
+  private xhr: () => XMLHttpRequest;
 
-  constructor(fetcher?: Fetcher) {
+  constructor(fetcher?: Fetcher, xhr?: () => XMLHttpRequest) {
     this.fetcher = fetcher ?? ((url, init) => fetch(url, init));
+    this.xhr = xhr ?? (() => new XMLHttpRequest());
   }
 
   get token(): string | null {
@@ -80,28 +107,21 @@ export class ApiClient {
     } catch {
       throw new Unreachable();
     }
-    if (res.status === 401 && token && !path.startsWith("/v1/auth/login")) {
+    this.signedOutIf(res.status, token, path);
+    return res;
+  }
+
+  private signedOutIf(status: number, token: string | null, path: string) {
+    if (status === 401 && token && !path.startsWith("/v1/auth/login")) {
       this.token = null;
       this.onSignedOut?.();
     }
-    return res;
   }
 
   async request<T>(method: string, path: string, body?: unknown): Promise<T> {
     const res = await this.send(method, path, body);
     if (res.status === 204) return undefined as T;
-    const text = await res.text();
-    let parsed: unknown;
-    try {
-      parsed = text ? JSON.parse(text) : null;
-    } catch {
-      // Caddy refusing a body too big before the API sees it: say so plainly
-      if (res.status === 413) throw new ApiError(413, { detail: TOO_BIG, code: "too_large" });
-      // a proxy's error page, say: not the API's own answer
-      throw new Unreachable();
-    }
-    if (!res.ok) throw new ApiError(res.status, parsed);
-    return parsed as T;
+    return answer<T>(res.status, await res.text());
   }
 
   get<T>(path: string, params?: Params) { return this.request<T>("GET", path + query(params)); }
@@ -110,9 +130,29 @@ export class ApiClient {
   put<T>(path: string, body: unknown) { return this.request<T>("PUT", path, body); }
 
   /** A module page's picture, PDF or video, kept by the API before the
-   * page that shows it is saved. What counts is its first bytes. */
-  upload(purpose: "page-image" | "page-pdf" | "page-video", file: Blob) {
-    return this.request<Upload>("POST", `/v1/uploads?purpose=${purpose}`, file);
+   * page that shows it is saved. What counts is its first bytes. Sent by
+   * XMLHttpRequest, as fetch can't say how far a file has got: `onProgress`
+   * hears the part sent so far, 0 to 1. */
+  upload(purpose: "page-image" | "page-pdf" | "page-video", file: Blob,
+         onProgress?: (done: number) => void): Sending<Upload> {
+    const path = `/v1/uploads?purpose=${purpose}`;
+    const xhr = this.xhr();
+    const sending = new Promise<Upload>((resolve, reject) => {
+      xhr.open("POST", path);
+      xhr.setRequestHeader("Accept", "application/json");
+      xhr.setRequestHeader("Content-Type", file.type || "application/octet-stream");
+      const token = this.token;
+      if (token) xhr.setRequestHeader("Authorization", `Bearer ${token}`);
+      xhr.upload.onprogress = (e) => { if (e.lengthComputable && e.total > 0) onProgress?.(e.loaded / e.total); };
+      xhr.onload = () => {
+        this.signedOutIf(xhr.status, token, path);
+        try { resolve(answer<Upload>(xhr.status, xhr.responseText)); } catch (e) { reject(e); }
+      };
+      xhr.onerror = () => reject(new Unreachable());
+      xhr.onabort = () => reject(new Cancelled());
+      xhr.send(file);
+    });
+    return Object.assign(sending, { abort: () => xhr.abort() });
   }
 
   /** A file kept by the API (a ticket's photo, a signature), fetched with the
