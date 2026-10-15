@@ -29,7 +29,8 @@ def change_settings(body: settings.Changes, db: DB,
                     who: Principal = require(SCOPE)) -> dict[str, dict[str, Any]]:
     """Change the settings given, and only those; null goes back to .env or
     the default. All or nothing."""
-    settings.save(db, {k: getattr(body, k) for k in body.model_fields_set}, who.person)
+    settings.save(db, {k: getattr(body, k) for k in body.model_fields_set}, who.person,
+                  who.method)
     return settings.described(db)
 
 

@@ -1,5 +1,6 @@
-"""Sign in with an email and password (either app) or a code and PIN (the
-learner app). Either way the session token is all a client holds."""
+"""Sign in with an email and password (either app), a code and PIN (the
+learner app) or Microsoft (either app: routes/entra.py), each as Settings
+allows. Whichever way, the session token is all a client holds."""
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
@@ -51,6 +52,14 @@ class SessionOut(BaseModel):
     person: MeOut
 
 
+class MethodsOut(BaseModel):
+    """The ways of signing in that are on (Microsoft only once it is set up)."""
+
+    pin: bool
+    password: bool
+    entra: bool
+
+
 def me_out(p: Person, method: str) -> MeOut:
     return MeOut(id=p.id, code=p.code, name=p.name, email=p.email, permission=p.permission,
                  method=method, scopes=sessions.scopes_for(p.permission, method),
@@ -62,13 +71,13 @@ def _refused(detail: str, code: str) -> JSONResponse:
                         headers={"WWW-Authenticate": "Bearer"})
 
 
-def _switched_on(on: bool, how: str) -> None:
+def switched_on(on: bool, how: str) -> None:
     """A method switched off in Settings is refused before anything is checked."""
     if not on:
         raise Forbidden(f"Signing in with {how} is switched off here.", "method_off")
 
 
-def _signed_in(db, person: Person, method: str) -> SessionOut:
+def signed_in(db, person: Person, method: str) -> SessionOut:
     token = sessions.start(db, person, method)
     person.last_login_at = datetime.now(UTC)
     db.commit()
@@ -84,7 +93,7 @@ def _one_at_a_time(db, where) -> Person | None:
 @router.post("/login", response_model=SessionOut)
 def login(body: LoginIn, db: DB):
     """Five wrong passwords lock the password for 15 minutes."""
-    _switched_on(settings.current().sign_in_password, "an email and password")
+    switched_on(settings.current().sign_in_password, "an email and password")
     person = _one_at_a_time(db, Person.email == body.email.strip().lower())
     if person is None or not person.active or not person.password_hash:
         # an unknown email and a wrong password look alike, and take as long
@@ -105,13 +114,13 @@ def login(body: LoginIn, db: DB):
         return _refused("wrong email or password", "wrong_password")
     person.password_failed_attempts = 0
     person.password_locked_until = None
-    return _signed_in(db, person, "password")
+    return signed_in(db, person, "password")
 
 
 @router.post("/pin-login", response_model=SessionOut)
 def pin_login(body: PinLoginIn, db: DB):
     """Five wrong PINs lock the PIN until a manager sets a new one."""
-    _switched_on(settings.current().sign_in_pin, "a code and PIN")
+    switched_on(settings.current().sign_in_pin, "a code and PIN")
     person = _one_at_a_time(db, Person.code == normal_code(body.code))
     if person is None or not person.active or not person.pin_hash:
         access.verify_password(body.pin, access.DUMMY_HASH)
@@ -130,7 +139,7 @@ def pin_login(body: PinLoginIn, db: DB):
         # no tries left count: an unknown code could not say it without giving itself away
         return _refused("wrong code or PIN", "wrong_pin")
     person.pin_failed_attempts = 0
-    return _signed_in(db, person, "pin")
+    return signed_in(db, person, "pin")
 
 
 @router.post("/logout", status_code=204)
@@ -146,3 +155,9 @@ def logout(db: DB, authorization: Annotated[str | None, Header()] = None):
 @router.get("/me", response_model=MeOut)
 def me(who: Who):
     return me_out(who.person, who.method)
+
+
+@router.get("/methods", response_model=MethodsOut)
+def sign_in_methods():
+    """What a sign-in page offers. Needs no session."""
+    return MethodsOut(**settings.offered(settings.current()))
