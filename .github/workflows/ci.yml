@@ -99,11 +99,18 @@ jobs:
             sleep 2
           done
           test "${ok:-0}" = 1 || (docker compose logs api; exit 1)
-          # the append-only triggers and the ticket's decide-once one are there
+          # the append-only triggers, the ticket's decide-once one, and the
+          # module's: published once, pages and questions changed only in a
+          # draft, attempts only at a published version, a quiz's grant only
+          # from that person's own passing attempt
           docker compose exec -T db psql -U lms -d lms -tAc \
-            "select count(*) from pg_trigger where tgname like '%_append_only'" | grep -qx 4
+            "select count(*) from pg_trigger where tgname like '%_append_only'" | grep -qx 5
           docker compose exec -T db psql -U lms -d lms -tAc \
             "select count(*) from pg_trigger where tgname = 'ticket_submission_decide_once'" | grep -qx 1
+          docker compose exec -T db psql -U lms -d lms -tAc \
+            "select count(*) from pg_trigger where tgname like '%_draft_only' or tgname = 'module_version_publish_once'" | grep -qx 3
+          docker compose exec -T db psql -U lms -d lms -tAc \
+            "select count(*) from pg_trigger where tgname in ('quiz_attempt_published_only', 'competency_record_quiz_pass')" | grep -qx 2
           for i in $(seq 1 30); do
             if docker compose logs worker | grep -q "worker started"; then up=1; break; fi
             sleep 2
