@@ -178,8 +178,8 @@ def run_once(session: Session, today: Daily, now: datetime | None = None,
         else:
             today.last = day
             today.not_before = None
-            log.info("daily job for %s: %d reminders, %d digests queued", day,
-                     queued["reminders"], queued["digests"])
+            log.info("daily job for %s: %d reminders, %d digests, %d events queued", day,
+                     queued["reminders"], queued["digests"], queued["events"])
     return send_due(session, http, now)
 
 

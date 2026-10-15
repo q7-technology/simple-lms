@@ -71,7 +71,7 @@ def test_daily_job_queues_the_reminders_now(client, db, manager_headers, learner
                expires_on="2026-11-11")
     assert main(["daily-job", "--on", "2026-10-13"]) == 0
     assert capsys.readouterr().out.strip() == (
-        "2026-10-13: 1 reminders and 0 digests queued; the worker sends them")
+        "2026-10-13: 1 reminders, 0 digests and 1 events queued; the worker sends them")
     assert main(["daily-job", "--on", "2026-10-13"]) == 0
     assert "0 reminders" in capsys.readouterr().out
     assert db.query(Outbox).count() == 1

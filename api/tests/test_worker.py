@@ -119,7 +119,7 @@ def test_the_daily_job_is_due_from_six_in_the_morning_where_the_business_is(utc,
 def test_the_daily_job_runs_once_a_day(db, monkeypatch):
     runs = []
     monkeypatch.setattr(worker.daily, "run", lambda s, day, now: runs.append(day) or
-                        {"reminders": 0, "digests": 0})
+                        {"reminders": 0, "digests": 0, "events": 0})
     today = worker.Daily()
     morning = datetime(2026, 10, 11, 20, 0, tzinfo=UTC)
     worker.run_once(db, today, now=morning)

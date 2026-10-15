@@ -8,7 +8,7 @@ import pytest
 import yard
 from conftest import make_person
 from lms.config import get_settings
-from lms.models import Outbox
+from lms.models import EventSeen, Outbox, Webhook
 from lms.services import daily
 
 MONDAY = date(2026, 10, 12)
@@ -163,3 +163,76 @@ def test_the_web_address_set_here_goes_in_the_email(db, kim, admin):
     on(db, MONDAY)
     text = db.query(Outbox).filter(Outbox.key.startswith("reminder")).one().payload["text"]
     assert "Open Simple LMS: https://lms.example.com.au/learn/" in text
+
+
+# --- competency.expiring and competency.lapsed -------------------------------
+
+@pytest.fixture
+def hook(db):
+    db.add(Webhook(name="Simple TMS", url="https://tms.example.com.au/in", secret="whsec_x",
+                   events=["competency.expiring", "competency.lapsed"]))
+    db.commit()
+
+
+def told(db) -> list[tuple[str, str, str]]:
+    db.expire_all()
+    rows = db.query(Outbox).filter_by(kind="webhook").order_by(Outbox.id).all()
+    return [(r.payload["event_type"], r.payload["data"]["competency"]["key"],
+             r.payload["data"]["expires_on"]) for r in rows]
+
+
+def test_expiring_then_lapsed_each_once(db, kim, hook):
+    on(db, MONDAY, MONDAY, date(2026, 10, 28), date(2026, 11, 11))
+    assert told(db) == [("competency.expiring", "forklift-licence", "2026-11-11")]
+    on(db, date(2026, 11, 12), date(2026, 11, 13), date(2026, 12, 25))
+    assert told(db)[1:] == [("competency.lapsed", "forklift-licence", "2026-11-11")]
+
+
+def test_what_expiring_says(db, kim, hook):
+    on(db, MONDAY)
+    [row] = db.query(Outbox).filter_by(kind="webhook").all()
+    assert row.payload["data"] == {
+        "person": {"code": "LL042", "name": "Kim Lee"},
+        "competency": {"key": "forklift-licence", "name": "Forklift licence", "kind": "ticket"},
+        "status": "expiring", "granted_on": "2025-01-01", "expires_on": "2026-11-11",
+        "days_left": 30}
+    assert row.payload["event_id"] == str(db.query(EventSeen).one().event_id)
+
+
+def test_a_renewal_is_told_afresh(client, db, manager_headers, kim, hook):
+    on(db, MONDAY)
+    yard.grant(client, manager_headers, "LL042", "forklift-licence", "2026-10-12",
+               expires_on="2026-11-30")
+    on(db, date(2026, 11, 1))
+    assert told(db) == [("competency.expiring", "forklift-licence", "2026-11-11"),
+                        ("competency.expiring", "forklift-licence", "2026-11-30")]
+
+
+def test_a_lapse_the_job_first_sees_late_is_told_as_lapsed_only(db, kim, hook):
+    on(db, date(2026, 11, 20))
+    assert told(db) == [("competency.lapsed", "forklift-licence", "2026-11-11")]
+
+
+def test_fired_once_whoever_was_listening(db, kim):
+    on(db, MONDAY)
+    assert db.query(EventSeen).count() == 1
+    db.add(Webhook(name="Late", url="https://late.example.com.au", secret="s", events=["*"]))
+    db.commit()
+    on(db, MONDAY)
+    assert told(db) == []
+
+
+def test_not_for_a_waiver_nor_someone_deactivated(client, db, manager_headers, kim, hook):
+    client.post("/v1/people/LL042/overrides", headers=manager_headers,
+                json={"competency": "forklift-licence", "kind": "waive", "note": "office only now"})
+    make_person(db, "LL043", "Ash Patel")
+    yard.give_roles(client, manager_headers, "LL043", "picker")
+    yard.grant(client, manager_headers, "LL043", "site-induction", "2024-09-01")   # lapsed
+    client.post("/v1/people/LL043/deactivate", headers=manager_headers)
+    on(db, MONDAY)
+    assert told(db) == []
+
+
+def test_it_says_how_many_it_fired(db, kim, hook):
+    assert daily.run(db, MONDAY)["events"] == 1
+    assert daily.run(db, MONDAY)["events"] == 0

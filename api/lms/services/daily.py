@@ -1,9 +1,10 @@
 """The daily job, run by the worker each morning: a reminder to each
 learner with an email when something of theirs reaches a reminder day
-(Settings; 30, 14 and 0 days left unless changed),
-and on Mondays a digest of what is expiring and lapsed for each manager.
-Status comes from status.py, as everywhere (rule 2). Each email has its
-own key in the outbox, so running the job again sends nothing twice."""
+(Settings; 30, 14 and 0 days left unless changed), on Mondays a digest of
+what is expiring and lapsed for each manager, and competency.expiring and
+competency.lapsed for the webhooks. Status comes from status.py, as
+everywhere (rule 2). Each email has its own key in the outbox and each
+event is fired once, so running the job again sends nothing twice."""
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -12,8 +13,9 @@ from datetime import date, datetime
 from sqlalchemy import select
 from sqlalchemy.orm import Session as Db
 
-from lms.models import Person
-from lms.services import outbox, settings, standing
+from lms.models import Competency, Person
+from lms.services import events, outbox, settings, standing
+from lms.services.status import Status
 
 # days left on the last good day's count, unless Settings says otherwise:
 # 30, 14, and the day itself
@@ -80,10 +82,26 @@ def digest(manager: Person, items: list[Item]) -> tuple[str, str]:
     return subject, text
 
 
+def fire(db: Db, p: Person, c: Competency, s: Status, today: date,
+         now: datetime | None) -> bool:
+    """competency.expiring or competency.lapsed, once for each last good day:
+    the first day the job finds it so. A renewal has a new last good day, so
+    it is told afresh when it comes round. True when it fired now."""
+    data = {"person": events.person_ref(p), "competency": events.competency_ref(c),
+            "status": s.status, "granted_on": s.granted_on.isoformat(),
+            "expires_on": s.expires_on.isoformat()}
+    if s.status == "expiring":
+        data["days_left"] = (s.expires_on - today).days
+    event_type = f"competency.{s.status}"
+    key = f"{event_type}:{p.id}:{c.id}:{s.expires_on.isoformat()}"
+    return events.once(db, key, event_type, data, now)
+
+
 def run(db: Db, today: date, now: datetime | None = None) -> dict[str, int]:
-    """Queue today's reminders and (on a Monday) the digests. Returns how
-    many were queued now; anything an earlier run queued is not queued again."""
-    queued = {"reminders": 0, "digests": 0}
+    """Queue today's reminders, (on a Monday) the digests, and the expiring
+    and lapsed events. Returns how many were queued now; anything an earlier
+    run queued is not queued again."""
+    queued = {"reminders": 0, "digests": 0, "events": 0}
     days = settings.current().reminder_days
     people = db.execute(select(Person).where(Person.active.is_(True))
                         .order_by(Person.name, Person.code)).scalars().all()
@@ -95,6 +113,7 @@ def run(db: Db, today: date, now: datetime | None = None) -> dict[str, int]:
             name = st.competencies[c].name
             if s.status in ("expiring", "lapsed"):
                 items.append(Item(p, name, s.status, s.expires_on))
+                queued["events"] += fire(db, p, st.competencies[c], s, today, now)
             # a reminder day may be further off than "expiring" (30 days)
             if s.status in ("current", "expiring") and s.expires_on is not None and p.email:
                 days_left = (s.expires_on - today).days

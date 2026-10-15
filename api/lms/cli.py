@@ -54,8 +54,8 @@ def cmd_daily_job(args) -> int:
     day = args.on or clock.today()
     with get_sessionmaker()() as db:
         queued = daily.run(db, day)
-    print(f"{day.isoformat()}: {queued['reminders']} reminders and {queued['digests']} digests "
-          "queued; the worker sends them")
+    print(f"{day.isoformat()}: {queued['reminders']} reminders, {queued['digests']} digests "
+          f"and {queued['events']} events queued; the worker sends them")
     return 0
 
 
@@ -84,7 +84,8 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--password", help="prompted for if omitted")
     p.set_defaults(func=cmd_create_user)
 
-    p = sub.add_parser("daily-job", help="queue the reminders (and on a Monday the digests) now")
+    p = sub.add_parser("daily-job", help="queue the reminders, the expiring and lapsed events "
+                                         "(and on a Monday the digests) now")
     p.add_argument("--on", type=_day, help="as if today were this date, YYYY-MM-DD (to try it out)")
     p.set_defaults(func=cmd_daily_job)
 
