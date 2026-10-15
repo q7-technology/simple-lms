@@ -1,6 +1,8 @@
 """Modules, as their editors write them: a draft of pages and a quiz,
 saved in full, then published and frozen. A change after that is a new
 version."""
+from datetime import datetime
+
 import pytest
 
 import yard
@@ -128,7 +130,8 @@ def test_a_save_based_on_what_was_saved_since_is_refused(client, manager_headers
     r = save(client, manager_headers, based_on=opened, pass_mark=70)
     assert r.status_code == 200, r.text
     first = r.json()["saved_at"]
-    assert first > opened
+    # as times, not text: a timestamp on a whole second has no fraction to compare
+    assert datetime.fromisoformat(first) > datetime.fromisoformat(opened)
     r = save(client, manager_headers, based_on=opened, pass_mark=90)
     assert r.status_code == 409 and r.json() == {
         "detail": "the draft was saved by someone else since: reload it", "code": "changed"}
