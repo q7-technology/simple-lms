@@ -15,6 +15,9 @@ dependencies = [
   "alembic>=1.13",
   # the time zone's rules, so "today" is right in a slim image too
   "tzdata>=2024.1",
+  # checks Microsoft's ID tokens (RS256, by the tenant's published keys).
+  # Pinned: it decides who is signed in, so a new version is a choice.
+  "pyjwt[crypto]==2.15.1",
 ]
 
 [project.optional-dependencies]

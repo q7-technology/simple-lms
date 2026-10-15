@@ -277,3 +277,26 @@ def fresh_settings():
     settings.forget()
     yield
     settings.forget()
+
+
+# --- Microsoft Entra ID ---------------------------------------------------------
+
+@pytest.fixture
+def entra(monkeypatch):
+    """Signing in with Microsoft set up as LMS_ENTRA_* would set it, against a
+    Microsoft of the test's own (tests/fake_entra.py): no network."""
+    from fake_entra import CLIENT, PUBLIC_URL, SECRET, TENANT, FakeEntra
+    from lms.config import get_settings
+    from lms.services import entra as service
+
+    settings = get_settings()
+    monkeypatch.setattr(settings, "entra_tenant_id", TENANT)
+    monkeypatch.setattr(settings, "entra_client_id", CLIENT)
+    monkeypatch.setattr(settings, "entra_client_secret", SECRET)
+    monkeypatch.setattr(settings, "public_url", PUBLIC_URL)
+    fake = FakeEntra()
+    monkeypatch.setattr(service, "fetch_json", fake.get)
+    monkeypatch.setattr(service, "post_form", fake.post)
+    service.forget_keys()
+    yield fake
+    service.forget_keys()
