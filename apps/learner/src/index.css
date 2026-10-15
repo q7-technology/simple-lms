@@ -62,6 +62,21 @@
   .pickbox small { color: var(--color-ink-2); font-size: 13px; }
   .ding { background: var(--color-green-bg); color: var(--color-green-ink); border-radius: 18px; padding: 24px 16px; display: flex; flex-direction: column; gap: 6px; text-align: center; }
   .ding b { font-size: 32px; font-weight: 800; }
+  .miss { background: var(--color-amber-bg); color: var(--color-amber-ink); border-radius: 18px; padding: 24px 16px; display: flex; flex-direction: column; gap: 6px; text-align: center; }
+  .miss b { font-size: 32px; font-weight: 800; }
+  .big.ghost { background: #fff; color: var(--color-blue-dark); border: 2px solid var(--color-line-2); }
+  .pair { display: flex; gap: 12px; }
+  .steps { display: flex; flex-direction: column; gap: 6px; font-size: 13px; font-weight: 800; color: var(--color-muted); }
+  .steps .bar { height: 8px; border-radius: 999px; background: var(--color-line); overflow: hidden; }
+  .steps .bar span { display: block; height: 100%; background: var(--color-blue); }
+  .pagetitle { margin: 0; font-size: 20px; font-weight: 800; }
+  .pageimg, .pagevideo { width: 100%; border-radius: 16px; display: block; }
+  .pagevideo { background: #000; }
+  .caption { margin: 0; font-size: 15px; color: var(--color-ink-2); }
+  .question { border: 1px solid var(--color-line); border-radius: 16px; background: #fff; padding: 14px 16px; margin: 0; display: flex; flex-direction: column; gap: 8px; }
+  .question legend { font-size: 16px; font-weight: 800; padding: 0 4px; }
+  .choice { display: flex; align-items: center; gap: 12px; min-height: 48px; padding: 0 12px; border-radius: 12px; border: 1px solid var(--color-line-2); font-size: 16px; cursor: pointer; }
+  .choice input { width: 22px; height: 22px; flex: none; }
 }
 
 /* read aloud, not shown */

@@ -1,6 +1,7 @@
 import { BrowserRouter, Navigate, Outlet, Route, Routes } from "react-router-dom";
 import { SessionProvider, useSession } from "./auth/Session";
 import { AddTicket } from "./pages/AddTicket";
+import { ModulePlayer } from "./pages/ModulePlayer";
 import { MyTraining } from "./pages/MyTraining";
 import { SignPolicy } from "./pages/SignPolicy";
 import { SignIn } from "./pages/SignIn";
@@ -18,6 +19,7 @@ export function AppRoutes() {
         <Route index element={<MyTraining />} />
         <Route path="/sign/:key" element={<SignPolicy />} />
         <Route path="/ticket/:key" element={<AddTicket />} />
+        <Route path="/module/:key" element={<ModulePlayer />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

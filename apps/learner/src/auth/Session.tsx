@@ -9,6 +9,9 @@ interface State {
   signInWithPin: (code: string, pin: string) => Promise<void>;
   signInWithPassword: (email: string, password: string) => Promise<void>;
   signOut: () => void;
+  /** Someone is here though nobody taps: a video playing. Counts as a tap,
+   * here and at the API, unless the idle time has passed already. */
+  stillHere: () => void;
 }
 
 const Ctx = createContext<State | null>(null);
@@ -76,6 +79,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
   // the last tap in any tab on this device: they share one session
   const activeAt = useRef(session?.active_at ?? 0);
+  // what a tap does, for stillHere()
+  const tapped = useRef<() => void>(() => undefined);
 
   useEffect(() => {
     if (!session) return;
@@ -106,6 +111,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     };
     // timers stop while a tablet sleeps, so check again the moment it wakes
     const woke = () => { if (document.visibilityState === "visible") check(); };
+    tapped.current = touch;
     const every = setInterval(check, CHECK_EVERY_MS);
     window.addEventListener("pointerdown", touch, true);
     window.addEventListener("keydown", touch, true);
@@ -114,6 +120,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     document.addEventListener("visibilitychange", woke);
     window.addEventListener("storage", elsewhere);
     return () => {
+      tapped.current = () => undefined;
       window.removeEventListener("storage", elsewhere);
       clearInterval(every);
       window.removeEventListener("pointerdown", touch, true);
@@ -139,8 +146,14 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     signedIn(await api.post<SessionOut>("/v1/auth/login", { email, password }));
   }, [signedIn]);
 
-  const value = useMemo<State>(() => ({ person: session?.person ?? null, signInWithPin, signInWithPassword, signOut }),
-                               [session, signInWithPin, signInWithPassword, signOut]);
+  const stillHere = useCallback(() => {
+    tapped.current();
+    // the API counts idle time too: any request tells it someone is here
+    if (api.token) void api.get("/v1/auth/me").catch(() => undefined);
+  }, []);
+
+  const value = useMemo<State>(() => ({ person: session?.person ?? null, signInWithPin, signInWithPassword, signOut, stillHere }),
+                               [session, signInWithPin, signInWithPassword, signOut, stillHere]);
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
 

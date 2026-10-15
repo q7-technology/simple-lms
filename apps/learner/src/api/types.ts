@@ -51,3 +51,38 @@ export interface Ticket {
   reason: string | null;
   created_at: string;
 }
+
+export interface ModulePage {
+  kind: "text" | "image" | "pdf" | "video" | "link";
+  title: string;
+  body: string | null;
+  url: string | null;
+  /** a picture, PDF or video: `link` opens it without the token, for a few hours */
+  file: { id: string; content_type: string; size_bytes: number; link: string } | null;
+}
+
+export interface Module {
+  key: string;
+  name: string;
+  version: {
+    id: number;
+    version: number;
+    pass_mark: number;
+    pages: ModulePage[];
+    /** never which answer is right: the API marks it */
+    questions: { prompt: string; options: string[] }[];
+  };
+  /** the page to open at; one past the last is the quiz */
+  resume_at: number;
+}
+
+export interface Attempt {
+  id: number;
+  version: number;
+  correct: number;
+  total: number;
+  score: number;
+  pass_mark: number;
+  passed: boolean;
+  created_at: string;
+}
