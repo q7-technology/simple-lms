@@ -6,9 +6,10 @@ in UTC. Interactive docs are at `/docs`.
 ## Shared rules
 
 - **Auth:** `Authorization: Bearer <token>`. A token comes from
-  `POST /v1/auth/login` (email and password) or `POST /v1/auth/pin-login`
-  (code and PIN). The desktop and the learner app use these endpoints and
-  nothing else: the API is the only door.
+  `POST /v1/auth/login` (email and password), `POST /v1/auth/pin-login`
+  (code and PIN) or `POST /v1/auth/entra/finish` (Microsoft). The desktop
+  and the learner app use these endpoints and nothing else: the API is the
+  only door.
 - **Errors:** a missing, ended or unknown token is `401`. Signed in but not
   allowed is `403` with `{ "detail", "code" }`. Validation problems are
   `422` with `{ "errors": [{ "field", "message" }] }`. Something that is not
@@ -35,13 +36,25 @@ in UTC. Interactive docs are at `/docs`.
 policy, sending in a ticket, reading a module and taking its quiz. A
 session signed in with a **PIN** carries
 `training:read` and `training:write` only, whoever it is: a PIN is short, so
-it opens the learner app's own training and nothing more.
+it opens the learner app's own training and nothing more. A session signed
+in with **Microsoft** carries the person's own scopes, as a password does.
 
 A supervisor sees their own team (the people whose supervisor they are); a
 manager or admin sees everyone. Only an admin adds or changes a
 manager or an admin (`403 { "code": "admin_only" }`).
 
 ## Sign in
+
+### GET /v1/auth/methods
+No session needed: what a sign-in page offers. `200
+{ "pin": true, "password": true, "entra": false }`, from Settings
+(`sign_in_pin`, `sign_in_password`, `sign_in_entra`). `entra` is `true` only
+when it is switched on and set up: `LMS_ENTRA_TENANT_ID`,
+`LMS_ENTRA_CLIENT_ID` and `LMS_ENTRA_CLIENT_SECRET` in `.env`, and a web
+address (`public_url`). A way switched off is refused before anything else
+is looked at: `403 { "detail": "Signing in with Microsoft is switched off
+here.", "code": "method_off" }` from `entra/start` and `entra/finish`, as
+from `login` and `pin-login`.
 
 ### POST /v1/auth/login
 `{ "email", "password" }` → `200`
@@ -67,9 +80,45 @@ With email and password sign-in switched off in Settings it is `403 {
 sign-in switched off in Settings it is `403 { "code": "method_off" }`.
 
 A session ends on sign-out, after its idle time without a request (15
-minutes for a PIN, 12 hours for a password), after 12 hours (PIN) or 14 days
-(password) in all, when the person's PIN or password is changed, or when they
-are deactivated.
+minutes for a PIN, 12 hours for a password or Microsoft), after 12 hours
+(PIN or Microsoft) or 14 days (password) in all, when the person's PIN or
+password is changed, or when they are deactivated (a way switched off in
+Settings refuses new sign-ins; sessions already open run their course). A Microsoft session lasts a working day at most because
+Simple LMS hears nothing more from Microsoft once someone is signed in.
+
+### Sign in with Microsoft
+OpenID Connect's authorisation code flow with PKCE, done by the API, for
+either app. The session token never goes in an address.
+
+1. `POST /v1/auth/entra/start` — `{ "app": "desktop" | "learner",
+   "verifier" }` → `200 { "url" }`. `verifier` is a random secret of 32 to
+   128 letters, digits, `-` and `_` that the app keeps in the tab
+   (`sessionStorage`) until step 3; only its hash is kept. The app sends the
+   person to `url`, Microsoft's sign-in page for the tenant
+   (`prompt=login` for the learner app, so a shared tablet always asks for
+   the password; `prompt=select_account` for the desktop).
+2. Microsoft sends them to `GET /v1/auth/entra/callback?code=&state=` (the
+   redirect URI registered in Entra: the web address in Settings, or
+   `LMS_PUBLIC_URL`, then `/v1/auth/entra/callback`).
+   The API swaps the code for an ID token (with the client secret and the
+   PKCE verifier), checks it (signed by a key the tenant publishes, RS256;
+   issuer `…/<tenant>/v2.0`; audience the client id; `exp`, `nbf`, `iat`
+   with a minute's leeway; the nonce it sent; `tid` the configured tenant),
+   and matches the person: by Entra object id (`oid`); else, the first time,
+   by `email` when Microsoft says the tenant owns its domain (`xms_edov`),
+   keeping the object id from then on. Someone matched by nobody, someone
+   deactivated, or someone already linked to another Microsoft account is
+   refused, never added. Either way it answers `303` to the app's sign-in
+   page under the web address, `…/sign-in` or `…/learn/sign-in`, with
+   `#entra=<hand-off code>`, or `#entra_error=` with `not_matched` (ask your
+   manager to add you), `method_off`, or `failed` (anything else: cancelled
+   at Microsoft, more than 10 minutes there, a state used before, a token
+   that doesn't check out). The access log leaves its query string out.
+3. `POST /v1/auth/entra/finish` — `{ "code", "verifier" }` → `200`, the
+   same shape as `login` with `"method": "entra"` and
+   `"idle_seconds": 43200`. A hand-off code works once, within 2 minutes,
+   with the verifier its app started with; otherwise `401 { "detail": "that
+   Microsoft sign-in has finished or expired; try again" }`.
 
 ### POST /v1/auth/logout
 Ends the session whose token is sent. `204`, even if it had already ended.
@@ -104,13 +153,16 @@ The first admin is made on the command line:
   a locked one. Their PIN sessions end.
 - `POST /v1/people/{code}/password` — `{ "password" }`: a new password,
   which also lifts a lock. Their password sessions end.
+- `POST /v1/people/{code}/entra/unlink` — forgets their Microsoft account:
+  their next Microsoft sign-in is matched by email again. Their Microsoft
+  sessions end.
 - `POST /v1/people/{code}/deactivate`, `/reactivate` — deactivating ends
   their sessions; their records stay. Nobody deactivates themselves (`409
   { "code": "self" }`), and someone who still supervises active people is
   `409 { "code": "has_team" }` until their team has another supervisor.
 
-The `pin`, `password`, `deactivate` and `reactivate` calls answer `200` with
-the person.
+The `pin`, `password`, `entra/unlink`, `deactivate` and `reactivate` calls
+answer `200` with the person.
 
 Each person:
 ```json
@@ -118,9 +170,10 @@ Each person:
   "supervisor": { "code": "SV001", "name": "Sam Vu" },
   "roles": [{ "key": "forklift-operator", "name": "Forklift operator" }],
   "active": true, "has_pin": true, "pin_locked": false, "has_password": false,
-  "created_at": "…", "last_login_at": null }
+  "entra_linked": false, "created_at": "…", "last_login_at": null }
 ```
-A PIN or password is never returned.
+A PIN or password is never returned, nor a Microsoft object id:
+`entra_linked` says whether they have signed in with Microsoft.
 
 ## Roles
 
@@ -526,6 +579,7 @@ the domain, the upload folder, Caddy) is in `.env` only.
 | --- | --- | --- | --- |
 | `sign_in_pin` | code and PIN sign-in on | | `true` |
 | `sign_in_password` | email and password sign-in on | | `true` |
+| `sign_in_entra` | Microsoft sign-in on (offered once `LMS_ENTRA_*` and `public_url` are set) | | `true` |
 | `quiz_cooldown_tries` | quiz goes in a row that didn't pass before the wait, 1 to 20 | | `3` |
 | `quiz_cooldown_minutes` | the wait, 0 to 525600 (0: none) | `LMS_QUIZ_COOLDOWN_MINUTES` | `60` |
 | `reminder_days` | whole days 0 to 365, at least one, up to 10 (kept furthest first, each once) | | `[30, 14, 0]` |
@@ -558,9 +612,16 @@ here and clears one in `.env` too. A bad value is `422` on its key (e.g.
 nothing is saved unless every value is good. Who changed each setting last,
 and when, is kept with it.
 
-Switching `sign_in_password` off is `409 { "code": "last_way_in" }` while
-it is the only way an admin can sign in (a PIN session never carries an
-admin's scopes), which until Microsoft Entra sign-in arrives is always. A
+`sign_in_entra` also answers `"set_up"`: whether `LMS_ENTRA_*` and a web
+address are there, so that its button shows when it is on. The tenant id,
+client id and client secret are in `.env` only, never on the screen.
+
+A change that would leave neither email and password nor Microsoft on and
+set up is `409 { "code": "last_way_in" }`: a PIN session never carries an
+admin's scopes, so one of them is the only way an admin can sign in.
+Switching off the way your own session signed in is `409 { "code":
+"own_method" }`: sign in another way first, so passwords are switched off
+from a Microsoft session, which shows Microsoft works for an admin. A
 switched-off method is refused at sign-in (`403 method_off`); sessions
 already open run their course. The `lms` command line never signs in, so it
 works whatever is switched off, and `lms clear-setting <key>` puts any
