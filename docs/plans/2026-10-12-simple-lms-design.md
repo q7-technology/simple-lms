@@ -166,10 +166,14 @@ lapsed, fires the events, and queues the reminders and the Monday digest.
 
 ## Look: Game Mode, like its siblings
 
-- **The desktop is a training yard.** Each role is a small building; each
-  person is a figure beside their role's building, coloured by how current
-  they are. Every screen opens as a drawer over the yard, as in Simple WMS.
-  The matrix is always one click away. Drawn in SVG: no game engine.
+- **The desktop is a classroom**, drawn in the same isometric view as
+  Simple WMS and Simple TMS. Each desk is a role, labelled with its name;
+  the people with that role sit at it, each a figure coloured by how current
+  they are (someone with several roles sits at each of their desks; nobody
+  without a role sits down). The front of the room has the board and the
+  teacher's desk. Every screen opens as a drawer over the classroom, as in
+  Simple WMS. The matrix is always one click away. Drawn in SVG: no game
+  engine.
 - **The learner app is like the scanner.** Big buttons, one thing at a time,
   a "Ding!" on a pass, and a ring for "3 of 5 done".
 - **Game touches are per viewer**, kept in the browser, never on the server.
@@ -202,4 +206,4 @@ Each step is usable before the next starts.
 5. Entra sign-in.
 6. Outward links: webhooks, the competency API, Platen certificates and
    skills cards.
-7. Game Mode: the training yard.
+7. Game Mode: the classroom.
