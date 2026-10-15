@@ -52,7 +52,9 @@ admin unless you give `--permission`.
 **Settings** screen, and they take effect within a few seconds, with no
 restart: sign-in methods (code and PIN, email and password), the quiz wait,
 the reminder days, the daily job's hour and the time zone, the email server
-(with **Send a test email**), and the web address for links in emails.
+(with **Send a test email**), the web address for links in emails, and
+how much a person can send of their own in a day (30 files and 200 MB by
+default).
 Each says where its value comes from: set there, from `.env`, or the
 default; a value set there wins over `.env`, so an install that only has
 `.env` keeps working. What has to be known before Simple LMS starts, or
@@ -166,7 +168,11 @@ the `uploads` volume (tickets' photos, policy signatures and modules'
 pictures, PDFs and videos) along with the database: the records and pages
 name the files in it. Files are written to disk as they arrive, never held
 in memory whole, and Caddy refuses a body bigger than 210 MB on
-`/v1/uploads` (16 MB anywhere else in `/v1`) before the API reads it. A
+`/v1/uploads` (16 MB anywhere else in `/v1`) before the API reads it. So
+that no one session can fill the volume, each person can send only so much
+in any 24 hours: of their own tickets' photos and signatures, 30 files and
+200 MB (set on the Settings screen, under **Uploads**); of module files, 200
+files and 5 GB. Past that, the API says when they can send more. A
 module's files open by links Simple LMS signs for each session, so a
 session's token never goes in a URL, and the API's access log leaves out a
 link's signature.

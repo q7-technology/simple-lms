@@ -15,6 +15,7 @@ from starlette.concurrency import run_in_threadpool
 
 from lms.api.deps import DB, Principal, Who
 from lms.api.errors import Forbidden, NotFound
+from lms.api.routes.records import one_at_a_time
 from lms.models import Person, Upload
 from lms.services import uploads
 
@@ -37,12 +38,17 @@ def upload_out(row: Upload) -> UploadOut:
                      size_bytes=row.size_bytes, created_at=row.created_at)
 
 
-def sender(who: Who, purpose: Purpose = Query()) -> Principal:
-    """Your own training's files for anyone; a module's for its editors.
-    Checked before a byte of the body is read."""
+def sender(who: Who, db: DB, request: Request, purpose: Purpose = Query()) -> Principal:
+    """Your own training's files for anyone; a module's for its editors;
+    and no more than a day's worth (429). Checked before a byte of the body
+    is read."""
     scope = uploads.SENDERS[purpose]
     if not who.has_scope(scope):
         raise Forbidden(f"you do not have the {scope} scope")
+    declared = request.headers.get("content-length", "")
+    uploads.check_room(db, who.person, purpose, int(declared) if declared.isdigit() else 1)
+    # nothing held open while the body comes
+    db.commit()
     return who
 
 
@@ -72,7 +78,15 @@ def send_file(db: DB, who: Principal = Depends(sender),
     """The file as the body (what counts is its first bytes, not its
     Content-Type). The caller is checked before the body is read
     (dependencies run in order)."""
-    row = uploads.store(db, who.person, file)
+    # and again once it is all here, with the sender locked, so files sent
+    # at once can't all slip in under the day's limit
+    person = one_at_a_time(db, who.person.code)
+    try:
+        uploads.check_room(db, person, file.purpose, file.size)
+    except BaseException:
+        file.discard()
+        raise
+    row = uploads.store(db, person, file)
     try:
         db.commit()
     except BaseException:

@@ -23,6 +23,8 @@ const SETTINGS: Settings = {
   smtp_from: { value: "Simple LMS <lms@example.com.au>", source: "here" },
   smtp_security: { value: "starttls", source: "default" },
   public_url: { value: "", source: "default" },
+  upload_files_per_day: { value: 30, source: "default" },
+  upload_mb_per_day: { value: 200, source: "default" },
 };
 
 /** Settings as the API has them; a PUT answers `put` (or the settings, changed). */
@@ -169,5 +171,19 @@ describe("settings", () => {
     await waitFor(() => expect(puts(calls)).toEqual([{ public_url: "https://lms.example.com.au" }]));
     await userEvent.click(await within(web).findByRole("button", { name: /Use .env or the default/ }));
     await waitFor(() => expect(puts(calls).at(-1)).toEqual({ public_url: null }));
+  });
+
+  it("sets how much a person can send in a day", async () => {
+    const { calls } = stubSettings();
+    renderApp("/settings");
+    const up = await section("Uploads");
+    const files = await within(up).findByLabelText("Files a person can send in a day");
+    const mb = within(up).getByLabelText("MB a person can send in a day");
+    expect(files).toHaveValue(30);
+    expect(mb).toHaveValue(200);
+    await userEvent.clear(mb);
+    await userEvent.type(mb, "500");
+    await userEvent.click(within(up).getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(puts(calls)).toEqual([{ upload_mb_per_day: 500 }]));
   });
 });

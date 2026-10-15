@@ -297,6 +297,20 @@ random id, and written to disk as they arrive (never held in memory whole).
   read. In front of the API, Caddy refuses a body over 210 MB on
   `/v1/uploads` (and over 16 MB anywhere else in `/v1`) with its own `413`,
   before the API sees it.
+
+  Each person may send so much in any 24 hours, counted from the files kept
+  (a file refused isn't counted): of their own (`ticket` and `signature`
+  together), 30 files and 200 MB by default (`upload_files_per_day` and
+  `upload_mb_per_day` in Settings); of module files (the `page-` purposes
+  together), 200 files and 5 GB. Past that is `429 { "code":
+  "too_many_uploads", "detail": "You've sent 30 files in the last 24
+  hours, the most for a day. You can send more after 2:15 pm." }` (the time
+  in the Settings time zone, with the day when it isn't today; a
+  `Retry-After` header in seconds), before the body is read: a body whose
+  `Content-Length` would go past the day's megabytes too ("That would take
+  you past the 200 MB a person can send in a day. …"; one bigger than a
+  whole day's has no time to wait for). Checked again, with the sender
+  locked, once the body is in, so files sent at once can't slip past.
 - `GET /v1/uploads/{id}` — the file. Any signed-in session may ask (a PIN
   one too), but only someone who may see the file's owner gets it: that
   person, their supervisor, and managers and admins. Anyone else gets `404`
@@ -543,6 +557,8 @@ the domain, the upload folder, Caddy) is in `.env` only.
 | `smtp_from` | e.g. `Simple LMS <lms@example.com.au>` | `LMS_SMTP_FROM` | `""` |
 | `smtp_security` | `starttls`, `ssl` or `none` | `LMS_SMTP_SECURITY` | `"starttls"` |
 | `public_url` | `https://…` (or `http://`), no trailing slash, or `""` | `LMS_PUBLIC_URL` | `""` |
+| `upload_files_per_day` | files a person can send of their own (tickets, signatures) in 24 hours, 1 to 100000 | | `30` |
+| `upload_mb_per_day` | megabytes of them, 1 to 1000000 | | `200` |
 
 ### GET /v1/settings
 → `200`, every key: `{ "value", "source" }`, where `source` is `here`,
