@@ -16,7 +16,8 @@ in UTC. Interactive docs are at `/docs`.
   not possible as things stand is `409` with `{ "detail", "code" }`.
 - **Never deleted:** people and competencies are deactivated, not deleted.
   The training record and the extras and waivers are append-only: the latest
-  row for a person and competency is the one that counts.
+  row for a person and competency is the one that counts. Every quiz attempt
+  is kept, and a module version is frozen once it is published.
 - **Codes and keys:** a person's code is kept upper case (`ll042` finds
   `LL042`); role and competency keys are kept lower case. Emails are kept
   lower case.
@@ -31,7 +32,8 @@ in UTC. Interactive docs are at `/docs`.
 | `admin` | `*` |
 
 `training:write` is doing your own training: sending a file, signing a
-policy, sending in a ticket. A session signed in with a **PIN** carries
+policy, sending in a ticket, reading a module and taking its quiz. A
+session signed in with a **PIN** carries
 `training:read` and `training:write` only, whoever it is: a PIN is short, so
 it opens the learner app's own training and nothing more.
 
@@ -149,8 +151,8 @@ where `people` is how many people have the role.
 
 Each competency: `{ "id", "key", "name", "kind", "refresher_months", "card_expires", "active", "created_at" }`.
 Every kind can still be recorded by hand. Policies are signed in the
-learner app and tickets sent in from it (below); modules and practicals get
-their own ways in with later build steps.
+learner app, tickets sent in from it and modules taken in it (below);
+practicals get their own way in with a later build step.
 
 ## Extras and waivers
 
@@ -176,11 +178,13 @@ their own ways in with later build steps.
      "kind": "granted", "granted_on": "2026-03-01", "expires_on": "2031-03-01",
      "note": "LF 0012345, sighted", "recorded_by": { "code": "MG001", "name": "Mel Grant" },
      "policy_version": null, "signed_name": null, "signature": null, "ticket": null,
-     "created_at": "…" }]
+     "quiz": null, "created_at": "…" }]
   ```
   `policy_version` is the policy version a grant is for; `signed_name` and
   `signature` (an upload id) are there when it was signed in the learner
-  app; `ticket` is the ticket's id when a manager approved one.
+  app; `ticket` is the ticket's id when a manager approved one; `quiz` is
+  `{ "version", "score", "pass_mark" }` when the person passed a module's
+  quiz (recorded as theirs).
 - `POST /v1/people/{code}/records` (`records:write`) — `{ "competency",
   "granted_on", "expires_on"?, "note"? }` → `201`. `granted_on` can't be in
   the future; `expires_on` (the last good day, e.g. a ticket's card date)
@@ -253,32 +257,154 @@ The learner app shows it as Overdue (`lapsed`, `missing`), Due soon
 
 ## Files
 
-Tickets' photos (or a PDF) and policy signatures. Sent before the ticket or
-signature that names them; kept on the host under `LMS_UPLOAD_DIR`
-(`/data/uploads`), named by a random id.
+Tickets' photos (or a PDF), policy signatures, and a module page's
+picture, PDF or video. Sent before the ticket, signature or page that names
+them; kept on the host under `LMS_UPLOAD_DIR` (`/data/uploads`), named by a
+random id, and written to disk as they arrive (never held in memory whole).
 
-- `POST /v1/uploads?purpose=ticket|signature` (`training:write`) — the file
-  as the request body (any `Content-Type`: what counts is its first bytes)
-  → `201 { "id", "purpose", "content_type", "size_bytes", "created_at" }`.
-  A ticket may be a JPEG, PNG or PDF of up to 20 MB; a signature a PNG of
-  up to 1 MB. Anything else is `415 { "code": "unsupported_type" }`. Bigger
-  than its purpose allows is `413 { "code": "too_large" }`: before the body
-  is read when its `Content-Length` says so, and otherwise as soon as the
-  body passes the limit (it is never read further). An unknown purpose is
-  `422`, before any of the body is read.
+- `POST /v1/uploads?purpose=…` — the file as the request body (any
+  `Content-Type`: what counts is its first bytes) → `201 { "id", "purpose",
+  "content_type", "size_bytes", "created_at" }`.
+
+  | Purpose | Who (scope) | What it may be | Up to |
+  | --- | --- | --- | --- |
+  | `ticket` | `training:write` | JPEG, PNG or PDF | 20 MB |
+  | `signature` | `training:write` | PNG | 1 MB |
+  | `page-image` | `competencies:write` | JPEG or PNG | 20 MB |
+  | `page-pdf` | `competencies:write` | PDF | 20 MB |
+  | `page-video` | `competencies:write` | MP4 or WebM | 200 MB |
+
+  An MP4 is one whose `ftyp` box names a major brand of `isom`, `iso2`,
+  `iso4`, `iso5`, `iso6`, `mp41`, `mp42`, `avc1`, `dash` or `M4V `; a WebM
+  one whose EBML header's DocType is `webm`.
+  Anything else is `415 { "code": "unsupported_type" }` (a QuickTime `.mov`,
+  a Matroska `.mkv` or a HEIC photo too: most browsers won't play them, so
+  convert to MP4 or JPEG first; videos play as uploaded, with no
+  transcoding). Bigger than its
+  purpose allows is `413 { "code": "too_large" }`: before the body is read
+  when its `Content-Length` says so, and otherwise as soon as the body
+  passes the limit (it is never read further). An unknown purpose is `422`,
+  and a purpose the caller may not send `403`, before any of the body is
+  read. In front of the API, Caddy refuses a body over 210 MB on
+  `/v1/uploads` (and over 16 MB anywhere else in `/v1`) with its own `413`,
+  before the API sees it.
 - `GET /v1/uploads/{id}` — the file. Any signed-in session may ask (a PIN
   one too), but only someone who may see the file's owner gets it: that
   person, their supervisor, and managers and admins. Anyone else gets `404`
   (and so does a file missing from disk). Sent with `Cache-Control: private, no-store`,
   `Content-Security-Policy: default-src 'none'; sandbox`,
   `X-Content-Type-Options: nosniff` and `Content-Disposition:
-  <how>; filename="<id>.<ext>"`, where `<how>` is `inline` for an image and
-  `attachment` for a PDF (which shows blank under the sandbox, so it is
-  saved instead).
+  <how>; filename="<id>.<ext>"`, where `<how>` is `inline` for an image or
+  a video and `attachment` for a PDF (which shows blank under the sandbox,
+  so it is saved instead). Sent from disk a piece at a time, never read
+  into memory whole.
 
 A ticket or signature may only name the caller's own uploads of the right
 purpose. Each upload goes on one record or ticket only: the database holds
 each signature to one record and each photo to one ticket.
+
+- `GET /v1/media/{id}?session=&expires=&sig=` — a module page's file, by
+  the link the API puts in the page (`file.link`, below). No token: an
+  `<img>`, a `<video>` or a new tab can't send one, and a token never goes
+  in a URL. The link names one file and the session it was made for, and
+  is signed with that session's secret; it lasts 6 hours or until the
+  session ends (signed out, idle, or too old, or its person deactivated),
+  whichever is first, and opening it counts as using the session. Each
+  page's file gets its own link, made fresh for the session asking. Ranges are honoured
+  (`Accept-Ranges: bytes`, `206` with `Content-Range`, `416` past the end),
+  so a phone can seek a video. Sent with the type its first bytes say,
+  `Cache-Control: private, no-store`, `Content-Security-Policy: default-src
+  'none'; sandbox`, `nosniff`, and `inline` (a picture or video) or
+  `attachment` (a PDF). A wrong, expired or ended link is `404`, as is a
+  link to anything that is not a page's file; one whose `session`,
+  `expires` or `sig` is malformed or out of range is `422`. The API's
+  access log leaves out a media link's query, so the logs never hold a
+  link that opens a file.
+
+## Modules
+
+A module is a competency of kind `module`: a version of pages (text, a
+picture, a PDF, a video or a link), then a multiple-choice quiz with a pass
+mark. One draft at a time is written and saved in full as often as needed,
+then published, which freezes it: its pages, questions and pass mark never
+change again (the database refuses), so an attempt is always marked
+against what was asked. A change after that is a new version, started as a
+copy of the last. People take the newest published version; a new version
+asks nobody to take it again (passes so far still count). The database also
+holds an attempt to a published version, and a grant from a quiz to a
+passing attempt by the same person for the same competency.
+
+Each version, as its editors see it (`correct` is only there for them):
+```json
+{ "id": 3, "version": 2, "pass_mark": 80, "published_at": null, "published_by": null,
+  "pages": [
+    { "kind": "text", "title": "Welcome", "body": "Sign in at the gatehouse.", "url": null, "file": null },
+    { "kind": "video", "title": "Lifting safely", "body": null, "url": null,
+      "file": { "id": "…", "content_type": "video/mp4", "size_bytes": 48211234,
+                "link": "/v1/media/…?session=…&expires=…&sig=…" } },
+    { "kind": "link", "title": "SafeWork", "body": null, "url": "https://www.safework.nsw.gov.au", "file": null }],
+  "questions": [{ "prompt": "Where do you sign in?", "options": ["The gatehouse", "The canteen"], "correct": 0 }],
+  "created_at": "…" }
+```
+
+- `GET /v1/modules/{key}/versions` (`competencies:read`) — newest first: the
+  draft, if there is one, then those published. With the right answers
+  (`correct`) only for a caller with `competencies:write`: anyone else (a
+  supervisor, who may yet sit it) gets the questions without them.
+- `POST /v1/modules/{key}/draft` (`competencies:write`) → `201`, the next
+  version: a copy of the newest published one, or empty with a pass mark of
+  80. One at a time (`409 { "code": "draft_exists" }`). A deactivated
+  module is `409 { "code": "inactive" }`.
+- `PUT /v1/modules/{key}/draft` (`competencies:write`) — the draft in full,
+  replacing what was there: `{ "pass_mark": 1–100, "pages": [{ "kind",
+  "title", "body"?, "file"?, "url"? }], "questions": [{ "prompt", "options",
+  "correct" }] }` → `200`. A text page needs its `body` (plain text; line
+  breaks are kept, nothing else is formatting); a picture, PDF or video page
+  needs `file`, an upload of purpose `page-image`, `page-pdf` or
+  `page-video`; a link page needs `url`, an `https://` or `http://` address
+  with a site in it (no spaces).
+  On the others `body` is an optional line or two under it. A question has
+  2 to 6 answers, and `correct` (counting from 0) is one of them. Up to 100
+  pages and 50 questions. Anything amiss is `422` on that field (e.g.
+  `pages.2.file`). No draft is `404`; one published meanwhile is `409 {
+  "code": "published" }`.
+- `POST /v1/modules/{key}/draft/publish` (`competencies:write`) → `200`,
+  frozen, and the one people take from now. It needs a page and a question
+  (`409 { "code": "incomplete" }`). A deactivated module is `409 { "code":
+  "inactive" }`, checked once the module is locked, so one deactivated
+  meanwhile is never published; one published meanwhile is `409 { "code":
+  "published" }`.
+- `GET /v1/modules/{key}` (`training:read`) — the version to take now, as
+  the learner sees it: `{ "key", "name", "version": { "id", "version",
+  "pass_mark", "pages": [ … ], "questions": [{ "prompt", "options" }] },
+  "resume_at" }`. Never which answer is right. `resume_at` is the page they
+  left off at (counting from 0; one past the last page is the quiz), on any
+  device; `0` for a version they haven't opened. `404` until a version is
+  published.
+- `PUT /v1/modules/{key}/progress` (`training:write`) — `{ "version",
+  "page" }` → `204`: where the caller is now, theirs alone. Kept on the
+  server, so nothing of theirs stays on a shared tablet. A page past the
+  quiz is `422`. Only the newest published version takes progress (below).
+- `POST /v1/modules/{key}/attempts` (`training:write`) — your own go at the
+  quiz: `{ "version", "answers": [ … ] }`, one answer per question in order,
+  counting from 0 → `201 { "id", "competency", "version", "correct",
+  "total", "score", "pass_mark", "passed", "created_at" }`. Marked here:
+  `score` is out of 100, rounded down, and a pass is a score of at least the
+  pass mark. Every attempt is kept, pass or fail; try again as often as
+  needed. A pass is a grant from today, recorded as the learner's own (the
+  one thing anybody earns alone), and the competency's refresher, if any,
+  says when it runs out; it also starts the module from the top next time.
+  Not one answer per question is `422` on `answers`, and one out of range
+  on that answer (e.g. `answers.3`); a deactivated module is `409 {
+  "code": "inactive" }`.
+- `GET /v1/people/{code}/attempts?competency=` (`training:read`; your own,
+  your team's, or anyone's for a manager; anyone else is `404`) — every
+  attempt, newest first, in the shape above.
+
+`version` is the one the learner read: if a newer one was published
+meanwhile, progress and attempts are `409 { "code": "new_version" }`, and
+they start the new one. A key that is not a module is `404` on all of these,
+and so are reading, progress and attempts before a version is published.
 
 ## Policies
 
