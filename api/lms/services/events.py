@@ -115,3 +115,15 @@ def revoked(db: Db, r: CompetencyRecord) -> uuid.UUID:
         "status": status_now(db, r.person_id, r.competency_id).status,
         "recorded_by": person_ref(db.get(Person, r.recorded_by_id)),
     })
+
+
+def person_updated(db: Db, p: Person) -> uuid.UUID:
+    """person.updated: what another system keeps about a person, as it is
+    now. Added, details changed, roles changed, deactivated or back; never
+    a PIN or password."""
+    return emit(db, "person.updated", {"person": {
+        "code": p.code, "name": p.name, "email": p.email, "permission": p.permission,
+        "active": p.active,
+        "supervisor": person_ref(p.supervisor) if p.supervisor else None,
+        "roles": [{"key": r.key, "name": r.name} for r in p.roles],
+    }})

@@ -62,11 +62,15 @@ class Forbidden(Exception):
         super().__init__(message)
 
 
-def commit_unique(db, taken: dict[str, FieldError]) -> None:
+def commit_unique(db, taken: dict[str, FieldError], before=None) -> None:
     """Commit, as the check before it said was fine. Two requests at once can
     both pass that check; the one that loses to a unique constraint named in
-    `taken` gets that constraint's field error, as if the check had caught it."""
+    `taken` gets that constraint's field error, as if the check had caught it.
+    `before` runs first, inside the same guard: something that flushes, such
+    as queuing an event about the change."""
     try:
+        if before is not None:
+            before()
         db.commit()
     except IntegrityError as e:
         db.rollback()

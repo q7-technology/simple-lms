@@ -17,7 +17,7 @@ from lms.api.schemas import (
     CODE, EMAIL, PIN, Page, PersonRef, RoleRef, normal_code, normal_key, person_ref, role_ref,
 )
 from lms.models import Person, PersonRole, Role
-from lms.services import access, sessions
+from lms.services import access, events, sessions
 
 router = APIRouter(tags=["people"])
 
@@ -175,7 +175,8 @@ def create_person(body: PersonIn, db: DB, who: Principal = require("people:write
     p.roles = _roles(db, body.roles)
     db.add(p)
     commit_unique(db, {"uq_person_code": code_taken,
-                       "uq_person_email": _email_taken(body.email)})
+                       "uq_person_email": _email_taken(body.email)},
+                  before=lambda: events.person_updated(db, p))
     db.refresh(p)
     return JSONResponse(status_code=201, content=person_out(p).model_dump(mode="json"))
 
@@ -224,7 +225,8 @@ def update_person(code: str, body: PersonPatch, db: DB, who: Principal = require
         p.permission = body.permission
     if "supervisor" in body.model_fields_set:
         p.supervisor = _supervisor(db, body.supervisor, p) if body.supervisor else None
-    commit_unique(db, {"uq_person_email": _email_taken(body.email)})
+    commit_unique(db, {"uq_person_email": _email_taken(body.email)},
+                  before=lambda: events.person_updated(db, p))
     return person_out(p)
 
 
@@ -234,6 +236,7 @@ def set_roles(code: str, body: RolesIn, db: DB, who: Principal = require("people
     p = get_person(db, code)
     may_manage(who, p.permission)
     p.roles = _roles(db, body.roles)
+    events.person_updated(db, p)
     db.commit()
     db.refresh(p)
     return person_out(p)
@@ -276,6 +279,7 @@ def deactivate_person(code: str, db: DB, who: Principal = require("people:write"
     _keeps_no_team(db, p)
     p.active = False
     sessions.end_all(db, p)
+    events.person_updated(db, p)
     db.commit()
     return person_out(p)
 
@@ -285,5 +289,6 @@ def reactivate_person(code: str, db: DB, who: Principal = require("people:write"
     p = get_person(db, code)
     may_manage(who, p.permission)
     p.active = True
+    events.person_updated(db, p)
     db.commit()
     return person_out(p)
