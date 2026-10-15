@@ -1,4 +1,4 @@
-import { screen, within } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { Matrix, MatrixRow, Person } from "../api/types";
 import { GAME_PREFS_KEY } from "../lib/gamePrefs";
@@ -125,5 +125,57 @@ describe("the classroom", () => {
     renderApp("/");
     expect(await screen.findByRole("heading", { name: "Matrix" })).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Classroom" })).not.toBeInTheDocument();
+  });
+});
+
+describe("screens over the classroom", () => {
+  it("opens each screen as a drawer over the classroom, named as the bar names it", async () => {
+    stubRoom();
+    renderApp("/people");
+    const drawer = await screen.findByRole("region", { name: "People" });
+    expect(within(drawer).getByRole("heading", { name: "People" })).toBeInTheDocument();
+    // keyboard users start in the drawer, at the way back
+    const back = screen.getByRole("link", { name: "Back to the classroom" });
+    expect(back).toHaveFocus();
+    // the bar stays: the matrix is one click away
+    expect(within(screen.getByRole("navigation", { name: "Screens" })).getByRole("link", { name: "Matrix" })).toBeInTheDocument();
+    await userEvent.click(back);
+    expect(screen.getByTestId("where")).toHaveTextContent(/^\/$/);
+    expect(await screen.findByRole("heading", { name: "Classroom" })).toHaveFocus();
+  });
+
+  it("goes back to the classroom on Escape, once a drawer inside it has closed", async () => {
+    stubApi((_m, url) => {
+      if (url.startsWith("/v1/matrix")) return json(200, ROOM);
+      if (url === "/v1/roles") return json(200, { items: [], total: 0 });
+      if (url.startsWith("/v1/people/LL042/records")) return json(200, []);
+      return null;
+    });
+    renderApp("/matrix");
+    await userEvent.click(await screen.findByRole("button", { name: "Kim Lee, Forklift licence: Missing" }));
+    expect(await screen.findByRole("dialog", { name: "Forklift licence" })).toBeInTheDocument();
+    await userEvent.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(screen.getByTestId("where")).toHaveTextContent("/matrix");
+    await userEvent.keyboard("{Escape}");
+    expect(screen.getByTestId("where")).toHaveTextContent(/^\/$/);
+  });
+
+  it("gives focus back to the desk that opened the screen", async () => {
+    stubRoom();
+    renderApp("/");
+    await userEvent.click(await screen.findByRole("link", { name: /^Picker: / }));
+    await screen.findByRole("region", { name: "Matrix" });
+    await userEvent.click(screen.getByRole("link", { name: "Back to the classroom" }));
+    await waitFor(() => expect(screen.getByRole("link", { name: /^Picker: / })).toHaveFocus());
+  });
+
+  it("keeps each screen a page of its own with Game Mode off", async () => {
+    window.localStorage.setItem(GAME_PREFS_KEY, '{"classroom":false}');
+    stubRoom();
+    renderApp("/people");
+    expect(await screen.findByRole("heading", { name: "People" })).toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "People" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Back to the classroom" })).not.toBeInTheDocument();
   });
 });

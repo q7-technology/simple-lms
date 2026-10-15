@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../api/client";
 import type { Matrix } from "../api/types";
@@ -8,6 +8,7 @@ import type { Tone } from "../lib/status";
 import { useLoad } from "../lib/useLoad";
 import { ClassroomPicture } from "../ui/ClassroomArt";
 import { Problem } from "../ui/Drawer";
+import { rememberOpener, takeReturnFocus } from "../ui/focusReturn";
 
 const KEY: Tone[] = ["green", "amber", "red", "grey"];
 
@@ -26,11 +27,29 @@ export function Classroom() {
   const headcount = matrix.data?.people.length ?? 0;
   const seesPeople = can("people:read");
 
+  // back from a screen's drawer: focus goes to the desk or person that
+  // opened it, once they are drawn, and to the heading meanwhile
+  const back = useRef<string | null | undefined>(undefined);
+  const root = useRef<HTMLElement>(null);
+  const heading = useRef<HTMLHeadingElement>(null);
+  useEffect(() => {
+    const taken = takeReturnFocus();
+    if (taken !== undefined) back.current = taken;
+  }, []);
+  useEffect(() => {
+    if (back.current === undefined) return;
+    const key = back.current;
+    const opener = key ? root.current?.querySelector<HTMLElement>(`[data-return-focus="${CSS.escape(key)}"]`) : null;
+    (opener ?? heading.current)?.focus();
+    if (opener || !key || desks) back.current = undefined;
+  }, [desks]);
+
   return (
-    <main className="classroom">
+    <main className="classroom" ref={root}
+          onClickCapture={(e) => rememberOpener((e.target as HTMLElement).closest<HTMLElement>("[data-return-focus]")?.dataset.returnFocus ?? null)}>
       <div className="flex flex-wrap items-end gap-3">
         <div className="mr-auto flex flex-col gap-1">
-          <h1>Classroom</h1>
+          <h1 ref={heading} tabIndex={-1}>Classroom</h1>
           {all && headcount > 0 && <div className="small">{people(headcount)}: {tallyWords(all)}</div>}
           {standing.length > 0 && (
             <div className="small">
@@ -62,7 +81,7 @@ export function Classroom() {
               const more = d.people.length - SEATS;
               return (
                 <li key={d.key}>
-                  <Link to={`/matrix?role=${encodeURIComponent(d.key)}`} className="desktag"
+                  <Link to={`/matrix?role=${encodeURIComponent(d.key)}`} className="desktag" data-return-focus={`desk-${d.key}`}
                         style={over(desks.length, spot.x + DESK.w / 2, spot.y, 70)}
                         aria-label={`${d.name}: ${people(d.people.length)}, ${words}. Open in the matrix`}>
                     {d.name}{more > 0 && <span className="more">+{more}</span>}
@@ -74,7 +93,7 @@ export function Classroom() {
                         return (
                           <li key={p.code}>
                             <Link to={`/people?person=${encodeURIComponent(p.code)}`} className="seat"
-                                  style={over(desks.length, seat.x, seat.y, 18)}
+                                  data-return-focus={`person-${d.key}-${p.code}`} style={over(desks.length, seat.x, seat.y, 18)}
                                   aria-label={`${p.name}: ${TONE_WORDS[p.tone]}`} title={`${p.name}: ${TONE_WORDS[p.tone]}`} />
                           </li>
                         );

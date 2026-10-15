@@ -80,3 +80,13 @@ export function ClassroomPicture({ desks }: { desks: Desk[] }) {
     </svg>
   );
 }
+
+const EMPTY: Desk[] = ["a", "b", "c", "d", "e", "f"].map((key) => ({
+  key, name: "", people: [], tally: { red: 0, amber: 0, green: 0, grey: 0 },
+}));
+
+/** Behind a screen's drawer: the classroom with its desks and nobody at
+ * them, so nothing of anyone's shows through. */
+export function ClassroomBackdrop() {
+  return <div className="backdrop" aria-hidden="true"><ClassroomPicture desks={EMPTY} /></div>;
+}
