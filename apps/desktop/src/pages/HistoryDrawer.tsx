@@ -107,6 +107,9 @@ export function HistoryDrawer({ person, competency, cell, today, onClose, onChan
                 : <>For version {r.policy_version}</>}</div>
             )}
             {r.signature && <Picture upload={r.signature} label={`${person.name}'s signature`} width={200} />}
+            {r.quiz && (
+              <div className="text-sm">Passed the quiz on version {r.quiz.version} with {r.quiz.score}% (pass mark {r.quiz.pass_mark}%)</div>
+            )}
             {r.note && <div className="text-sm">{r.note}</div>}
             <div className="small">by {r.recorded_by.name} · {formatDate(r.created_at.slice(0, 10))}</div>
           </div>

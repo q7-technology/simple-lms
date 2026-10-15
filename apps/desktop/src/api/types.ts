@@ -90,6 +90,8 @@ export interface CompetencyRecord {
   signature: string | null;
   /** a ticket a manager checked: its submission's id */
   ticket: number | null;
+  /** a module passed in the learner app: the version, the score and the pass mark */
+  quiz: { version: number; score: number; pass_mark: number } | null;
   created_at: string;
 }
 

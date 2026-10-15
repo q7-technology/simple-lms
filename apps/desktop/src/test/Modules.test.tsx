@@ -182,3 +182,29 @@ describe("a module's pages and quiz", () => {
     expect(within(within(drawer).getByRole("group", { name: "Page 2" })).getByText("MP4 · 12.3 MB")).toBeInTheDocument();
   });
 });
+
+describe("a module passed", () => {
+  it("shows in the history with its score, recorded as the learner's own", async () => {
+    const matrix = {
+      today: "2026-10-12", competencies: [{ key: "site-induction", name: "Site induction", kind: "module" }],
+      people: [{ code: "LL042", name: "Kim Lee", roles: [], supervisor: null,
+                 cells: { "site-induction": { status: "current", granted_on: "2026-10-12", expires_on: "2028-10-12" } } }],
+    };
+    const passed = {
+      id: 9, competency: matrix.competencies[0], kind: "granted", granted_on: "2026-10-12", expires_on: null, note: null,
+      recorded_by: { code: "LL042", name: "Kim Lee" }, policy_version: null, signed_name: null, signature: null,
+      ticket: null, quiz: { version: 1, score: 100, pass_mark: 80 }, created_at: "2026-10-12T01:00:00Z",
+    };
+    stubApi((_m, url) => {
+      if (url.startsWith("/v1/matrix")) return json(200, matrix);
+      if (url === "/v1/roles") return json(200, { items: [], total: 0 });
+      if (url.startsWith("/v1/people/LL042/records")) return json(200, [passed]);
+      return null;
+    });
+    renderApp("/");
+    await userEvent.click(await screen.findByRole("button", { name: /Kim Lee, Site induction/ }));
+    const drawer = await screen.findByRole("dialog", { name: "Site induction" });
+    expect(await within(drawer).findByText("Passed the quiz on version 1 with 100% (pass mark 80%)")).toBeInTheDocument();
+    expect(within(drawer).getByText(/by Kim Lee/)).toBeInTheDocument();
+  });
+});
