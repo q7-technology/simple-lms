@@ -51,6 +51,8 @@ def upgrade() -> None:
         sa.PrimaryKeyConstraint("id", name=op.f("pk_module_version")),
         sa.UniqueConstraint("competency_id", "version",
                             name=op.f("uq_module_version_competency_id_version")),
+        # what an attempt or progress names as its module and version agree
+        sa.UniqueConstraint("id", "competency_id", name=op.f("uq_module_version_id_competency_id")),
     )
     op.create_index(op.f("ix_module_version_competency_id"), "module_version", ["competency_id"])
     # one draft at a time for a module
@@ -132,7 +134,8 @@ def upgrade() -> None:
                                 name=op.f("fk_quiz_attempt_person_id_person")),
         sa.ForeignKeyConstraint(["competency_id"], ["competency.id"],
                                 name=op.f("fk_quiz_attempt_competency_id_competency")),
-        sa.ForeignKeyConstraint(["module_version_id"], ["module_version.id"],
+        sa.ForeignKeyConstraint(["module_version_id", "competency_id"],
+                                ["module_version.id", "module_version.competency_id"],
                                 name=op.f("fk_quiz_attempt_module_version_id_module_version")),
         sa.PrimaryKeyConstraint("id", name=op.f("pk_quiz_attempt")),
     )
@@ -152,7 +155,8 @@ def upgrade() -> None:
                                 name=op.f("fk_module_progress_person_id_person")),
         sa.ForeignKeyConstraint(["competency_id"], ["competency.id"],
                                 name=op.f("fk_module_progress_competency_id_competency")),
-        sa.ForeignKeyConstraint(["module_version_id"], ["module_version.id"],
+        sa.ForeignKeyConstraint(["module_version_id", "competency_id"],
+                                ["module_version.id", "module_version.competency_id"],
                                 name=op.f("fk_module_progress_module_version_id_module_version")),
         sa.PrimaryKeyConstraint("person_id", "competency_id", name=op.f("pk_module_progress")),
     )
@@ -162,6 +166,8 @@ def upgrade() -> None:
                           "competency_record", "quiz_attempt", ["quiz_attempt_id"], ["id"])
     op.create_unique_constraint(op.f("uq_competency_record_quiz_attempt_id"),
                                 "competency_record", ["quiz_attempt_id"])
+    op.create_check_constraint(op.f("ck_competency_record_quiz_grant"), "competency_record",
+                               "quiz_attempt_id is null or kind = 'granted'")
 
     # Every attempt is kept as it was (rule 1).
     op.execute("create trigger quiz_attempt_append_only before update or delete "
@@ -188,11 +194,16 @@ def upgrade() -> None:
     """)
     op.execute("create trigger module_version_publish_once before update or delete "
                "on module_version for each row execute function publish_once()")
-    # Pages and questions change only while their version is a draft.
+    # Pages and questions change only while their version is a draft. The
+    # version is locked first: publishing updates it, so a page sent while
+    # it is being published waits, then sees it published.
     op.execute("""
         create or replace function draft_only() returns trigger
         language plpgsql as $$
         begin
+            perform 1 from module_version v
+                where v.id in (old.module_version_id, new.module_version_id)
+                order by v.id for share;
             if exists (select 1 from module_version v
                        where v.id in (old.module_version_id, new.module_version_id)
                          and v.published_at is not null) then
@@ -209,15 +220,69 @@ def upgrade() -> None:
     for table in DRAFT_ONLY:
         op.execute(f"create trigger {table}_draft_only before insert or update or delete "
                    f"on {table} for each row execute function draft_only()")
+    # An attempt is at a published version: a draft's questions may yet
+    # change. Published is for good, so there is nothing to wait for.
+    op.execute("""
+        create or replace function published_only() returns trigger
+        language plpgsql as $$
+        begin
+            if not exists (select 1 from module_version v
+                           where v.id = new.module_version_id and v.published_at is not null) then
+                raise exception '% needs a published module version', tg_table_name
+                    using errcode = 'restrict_violation';
+            end if;
+            return new;
+        end
+        $$
+    """)
+    op.execute("create trigger quiz_attempt_published_only before insert "
+               "on quiz_attempt for each row execute function published_only()")
+    # A grant from a quiz is the pass of whoever it grants, for that module.
+    # Attempts never change, so there is nothing to wait for.
+    op.execute("""
+        create or replace function quiz_pass_grant() returns trigger
+        language plpgsql as $$
+        begin
+            if new.quiz_attempt_id is not null and not exists (
+                select 1 from quiz_attempt a
+                where a.id = new.quiz_attempt_id and a.passed
+                  and a.person_id = new.person_id and a.competency_id = new.competency_id) then
+                raise exception '% needs a passing quiz attempt by the same person, for the same '
+                    'competency', tg_table_name using errcode = 'restrict_violation';
+            end if;
+            return new;
+        end
+        $$
+    """)
+    op.execute("create trigger competency_record_quiz_pass before insert "
+               "on competency_record for each row execute function quiz_pass_grant()")
 
 
 def downgrade() -> None:
+    # before 0003 a file is a ticket's or a signature: with page files kept,
+    # going back is refused rather than losing them
+    op.execute("""
+        do $$
+        begin
+            if exists (select 1 from upload where purpose like 'page-%') then
+                raise exception 'module page files are kept: remove them by hand before going '
+                    'back past 0003';
+            end if;
+        end
+        $$
+    """)
+    op.execute("drop trigger if exists competency_record_quiz_pass on competency_record")
+    op.execute("drop function if exists quiz_pass_grant()")
+    op.execute("drop trigger if exists quiz_attempt_published_only on quiz_attempt")
+    op.execute("drop function if exists published_only()")
     for table in DRAFT_ONLY:
         op.execute(f"drop trigger if exists {table}_draft_only on {table}")
     op.execute("drop function if exists draft_only()")
     op.execute("drop trigger if exists module_version_publish_once on module_version")
     op.execute("drop function if exists publish_once()")
     op.execute("drop trigger if exists quiz_attempt_append_only on quiz_attempt")
+    op.drop_constraint(op.f("ck_competency_record_quiz_grant"), "competency_record",
+                       type_="check")
     op.drop_constraint(op.f("uq_competency_record_quiz_attempt_id"), "competency_record",
                        type_="unique")
     op.drop_constraint(op.f("fk_competency_record_quiz_attempt_id_quiz_attempt"),
@@ -235,17 +300,5 @@ def downgrade() -> None:
     op.drop_index("uq_module_version_draft", table_name="module_version")
     op.drop_index(op.f("ix_module_version_competency_id"), table_name="module_version")
     op.drop_table("module_version")
-    # before 0003 a file is a ticket's or a signature: with page files kept,
-    # going back is refused rather than losing them
-    op.execute("""
-        do $$
-        begin
-            if exists (select 1 from upload where purpose like 'page-%') then
-                raise exception 'module page files are kept: remove them by hand before going '
-                    'back past 0003';
-            end if;
-        end
-        $$
-    """)
     op.drop_constraint(op.f("ck_upload_purpose"), "upload", type_="check")
     op.create_check_constraint(op.f("ck_upload_purpose"), "upload", PURPOSES_BEFORE)

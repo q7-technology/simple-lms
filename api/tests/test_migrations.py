@@ -17,7 +17,8 @@ TABLES = {"person", "session", "role", "person_role", "competency", "role_requir
 TRIGGERS = {"competency_record_append_only", "person_override_append_only",
             "policy_version_append_only", "upload_append_only", "ticket_submission_decide_once",
             "quiz_attempt_append_only", "module_version_publish_once", "module_page_draft_only",
-            "quiz_question_draft_only"}
+            "quiz_question_draft_only", "quiz_attempt_published_only",
+            "competency_record_quiz_pass"}
 
 
 @pytest.fixture

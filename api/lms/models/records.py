@@ -51,6 +51,9 @@ class CompetencyRecord(Base):
         CheckConstraint("signature_upload_id is null or "
                         "(policy_version_id is not null and signed_name is not null)",
                         name="signature"),
+        # a module passed is a grant; a trigger says it is the pass of this
+        # person, for this competency
+        CheckConstraint("quiz_attempt_id is null or kind = 'granted'", name="quiz_grant"),
         # a drawn signature goes on one record only
         Index("uq_competency_record_signature_upload_id", "signature_upload_id", unique=True,
               postgresql_where=text("signature_upload_id is not null")),

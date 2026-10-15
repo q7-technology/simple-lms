@@ -5,11 +5,12 @@ import uuid
 from datetime import UTC, datetime
 
 import pytest
-from sqlalchemy import delete, insert, update
-from sqlalchemy.exc import DBAPIError, IntegrityError
+from sqlalchemy import delete, insert, text, update
+from sqlalchemy.exc import DBAPIError, IntegrityError, OperationalError
 
 from lms.models import (
-    Competency, ModulePage, ModuleVersion, Person, QuizAttempt, QuizQuestion, Upload,
+    Competency, CompetencyRecord, ModulePage, ModuleProgress, ModuleVersion, Person, QuizAttempt,
+    QuizQuestion, Upload,
 )
 
 
@@ -166,4 +167,97 @@ def attempt(db, module):
 def test_every_attempt_is_kept_as_it_was(db, attempt, change):
     with pytest.raises(DBAPIError, match="append-only"):
         db.execute(change)
+        db.commit()
+
+
+def test_a_page_waits_for_its_version_to_be_published_or_not(engine, module):
+    """A page sent while its draft is being published can't slip in after:
+    it waits to see whether the version is still a draft."""
+    boss, kim, induction, one, two = module
+    with engine.connect() as publishing, engine.connect() as writing:
+        publishing.execute(update(ModuleVersion).where(ModuleVersion.id == two.id)
+                           .values(published_at=datetime.now(UTC), published_by_id=boss.id))
+        writing.execute(text("set local lock_timeout = '200ms'"))
+        with pytest.raises(OperationalError, match="lock timeout"):
+            writing.execute(insert(ModulePage).values(module_version_id=two.id, position=1,
+                                                      kind="text", title="Late", body="Late."))
+        writing.rollback()
+        publishing.rollback()
+
+
+@pytest.fixture
+def other(db):
+    """Another module, for rows that say they are one module's but aren't."""
+    forklift = Competency(key="forklift", name="Forklift", kind="module")
+    db.add(forklift)
+    db.commit()
+    return forklift
+
+
+def _attempt(person, competency, version, passed=True) -> QuizAttempt:
+    return QuizAttempt(person_id=person.id, competency_id=competency.id,
+                       module_version_id=version.id, answers=[0], correct=int(passed), total=1,
+                       score=100 if passed else 0, passed=passed)
+
+
+def test_an_attempt_is_at_a_published_version(db, module):
+    boss, kim, induction, one, two = module
+    db.add(_attempt(kim, induction, two))
+    with pytest.raises(IntegrityError, match="published module version"):
+        db.commit()
+
+
+def test_an_attempt_is_at_a_version_of_its_own_module(db, module, other):
+    boss, kim, induction, one, two = module
+    db.add(_attempt(kim, other, one))
+    with pytest.raises(IntegrityError, match="fk_quiz_attempt_module_version_id_module_version"):
+        db.commit()
+
+
+def test_progress_is_in_a_version_of_its_own_module(db, module, other):
+    boss, kim, induction, one, two = module
+    db.add(ModuleProgress(person_id=kim.id, competency_id=induction.id, module_version_id=one.id,
+                          page=0))
+    db.commit()
+    db.add(ModuleProgress(person_id=kim.id, competency_id=other.id, module_version_id=one.id,
+                          page=0))
+    with pytest.raises(IntegrityError,
+                       match="fk_module_progress_module_version_id_module_version"):
+        db.commit()
+
+
+def _grant(person, competency, attempt, kind="granted") -> CompetencyRecord:
+    return CompetencyRecord(person_id=person.id, competency_id=competency.id, kind=kind,
+                            granted_on=datetime.now(UTC).date() if kind == "granted" else None,
+                            note=None if kind == "granted" else "Wrong person",
+                            recorded_by_id=person.id, quiz_attempt=attempt)
+
+
+def test_a_pass_is_its_own_grant(db, module):
+    """As the quiz does it: the attempt, then its grant, in one go."""
+    boss, kim, induction, one, two = module
+    attempt = _attempt(kim, induction, one)
+    db.add(attempt)
+    db.flush()
+    db.add(_grant(kim, induction, attempt))
+    db.commit()
+    assert db.query(CompetencyRecord).one().quiz_attempt_id == attempt.id
+
+
+@pytest.mark.parametrize("passed, whose, which, kind, error", [
+    (False, "kim", "induction", "granted", "passing quiz attempt"),
+    (True, "boss", "induction", "granted", "passing quiz attempt"),
+    (True, "kim", "other", "granted", "passing quiz attempt"),
+    (True, "kim", "induction", "revoked", "ck_competency_record_quiz_grant"),
+])
+def test_only_a_pass_is_a_grant_and_only_for_whoever_passed(db, module, other, passed, whose,
+                                                           which, kind, error):
+    boss, kim, induction, one, two = module
+    attempt = _attempt(kim, induction, one, passed=passed)
+    db.add(attempt)
+    db.flush()
+    person = {"kim": kim, "boss": boss}[whose]
+    competency = {"induction": induction, "other": other}[which]
+    db.add(_grant(person, competency, attempt, kind=kind))
+    with pytest.raises(IntegrityError, match=error):
         db.commit()

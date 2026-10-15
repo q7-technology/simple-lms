@@ -4,8 +4,8 @@ import uuid
 from datetime import datetime
 
 from sqlalchemy import (
-    Boolean, CheckConstraint, DateTime, ForeignKey, Index, Integer, String, Text,
-    UniqueConstraint, Uuid, func, text,
+    Boolean, CheckConstraint, DateTime, ForeignKey, ForeignKeyConstraint, Index, Integer, String,
+    Text, UniqueConstraint, Uuid, func, text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -27,6 +27,8 @@ class ModuleVersion(Base):
     __tablename__ = "module_version"
     __table_args__ = (
         UniqueConstraint("competency_id", "version"),
+        # what an attempt or progress names as its module and version agree
+        UniqueConstraint("id", "competency_id"),
         CheckConstraint("version >= 1", name="version"),
         CheckConstraint("pass_mark between 1 and 100", name="pass_mark"),
         # published, by whom and when, or neither
@@ -109,11 +111,14 @@ class QuizQuestion(Base):
 
 
 class QuizAttempt(Base):
-    """One go at a module's quiz, pass or fail. Append-only: every attempt is
-    kept (rule 1). A pass is also a grant in the training record."""
+    """One go at a module's quiz, pass or fail, at a published version of
+    that module (a trigger and the foreign key say so). Append-only: every
+    attempt is kept (rule 1). A pass is also a grant in the training record."""
 
     __tablename__ = "quiz_attempt"
     __table_args__ = (
+        ForeignKeyConstraint(["module_version_id", "competency_id"],
+                             ["module_version.id", "module_version.competency_id"]),
         CheckConstraint("total >= 1 and correct between 0 and total", name="counts"),
         CheckConstraint("score between 0 and 100", name="score"),
         CheckConstraint("jsonb_typeof(answers) = 'array'", name="answers"),
@@ -123,7 +128,7 @@ class QuizAttempt(Base):
     person_id: Mapped[int] = mapped_column(ForeignKey("person.id"), index=True)
     competency_id: Mapped[int] = mapped_column(ForeignKey("competency.id"), index=True)
     # the version they answered, whose questions and pass mark never change
-    module_version_id: Mapped[int] = mapped_column(ForeignKey("module_version.id"))
+    module_version_id: Mapped[int] = mapped_column(Integer)
     # the answer chosen for each question, in order, counting from 0
     answers: Mapped[list[int]] = mapped_column(JSONB)
     correct: Mapped[int] = mapped_column(Integer)
@@ -134,7 +139,9 @@ class QuizAttempt(Base):
     created_at: Mapped[datetime] = created_at_column()
 
     competency: Mapped[Competency] = relationship()
-    module_version: Mapped[ModuleVersion] = relationship()
+    module_version: Mapped[ModuleVersion] = relationship(
+        primaryjoin="ModuleVersion.id == QuizAttempt.module_version_id",
+        foreign_keys=[module_version_id])
 
 
 class ModuleProgress(Base):
@@ -143,11 +150,16 @@ class ModuleProgress(Base):
     as they read, and goes once they pass."""
 
     __tablename__ = "module_progress"
-    __table_args__ = (CheckConstraint("page >= 0", name="page"),)
+    __table_args__ = (
+        CheckConstraint("page >= 0", name="page"),
+        # a version of this module
+        ForeignKeyConstraint(["module_version_id", "competency_id"],
+                             ["module_version.id", "module_version.competency_id"]),
+    )
 
     person_id: Mapped[int] = mapped_column(ForeignKey("person.id"), primary_key=True)
     competency_id: Mapped[int] = mapped_column(ForeignKey("competency.id"), primary_key=True)
-    module_version_id: Mapped[int] = mapped_column(ForeignKey("module_version.id"))
+    module_version_id: Mapped[int] = mapped_column(Integer)
     # the page they are on, counting from 0; one past the last is the quiz
     page: Mapped[int] = mapped_column(Integer)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True),
