@@ -22,8 +22,8 @@ export interface TrainingItem {
   status: Status;
   granted_on: string | null;
   expires_on: string | null;
-  /** a ticket: whether its card has an expiry date to type in */
-  card_expires: boolean;
+  /** a ticket: whether its card has an expiry date to type in (null otherwise) */
+  card_expires: boolean | null;
   /** a ticket sent in and waiting for a manager's check */
   waiting: boolean;
 }

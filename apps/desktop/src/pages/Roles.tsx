@@ -62,6 +62,13 @@ function RoleDrawer({ role, onClose, onChanged }: { role: Role; onClose: () => v
   const action = useAction();
   const [saved, setSaved] = useState(false);
   const path = `/v1/roles/${encodeURIComponent(role.key)}`;
+  // deactivated after the role required it: still required until unticked
+  // (the API keeps it, but won't let it be added back once it's gone)
+  const active = competencies.data?.items ?? [];
+  const listed = competencies.data
+    ? [...active.map((c) => ({ ...c, deactivated: false })),
+       ...role.competencies.filter((c) => !active.some((a) => a.key === c.key)).map((c) => ({ ...c, deactivated: true }))]
+    : [];
 
   async function save(e: FormEvent) {
     e.preventDefault();
@@ -79,11 +86,11 @@ function RoleDrawer({ role, onClose, onChanged }: { role: Role; onClose: () => v
         <label className="label">Name<input className="field" value={name} onChange={(e) => setName(e.target.value)} disabled={!can("roles:write")} required /></label>
         <fieldset className="card flex flex-col gap-1">
           <legend className="eyebrow">Requires</legend>
-          {competencies.data?.items.map((c) => (
+          {listed.map((c) => (
             <label key={c.key} className="flex items-center gap-2 text-sm">
               <input type="checkbox" checked={chosen.includes(c.key)} disabled={!can("roles:write")}
                      onChange={(e) => setChosen(e.target.checked ? [...chosen, c.key] : chosen.filter((k) => k !== c.key))} />
-              {c.name} <span className="small">{c.kind}</span>
+              {c.name}{c.deactivated && " (deactivated)"} <span className="small">{c.kind}</span>
             </label>
           ))}
         </fieldset>

@@ -42,7 +42,7 @@ docker compose up -d
 docker compose exec api lms create-user --code AD001 --name "Your Name" --email you@example.com
 ```
 
-`create-user` asks for a password (12 characters or more) and makes an
+`create-user` asks for a password twice (12 characters or more) and makes an
 admin unless you give `--permission`.
 
 For email, set `LMS_SMTP_HOST`, `LMS_SMTP_FROM` (both are empty in

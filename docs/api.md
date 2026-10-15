@@ -76,7 +76,7 @@ The `person` object above, for the session's token.
 
 The first admin is made on the command line:
 `lms create-user --code AD001 --name "…" --email … [--permission admin]`
-(prompts for the password, at least 12 characters).
+(prompts twice for the password, at least 12 characters).
 
 ## People
 
@@ -141,15 +141,18 @@ where `people` is how many people have the role.
   induction", "kind": "module" | "practical" | "ticket" | "policy",
   "refresher_months"?: 1 to 240, "card_expires"?: true }` → `201`.
   `card_expires` is for a ticket: whether its card has an expiry date that
-  people type in (true unless said otherwise).
+  people type in (true unless said otherwise). Sent for any other kind it is
+  `422`.
 - `GET /v1/competencies?kind=&active=` — `{ "items", "total" }` by name;
   `GET /v1/competencies/{key}`
 - `PATCH /v1/competencies/{key}` — `name`, `refresher_months` (`null` for
-  none) and/or `card_expires`. The kind cannot change.
+  none) and/or `card_expires` (a ticket only, else `422`). The kind cannot
+  change.
 - `POST /v1/competencies/{key}/deactivate`, `/reactivate` — a deactivated
   competency is asked of nobody; its records stay.
 
-Each competency: `{ "id", "key", "name", "kind", "refresher_months", "card_expires", "active", "created_at" }`.
+Each competency: `{ "id", "key", "name", "kind", "refresher_months", "card_expires", "active", "created_at" }`;
+`card_expires` is `null` for anything but a ticket.
 Every kind can still be recorded by hand. Policies are signed in the
 learner app, tickets sent in from it and modules taken in it (below);
 practicals get their own way in with a later build step.
@@ -222,8 +225,9 @@ a grant for an older version (or from before there were versions) is
 
 ### GET /v1/matrix
 `matrix:read`. Filters: `role` (key), `supervisor` (code), `status` (comma
-separated: people with at least one cell in it). An unknown status, or a
-supervisor code that is nobody, is `422`. Active people by name; a
+separated: people with at least one cell in it). An unknown status,
+`not_required` (the columns are only what the people shown are asked for,
+so it would match nobody), or a supervisor code that is nobody, is `422`. Active people by name; a
 supervisor sees their own team. The columns are what any of them is asked
 for, by name, and every person has a cell in every column:
 ```json
@@ -251,7 +255,8 @@ carriage return is prefixed with `'`, so a spreadsheet doesn't run it.
 else is `404`). What the
 person is asked for and not let off, by name:
 `{ "person": { "code", "name" }, "today", "items": [{ "key", "name", "kind", "status", "granted_on", "expires_on", "card_expires", "waiting" }] }`.
-`waiting` is true while a ticket they sent in waits for a manager's check.
+`waiting` is true while a ticket they sent in waits for a manager's check;
+`card_expires` is `null` for anything but a ticket.
 The learner app shows it as Overdue (`lapsed`, `missing`), Due soon
 (`expiring`) and Done (`current`).
 

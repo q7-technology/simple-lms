@@ -154,7 +154,7 @@ function NewPerson({ supervisors, onClose, onDone }: {
 function PersonDrawer({ code, supervisors, onClose, onChanged }: {
   code: string; supervisors: Person[]; onClose: () => void; onChanged: () => void;
 }) {
-  const { me } = useAuth();
+  const { me, signOut } = useAuth();
   const path = `/v1/people/${encodeURIComponent(code)}`;
   const person = useLoad(() => api.get<Person>(path), [path]);
   const roles = useLoad(() => api.get<Page<Role>>("/v1/roles"), []);
@@ -180,6 +180,19 @@ function PersonDrawer({ code, supervisors, onClose, onChanged }: {
     return ok;
   }
 
+  // a new PIN or password ends that person's PIN or password sessions: on
+  // your own record, the one you are signed in with too
+  const endsMine = (kind: "pin" | "password") => self && me?.method === kind;
+  function secret(kind: "pin" | "password", what: string, body: Record<string, string>) {
+    const post = () => api.post(`${path}/${kind}`, body);
+    if (!endsMine(kind)) return change(what, post);
+    return (async () => {
+      const ok = await action.run(post);
+      if (ok) await signOut();
+      return ok;
+    })();
+  }
+
   return (
     <Drawer title={p.name} sub={`${p.code} · ${p.permission}${p.active ? "" : " · deactivated"}`} onClose={onClose}>
       <Problem error={action.error} />
@@ -195,9 +208,9 @@ function PersonDrawer({ code, supervisors, onClose, onChanged }: {
           <Overrides current={overrides.data ?? []} competencies={competencies.data?.items ?? []} busy={action.busy}
                      onAdd={(body) => change("Saved.", () => api.post(`${path}/overrides`, body))} />
           <Secret label={p.pin_locked ? "New PIN (unlocks it)" : "New PIN"} kind="pin" busy={action.busy}
-                  onSave={(pin) => change("PIN set.", () => api.post(`${path}/pin`, { pin }))} />
+                  signsMeOut={endsMine("pin")} onSave={(pin) => secret("pin", "PIN set.", { pin })} />
           <Secret label="New password" kind="password" busy={action.busy}
-                  onSave={(password) => change("Password set.", () => api.post(`${path}/password`, { password }))} />
+                  signsMeOut={endsMine("password")} onSave={(password) => secret("password", "Password set.", { password })} />
           {self && <div className="small">You can't change your own permission or deactivate yourself.</div>}
           {!self && <div>
             {p.active
@@ -294,18 +307,36 @@ function Overrides({ current, competencies, busy, onAdd }: {
   );
 }
 
-function Secret({ label, kind, busy, onSave }: {
-  label: string; kind: "pin" | "password"; busy: boolean; onSave: (v: string) => Promise<boolean>;
+/** A new PIN or password. When it ends the session you are signed in with,
+ * say so and ask once before setting it. */
+function Secret({ label, kind, busy, signsMeOut, onSave }: {
+  label: string; kind: "pin" | "password"; busy: boolean; signsMeOut: boolean; onSave: (v: string) => Promise<boolean>;
 }) {
   const [value, setValue] = useState("");
+  const [confirming, setConfirming] = useState(false);
+  const noun = kind === "pin" ? "PIN" : "password";
   return (
-    <form className="card flex items-end gap-3" onSubmit={async (e) => { e.preventDefault(); if (await onSave(value)) setValue(""); }}>
-      <label className="label flex-1">{label}
-        {kind === "pin"
-          ? <input className="field" inputMode="numeric" pattern="[0-9]{4,8}" value={value} onChange={(e) => setValue(e.target.value)} required />
-          : <input className="field" type="password" minLength={12} autoComplete="new-password" value={value} onChange={(e) => setValue(e.target.value)} required />}
-      </label>
-      <button type="submit" className="btn" disabled={busy}>Set {kind === "pin" ? "PIN" : "password"}</button>
+    <form className="card flex flex-col gap-3" onSubmit={async (e) => {
+      e.preventDefault();
+      if (signsMeOut && !confirming) { setConfirming(true); return; }
+      setConfirming(false);
+      if (await onSave(value)) setValue("");
+    }}>
+      <div className="flex items-end gap-3">
+        <label className="label flex-1">{label}
+          {kind === "pin"
+            ? <input className="field" inputMode="numeric" pattern="[0-9]{4,8}" value={value} onChange={(e) => setValue(e.target.value)} required />
+            : <input className="field" type="password" minLength={12} autoComplete="new-password" value={value} onChange={(e) => setValue(e.target.value)} required />}
+        </label>
+        {!confirming && <button type="submit" className="btn" disabled={busy}>Set {noun}</button>}
+      </div>
+      {confirming && (
+        <div className="flex flex-wrap items-center gap-3">
+          <span className="text-sm"><b>Setting a new {noun} signs you out here: sign in again with the new one.</b></span>
+          <button type="submit" className="btn primary" disabled={busy}>Set {noun} and sign out</button>
+          <button type="button" className="btn" autoFocus onClick={() => setConfirming(false)}>Cancel</button>
+        </div>
+      )}
     </form>
   );
 }

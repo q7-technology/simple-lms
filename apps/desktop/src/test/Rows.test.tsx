@@ -4,7 +4,7 @@ import type { Competency, Person, Role } from "../api/types";
 import { json, renderApp, stubApi } from "./harness";
 
 const PICKER: Role = { id: 1, key: "picker", name: "Picker", competencies: [], people: 0 };
-const INDUCTION: Competency = { id: 1, key: "site-induction", name: "Site induction", kind: "module", refresher_months: 24, card_expires: true, active: true };
+const INDUCTION: Competency = { id: 1, key: "site-induction", name: "Site induction", kind: "module", refresher_months: 24, card_expires: null, active: true };
 const KIM: Person = {
   id: 4, code: "LL042", name: "Kim Lee", email: null, permission: "learner", supervisor: null,
   roles: [], active: true, has_pin: true, pin_locked: false, has_password: false,

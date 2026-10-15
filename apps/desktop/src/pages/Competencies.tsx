@@ -80,7 +80,7 @@ function CompetencyDrawer({ competency, onClose, onChanged }: {
 }) {
   const [name, setName] = useState(competency.name);
   const [refresher, setRefresher] = useState(competency.refresher_months?.toString() ?? "");
-  const [cardExpires, setCardExpires] = useState(competency.card_expires);
+  const [cardExpires, setCardExpires] = useState(competency.card_expires ?? true);
   const action = useAction();
   const path = `/v1/competencies/${encodeURIComponent(competency.key)}`;
   const done = async (fn: () => Promise<unknown>) => { if (await action.run(fn)) onChanged(); };

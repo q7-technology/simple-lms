@@ -57,8 +57,8 @@ class TrainingItem(BaseModel):
     status: str
     granted_on: date | None
     expires_on: date | None
-    # a ticket: whether its card has an expiry date to type in
-    card_expires: bool
+    # a ticket: whether its card has an expiry date to type in (null otherwise)
+    card_expires: bool | None
     # a ticket sent in and waiting for a manager's check
     waiting: bool
 
@@ -73,10 +73,13 @@ def _statuses(status: str | None) -> set[str] | None:
     if not status:
         return None
     wanted = {s.strip() for s in status.split(",") if s.strip()}
-    unknown = wanted - set(STATUSES)
+    # not_required is never a filter: the columns are what the people shown
+    # are asked for, so it would match nobody
+    filters = [s for s in STATUSES if s != "not_required"]
+    unknown = wanted - set(filters)
     if unknown:
-        raise FieldError("status", f"unknown status {sorted(unknown)[0]}; one of "
-                                   f"{', '.join(STATUSES)}")
+        raise FieldError("status", f"can't filter on {sorted(unknown)[0]}; one of "
+                                   f"{', '.join(filters)}")
     return wanted
 
 
@@ -127,7 +130,7 @@ def matrix(db: DB, role: str | None = None, supervisor: str | None = None,
            status: str | None = None, who: Principal = require("matrix:read")):
     """Active people by name; columns are what any of them is asked for, by
     name. Filters: `role` (key), `supervisor` (code), `status` (comma
-    separated: people with at least one cell in it)."""
+    separated: people with at least one cell in it; not `not_required`)."""
     return build(db, who, role, supervisor, status)
 
 
@@ -177,7 +180,9 @@ def training(code: str, db: DB, who: Principal = require("training:read")):
             comp = st.competencies[c]
             items.append(TrainingItem(key=comp.key, name=comp.name, kind=comp.kind,
                                       status=s.status, granted_on=s.granted_on,
-                                      expires_on=s.expires_on, card_expires=comp.card_expires,
+                                      expires_on=s.expires_on,
+                                      card_expires=comp.card_expires if comp.kind == "ticket"
+                                      else None,
                                       waiting=c in waiting))
     items.sort(key=lambda i: (i.name, i.key))
     return TrainingOut(person=person_ref(p), today=st.today, items=items)

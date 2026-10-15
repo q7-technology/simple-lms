@@ -16,7 +16,12 @@ from lms.services import access, clock, daily
 
 def cmd_create_user(args) -> int:
     code, email = normal_code(args.code), args.email.strip().lower()
-    password = args.password or getpass.getpass("Password: ")
+    password = args.password
+    if not password:
+        password = getpass.getpass("Password: ")
+        if getpass.getpass("Password again: ") != password:
+            print("create-user: the passwords don't match", file=sys.stderr)
+            return 1
     if len(password) < access.MIN_PASSWORD:
         print(f"create-user: the password needs at least {access.MIN_PASSWORD} characters",
               file=sys.stderr)

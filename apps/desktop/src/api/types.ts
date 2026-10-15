@@ -49,8 +49,8 @@ export interface Competency {
   name: string;
   kind: Kind;
   refresher_months: number | null;
-  /** a ticket: whether its card has an expiry date to type in */
-  card_expires: boolean;
+  /** a ticket: whether its card has an expiry date to type in (null otherwise) */
+  card_expires: boolean | null;
   active: boolean;
 }
 
