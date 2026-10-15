@@ -59,6 +59,7 @@ class Effective:
 
 
 KEYS = tuple(f.name for f in fields(Effective))
+DEFAULTS = Effective()
 # the ones .env can give too, by the same name (LMS_<KEY>)
 FROM_ENV = ("quiz_cooldown_minutes", "timezone", "daily_hour", "smtp_host", "smtp_port",
             "smtp_user", "smtp_password", "smtp_from", "smtp_security", "public_url")
@@ -181,7 +182,11 @@ def _effective(rows: dict[str, Any]) -> Effective:
 def _source(rows: dict[str, Any], key: str) -> Source:
     if key in rows:
         return "here"
-    if key in FROM_ENV and key in get_settings().model_fields_set:
+    # given in .env and not just the default again: Compose passes every
+    # variable, empty or at its default, when .env leaves it out
+    env = get_settings()
+    if (key in FROM_ENV and key in env.model_fields_set
+            and getattr(env, key) != getattr(DEFAULTS, key)):
         return "env"
     return "default"
 

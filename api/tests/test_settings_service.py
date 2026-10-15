@@ -52,3 +52,17 @@ def test_another_process_sees_a_change_within_seconds(db, engine, monkeypatch):
     assert settings.current().daily_hour == 6     # kept a moment
     now[0] += settings.KEEP_SECONDS + 0.1
     assert settings.current().daily_hour == 8
+
+
+def test_an_env_value_that_is_the_default_says_default(db, monkeypatch):
+    """Compose passes every LMS_ variable, empty or at its default, when
+    .env leaves it out: that is not something .env chose."""
+    monkeypatch.setenv("LMS_SMTP_HOST", "")
+    monkeypatch.setenv("LMS_DAILY_HOUR", "6")
+    monkeypatch.setenv("LMS_SMTP_PORT", "2525")
+    from lms.config import Settings
+
+    monkeypatch.setattr(settings, "get_settings", lambda: Settings())
+    assert settings.source("smtp_host") == "default"
+    assert settings.source("daily_hour") == "default"
+    assert settings.source("smtp_port") == "env"
