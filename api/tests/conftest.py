@@ -266,3 +266,14 @@ def fresh_client():
     from lms.api.app import app
 
     return TestClient(app)
+
+
+@pytest.fixture(autouse=True)
+def fresh_settings():
+    """Each test reads the settings afresh: the rows it keeps a moment are
+    another test's."""
+    from lms.services import settings
+
+    settings.forget()
+    yield
+    settings.forget()
