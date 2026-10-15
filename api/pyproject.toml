@@ -15,6 +15,8 @@ dependencies = [
   "alembic>=1.13",
   # the time zone's rules, so "today" is right in a slim image too
   "tzdata>=2024.1",
+  # the worker posts events to webhooks and print jobs to Platen
+  "httpx>=0.27",
 ]
 
 [project.optional-dependencies]

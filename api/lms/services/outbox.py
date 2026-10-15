@@ -9,6 +9,10 @@ from sqlalchemy.orm import Session as Db
 from lms.models import Outbox
 
 
+class GiveUp(Exception):
+    """Not worth another try: the row is failed now, with this as its error."""
+
+
 def queue_email(db: Db, key: str, to: str, subject: str, text: str,
                 now: datetime | None = None) -> bool:
     """Queue an email once: a second time with the same key does nothing.

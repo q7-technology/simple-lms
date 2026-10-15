@@ -39,6 +39,16 @@ class Settings(BaseSettings):
     # hour (in LMS_TIMEZONE) from which it runs the daily job each day.
     worker_poll_seconds: float = Field(default=5.0, gt=0)
     daily_hour: int = Field(default=6, ge=0, le=23)
+    # How long the worker waits for a webhook (or Platen) to answer.
+    worker_http_timeout_seconds: float = Field(default=10.0, gt=0)
+    # Webhooks go to public addresses only: the worker refuses to connect to
+    # a loopback, private, link-local or otherwise internal address (checked
+    # after the name is looked up, where the connection is made), so a
+    # webhook can't be pointed at the database, the cloud's metadata service
+    # or anything else on the inside. A receiver on this machine or the local
+    # network (http://host.docker.internal:<port>/..., http://192.168.1.20/...)
+    # needs this set true by whoever runs the server. Platen is not affected.
+    webhook_allow_private: bool = False
 
     # After a few goes at a module's quiz in a row that didn't pass (3 unless
     # Settings says otherwise), how long the learner waits before the next,

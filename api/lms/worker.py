@@ -1,13 +1,19 @@
-"""Drains the outbox (emails, for now) and runs the daily job. Run as
-`python -m lms.worker`.
+"""Drains the outbox (emails, and events for the webhooks) and runs the
+daily job. Run as `python -m lms.worker`.
 
 A failed try is tried again after 1 min, 5, 30 and 2 h. The try after the
 2 h wait is the last: if it fails too, the row is `failed` and stays, with
 its last error, for someone to look at.
 
+Each kind takes its turn, a row at a time, so a Monday's pile of reminders
+doesn't hold up an event another system is waiting on, nor the other way
+round; and a row that fails waits for its next try without holding up the
+rows after it.
+
 The daily job runs once a day from the daily hour in the time zone (both
-in Settings, or .env), and again whenever the worker starts after that hour: each email it queues has
-its own key, so running it twice sends nothing twice.
+in Settings, or .env), and again whenever the worker starts after that
+hour: each email it queues has its own key, and each event it fires is
+fired once, so running it twice sends nothing twice.
 """
 from __future__ import annotations
 
@@ -16,19 +22,23 @@ import time
 from datetime import UTC, date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
+import httpx
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from lms.config import get_settings
 from lms.db import get_sessionmaker
 from lms.models import Outbox
-from lms.services import daily, mail, settings
+from lms.services import daily, mail, settings, webhooks
+from lms.services.outbox import GiveUp
 
 log = logging.getLogger("lms.worker")
 
 BACKOFF = (60, 300, 1800, 7200)
 # after the daily job fails, how long before it is tried again
 DAILY_RETRY = timedelta(minutes=5)
+# what the outbox holds, in the order each takes its turn
+KINDS = ("email", "webhook")
 
 
 def clock() -> datetime:
@@ -45,52 +55,91 @@ def retry_later(row: Outbox, now: datetime, error: str) -> None:
         row.next_attempt_at = now + timedelta(seconds=BACKOFF[row.attempts - 1])
 
 
-def _claim(session: Session, now: datetime) -> Outbox | None:
-    """The next row due, locked so a second worker passes it by. One row per
-    transaction, so a slow mail server holds up only that row."""
+def _claim(session: Session, kind: str, now: datetime) -> Outbox | None:
+    """The next row of this kind that is due, locked so a second worker
+    passes it by. One row per transaction, so a slow mail server or
+    receiver holds up only that row."""
     return session.execute(
         select(Outbox)
-        .where(Outbox.status == "pending", Outbox.next_attempt_at <= now)
+        .where(Outbox.kind == kind, Outbox.status == "pending", Outbox.next_attempt_at <= now)
         .order_by(Outbox.next_attempt_at, Outbox.id)
         .limit(1)
         .with_for_update(skip_locked=True)
     ).scalar_one_or_none()
 
 
-def _send_one(session: Session, now: datetime | None) -> bool:
-    row = _claim(session, now or clock())
+def _ready(kind: str) -> bool:
+    """Emails wait, untried, until SMTP is set up; events always go."""
+    return mail.set_up() if kind == "email" else True
+
+
+def _send(kind: str, http: httpx.Client | None, row: Outbox) -> str | None:
+    if kind == "email":
+        return mail.send(row.payload)
+    return webhooks.deliver(http, row)
+
+
+def _send_one(session: Session, kind: str, http: httpx.Client | None,
+              now: datetime | None) -> bool:
+    """Send the next row of this kind that is due, if there is one."""
+    row = _claim(session, kind, now or clock())
     if row is None:
         return False
+    give_up = False
     try:
-        error = mail.send(row.payload)
+        error = _send(kind, http, row)
+    except GiveUp as e:
+        error, give_up = str(e), True
     except Exception as e:  # a bad row (or password) must not stop the rows after it
         error = f"{type(e).__name__}: {e}"
     # after the answer, not before: a slow server would date it in the past
     answered = now or clock()
     row.attempts += 1
     if error is None:
-        # At least once: a crash between the send and the commit sends this
-        # email again next time, which is fine for reminders.
+        # At least once: a crash between the send and the commit sends it
+        # again next time. Reminders don't mind; a receiver goes by event_id.
         row.status = "done"
         row.done_at = answered
         row.last_error = None
-        log.info("email %s sent", row.key)
+        log.info("%s %s sent", kind, row.key)
+    elif give_up:
+        row.status = "failed"
+        row.last_error = error[:500]
+        log.warning("%s %s given up: %s", kind, row.key, error)
     else:
         retry_later(row, answered, error)
-        log.warning("email %s try %d failed%s: %s", row.key, row.attempts,
+        log.warning("%s %s try %d failed%s: %s", kind, row.key, row.attempts,
                     "; given up" if row.status == "failed" else "", error)
     session.commit()
     return True
 
 
+def _drain(session: Session, http: httpx.Client | None, now: datetime | None, limit: int,
+           kinds: list[str]) -> int:
+    tried = dict.fromkeys(kinds, 0)
+    while kinds:
+        for kind in list(kinds):
+            if tried[kind] < limit and _send_one(session, kind, http, now):
+                tried[kind] += 1
+            else:
+                kinds.remove(kind)
+    return sum(tried.values())
+
+
+def send_due(session: Session, http: httpx.Client | None = None, now: datetime | None = None,
+             limit: int = 50, kinds: tuple[str, ...] = KINDS) -> int:
+    """Send what is due, a row of each kind in turn, up to `limit` of each.
+    Returns how many were tried."""
+    ready = [k for k in kinds if _ready(k)]
+    if http is None and any(k != "email" for k in ready):
+        with webhooks.client() as client:
+            return _drain(session, client, now, limit, ready)
+    return _drain(session, http, now, limit, ready)
+
+
 def send_emails(session: Session, now: datetime | None = None, limit: int = 50) -> int:
-    """Send every email that is due. Returns how many were tried."""
-    if not mail.set_up():
-        return 0    # they wait, untried, until SMTP is set up
-    tried = 0
-    while tried < limit and _send_one(session, now):
-        tried += 1
-    return tried
+    """Send every email that is due, and nothing else. Returns how many were tried."""
+    return send_due(session, None, now, limit, kinds=("email",))
 
 
 class Daily:
@@ -113,9 +162,10 @@ class Daily:
         return local.date()
 
 
-def run_once(session: Session, today: Daily, now: datetime | None = None) -> int:
-    """The daily job if it is due, then the emails. Returns how many emails
-    were tried."""
+def run_once(session: Session, today: Daily, now: datetime | None = None,
+             http: httpx.Client | None = None) -> int:
+    """The daily job if it is due, then whatever is due in the outbox.
+    Returns how many rows were tried."""
     day = today.due(now or clock())
     if day is not None:
         try:
@@ -130,7 +180,7 @@ def run_once(session: Session, today: Daily, now: datetime | None = None) -> int
             today.not_before = None
             log.info("daily job for %s: %d reminders, %d digests queued", day,
                      queued["reminders"], queued["digests"])
-    return send_emails(session, now)
+    return send_due(session, http, now)
 
 
 def wait_for_schema(session: Session, timeout: float = 120, poll: float = 2) -> None:
@@ -160,19 +210,23 @@ def main() -> None:
     if not mail.set_up():
         log.warning("no email server (Settings, or LMS_SMTP_HOST and LMS_SMTP_FROM): emails "
                     "wait in the outbox until one is set")
+    if get_settings().webhook_allow_private:
+        log.warning("LMS_WEBHOOK_ALLOW_PRIVATE is set: webhooks may go to addresses on this "
+                    "machine and the local network")
     s = settings.current()
     log.info("worker started, polling every %ss; daily job from %02d:00 %s", poll,
              s.daily_hour, s.timezone)
     today = Daily()
-    while True:
-        try:
-            with make_session() as session:
-                done = run_once(session, today)
-        except Exception:  # keep the loop alive; log and back off
-            log.exception("worker loop error")
-            done = 0
-        if done == 0:
-            time.sleep(poll)
+    with webhooks.client() as http:
+        while True:
+            try:
+                with make_session() as session:
+                    done = run_once(session, today, http=http)
+            except Exception:  # keep the loop alive; log and back off
+                log.exception("worker loop error")
+                done = 0
+            if done == 0:
+                time.sleep(poll)
 
 
 if __name__ == "__main__":
