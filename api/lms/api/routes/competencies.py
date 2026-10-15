@@ -25,8 +25,9 @@ class CompetencyIn(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     kind: Kind
     refresher_months: int | None = Field(default=None, ge=1, le=240)
-    # a ticket: whether its card has an expiry date to type in
-    card_expires: bool = True
+    # a ticket: whether its card has an expiry date to type in (true unless
+    # said otherwise); refused for any other kind
+    card_expires: bool | None = None
 
     @field_validator("key", mode="before")
     @classmethod
@@ -49,14 +50,16 @@ class CompetencyOut(BaseModel):
     name: str
     kind: str
     refresher_months: int | None
-    card_expires: bool
+    # a ticket's only: null for any other kind
+    card_expires: bool | None
     active: bool
     created_at: datetime
 
 
 def competency_out(c: Competency) -> CompetencyOut:
     return CompetencyOut(id=c.id, key=c.key, name=c.name, kind=c.kind,
-                         refresher_months=c.refresher_months, card_expires=c.card_expires,
+                         refresher_months=c.refresher_months,
+                         card_expires=c.card_expires if c.kind == "ticket" else None,
                          active=c.active,
                          created_at=c.created_at)
 
@@ -71,11 +74,13 @@ def get_competency(db, key: str) -> Competency:
 @router.post("/competencies", status_code=201, response_model=CompetencyOut)
 def create_competency(body: CompetencyIn, db: DB, who: Principal = require("competencies:write")):
     taken = FieldError("key", f"competency {body.key} already exists")
+    if body.card_expires is not None and body.kind != "ticket":
+        raise FieldError("card_expires", "only a ticket has a card that runs out")
     if db.execute(select(Competency).where(Competency.key == body.key)).scalar_one_or_none():
         raise taken
     c = Competency(key=body.key, name=body.name, kind=body.kind,
-                   refresher_months=body.refresher_months, card_expires=body.card_expires,
-                   active=True)
+                   refresher_months=body.refresher_months,
+                   card_expires=body.card_expires is not False, active=True)
     db.add(c)
     commit_unique(db, {"uq_competency_key": taken})
     return JSONResponse(status_code=201, content=competency_out(c).model_dump(mode="json"))
@@ -102,6 +107,8 @@ def read_competency(key: str, db: DB, who: Principal = require("competencies:rea
 def update_competency(key: str, body: CompetencyPatch, db: DB,
                       who: Principal = require("competencies:write")):
     c = get_competency(db, key)
+    if body.card_expires is not None and c.kind != "ticket":
+        raise FieldError("card_expires", "only a ticket has a card that runs out")
     if body.name is not None:
         c.name = body.name
     if "refresher_months" in body.model_fields_set:

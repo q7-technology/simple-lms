@@ -57,8 +57,8 @@ class TrainingItem(BaseModel):
     status: str
     granted_on: date | None
     expires_on: date | None
-    # a ticket: whether its card has an expiry date to type in
-    card_expires: bool
+    # a ticket: whether its card has an expiry date to type in (null otherwise)
+    card_expires: bool | None
     # a ticket sent in and waiting for a manager's check
     waiting: bool
 
@@ -180,7 +180,9 @@ def training(code: str, db: DB, who: Principal = require("training:read")):
             comp = st.competencies[c]
             items.append(TrainingItem(key=comp.key, name=comp.name, kind=comp.kind,
                                       status=s.status, granted_on=s.granted_on,
-                                      expires_on=s.expires_on, card_expires=comp.card_expires,
+                                      expires_on=s.expires_on,
+                                      card_expires=comp.card_expires if comp.kind == "ticket"
+                                      else None,
                                       waiting=c in waiting))
     items.sort(key=lambda i: (i.name, i.key))
     return TrainingOut(person=person_ref(p), today=st.today, items=items)

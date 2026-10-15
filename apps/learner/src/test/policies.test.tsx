@@ -11,7 +11,7 @@ vi.mock("../lib/picture", () => ({
 const TRAINING = {
   person: { code: "LL042", name: "Kim Lee" }, today: "2026-10-12",
   items: [{ key: "whs-policy", name: "WHS policy", kind: "policy", status: "missing", granted_on: null,
-            expires_on: null, card_expires: true, waiting: false }],
+            expires_on: null, card_expires: null, waiting: false }],
 };
 const V2: { id: number; version: number; body: string; note: string | null; created_at: string } = { id: 2, version: 2, body: "Wear your PPE, and hi-vis in the yard.", note: "hi-vis in the yard", created_at: "2026-10-01T00:00:00Z" };
 const WHS = { key: "whs-policy", name: "WHS policy", version: V2 };

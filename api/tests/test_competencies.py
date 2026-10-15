@@ -109,3 +109,18 @@ def test_a_ticket_says_whether_its_card_runs_out(client, manager_headers):
     r = client.patch("/v1/competencies/white-card", headers=manager_headers,
                      json={"card_expires": True})
     assert r.json()["card_expires"] is True
+
+
+def test_card_expires_is_only_for_a_ticket(client, manager_headers):
+    r = client.post("/v1/competencies", headers=manager_headers,
+                    json={**INDUCTION, "card_expires": False})
+    assert r.status_code == 422 and r.json()["errors"][0]["field"] == "card_expires"
+    out = make_competency(client, manager_headers)
+    assert out["card_expires"] is None
+    r = client.patch("/v1/competencies/site-induction", headers=manager_headers,
+                     json={"card_expires": True})
+    assert r.status_code == 422 and r.json()["errors"][0]["field"] == "card_expires"
+    assert client.get("/v1/competencies/site-induction",
+                      headers=manager_headers).json()["card_expires"] is None
+    listed = client.get("/v1/competencies", headers=manager_headers).json()["items"]
+    assert [c["card_expires"] for c in listed] == [None]

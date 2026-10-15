@@ -139,15 +139,18 @@ where `people` is how many people have the role.
   induction", "kind": "module" | "practical" | "ticket" | "policy",
   "refresher_months"?: 1 to 240, "card_expires"?: true }` → `201`.
   `card_expires` is for a ticket: whether its card has an expiry date that
-  people type in (true unless said otherwise).
+  people type in (true unless said otherwise). Sent for any other kind it is
+  `422`.
 - `GET /v1/competencies?kind=&active=` — `{ "items", "total" }` by name;
   `GET /v1/competencies/{key}`
 - `PATCH /v1/competencies/{key}` — `name`, `refresher_months` (`null` for
-  none) and/or `card_expires`. The kind cannot change.
+  none) and/or `card_expires` (a ticket only, else `422`). The kind cannot
+  change.
 - `POST /v1/competencies/{key}/deactivate`, `/reactivate` — a deactivated
   competency is asked of nobody; its records stay.
 
-Each competency: `{ "id", "key", "name", "kind", "refresher_months", "card_expires", "active", "created_at" }`.
+Each competency: `{ "id", "key", "name", "kind", "refresher_months", "card_expires", "active", "created_at" }`;
+`card_expires` is `null` for anything but a ticket.
 Every kind can still be recorded by hand. Policies are signed in the
 learner app and tickets sent in from it (below); modules and practicals get
 their own ways in with later build steps.
@@ -248,7 +251,8 @@ carriage return is prefixed with `'`, so a spreadsheet doesn't run it.
 else is `404`). What the
 person is asked for and not let off, by name:
 `{ "person": { "code", "name" }, "today", "items": [{ "key", "name", "kind", "status", "granted_on", "expires_on", "card_expires", "waiting" }] }`.
-`waiting` is true while a ticket they sent in waits for a manager's check.
+`waiting` is true while a ticket they sent in waits for a manager's check;
+`card_expires` is `null` for anything but a ticket.
 The learner app shows it as Overdue (`lapsed`, `missing`), Due soon
 (`expiring`) and Done (`current`).
 

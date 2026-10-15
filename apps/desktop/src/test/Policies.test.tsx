@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import type { Competency, PolicyVersion } from "../api/types";
 import { json, renderApp, stubApi } from "./harness";
 
-const WHS: Competency = { id: 4, key: "whs-policy", name: "WHS policy", kind: "policy", refresher_months: null, card_expires: true, active: true };
+const WHS: Competency = { id: 4, key: "whs-policy", name: "WHS policy", kind: "policy", refresher_months: null, card_expires: null, active: true };
 const FORKLIFT: Competency = { id: 2, key: "forklift-licence", name: "Forklift licence", kind: "ticket", refresher_months: null, card_expires: true, active: true };
 const V1: PolicyVersion = {
   id: 1, version: 1, body: "Wear your PPE on the floor.", note: null,
@@ -102,6 +102,22 @@ describe("competencies", () => {
     await userEvent.click(within(drawer).getByRole("button", { name: "Save" }));
     await waitFor(() => expect(calls.find((c) => c.method === "PATCH")?.body).toEqual({
       name: "Forklift licence", refresher_months: null, card_expires: false }));
+  });
+
+  it("leaves out whether the card runs out for anything but a ticket", async () => {
+    const { calls } = stubApi((method, url) => {
+      if (url === "/v1/competencies") return json(200, { items: [WHS], total: 1 });
+      if (url === "/v1/policies/whs-policy/versions") return json(200, []);
+      if (method === "PATCH") return json(200, WHS);
+      return null;
+    });
+    renderApp("/competencies");
+    await userEvent.click(await screen.findByRole("button", { name: /WHS policy/ }));
+    const drawer = await screen.findByRole("dialog", { name: "WHS policy" });
+    expect(within(drawer).queryByLabelText(/The card has an expiry date/)).not.toBeInTheDocument();
+    await userEvent.click(within(drawer).getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(calls.find((c) => c.method === "PATCH")?.body).toEqual({
+      name: "WHS policy", refresher_months: null }));
   });
 
   it("shows who signed which version, and their signature", async () => {

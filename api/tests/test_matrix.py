@@ -148,6 +148,8 @@ def test_my_training_lists_what_i_need_and_not_what_is_waived(client, manager_he
         ("forklift-licence", "expiring", "2026-11-01"),
         ("whs-policy", "missing", None),
     ]
+    # whether the card has an expiry date is a ticket's question only
+    assert [i["card_expires"] for i in body["items"]] == [True, None]
 
 
 def test_whose_training_who_may_read(client, db, manager_headers, supervisor_headers,
