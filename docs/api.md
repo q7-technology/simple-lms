@@ -395,11 +395,15 @@ Each version, as its editors see it (`correct` is only there for them):
   that didn't pass (below), or `null` when they may try now;
   `retry_at_text` is the same ready to show, in the time zone in Settings
   (`"2:15 pm"`, or `"1:00 am on Fri 16 Oct"` when it isn't today). `404`
-  until a version is published.
+  until a version is published. A deactivated module is `409 { "code":
+  "inactive", "detail": "Site induction isn't in use any more" }`, here,
+  for progress and for attempts; its editors still see its versions, and
+  the place a learner was at comes back if it is reactivated.
 - `PUT /v1/modules/{key}/progress` (`training:write`) — `{ "version",
   "page" }` → `204`: where the caller is now, theirs alone. Kept on the
   server, so nothing of theirs stays on a shared tablet. A page past the
   quiz is `422`. Only the newest published version takes progress (below).
+  A deactivated module is `409 { "code": "inactive" }`.
 - `POST /v1/modules/{key}/attempts` (`training:write`) — your own go at the
   quiz: `{ "version", "answers": [ … ] }`, one answer per question in order,
   counting from 0 → `201 { "id", "competency", "version", "correct",

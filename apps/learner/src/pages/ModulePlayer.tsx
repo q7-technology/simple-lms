@@ -10,6 +10,9 @@ const CHANGED = "The module has changed: start the new version.";
 // how often a playing video says someone is still here
 const STILL_HERE_MS = 60_000;
 const TOO_MANY = "Too many tries in a row didn't pass.";
+// deactivated: asked of nobody, so not read, kept or taken
+const NOT_IN_USE = "This module isn't in use any more.";
+const notInUse = (e: unknown) => e instanceof ApiError && e.code === "inactive";
 
 /** When the next go at the quiz may be, as the API last said it. */
 interface Wait { at: string; text: string }
@@ -44,7 +47,8 @@ export function ModulePlayer() {
       setWait(waiting(m.retry_at, m.retry_at_text));
       if (!keepPlace) setAt(m.resume_at);
     } catch (e) {
-      setTrouble(e instanceof ApiError && e.status === 404 ? "There's nothing to do here yet. Ask your manager." : plain(e));
+      setTrouble(notInUse(e) ? NOT_IN_USE
+        : e instanceof ApiError && e.status === 404 ? "There's nothing to do here yet. Ask your manager." : plain(e));
     }
   }, [path]);
 
@@ -232,7 +236,7 @@ function Quiz({ module, path, heading, wait, onWait, onChanged, onBack, onReadAg
       const until = err instanceof ApiError && err.code === "cooldown" ? waiting(body?.retry_at, body?.retry_at_text) : null;
       if (err instanceof ApiError && err.code === "new_version") await onChanged();
       else if (until) onWait(until);
-      else setError(plain(err));
+      else setError(notInUse(err) ? NOT_IN_USE : plain(err));
     } finally {
       setBusy(false);
     }

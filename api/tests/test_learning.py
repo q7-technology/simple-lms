@@ -83,3 +83,18 @@ def test_the_place_is_within_the_module(client, manager_headers, learner_headers
                    json={"version": 1, "page": 6})
     assert r.status_code == 422 and r.json()["errors"] == [
         {"field": "page", "message": "this version has 5 pages, then the quiz"}]
+
+
+def test_a_deactivated_module_is_not_read_or_kept(client, manager_headers, learner_headers, kim):
+    published(client, manager_headers)
+    client.put(f"{INDUCTION}/progress", headers=learner_headers, json={"version": 1, "page": 2})
+    client.post("/v1/competencies/site-induction/deactivate", headers=manager_headers)
+    r = client.get(INDUCTION, headers=learner_headers)
+    assert r.status_code == 409 and r.json()["code"] == "inactive"
+    r = client.put(f"{INDUCTION}/progress", headers=learner_headers, json={"version": 1, "page": 3})
+    assert r.status_code == 409 and r.json()["code"] == "inactive"
+    # its editors still see its versions
+    assert client.get(f"{INDUCTION}/versions", headers=manager_headers).status_code == 200
+    # and back in use, the learner carries on where they were
+    client.post("/v1/competencies/site-induction/reactivate", headers=manager_headers)
+    assert client.get(INDUCTION, headers=learner_headers).json()["resume_at"] == 2
