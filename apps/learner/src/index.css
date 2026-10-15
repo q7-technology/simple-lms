@@ -12,6 +12,7 @@
   --color-tint: #E8F0FA;
   --color-line: #DCE3EC;
   --color-line-2: #C8D3E0;
+  --color-green: #1F8A5B;
   --color-green-ink: #146B45;
   --color-green-bg: #E3F3EA;
   --color-amber-ink: #8A5A00;
@@ -31,6 +32,7 @@
 @layer components {
   .screen { max-width: 480px; margin: 0 auto; min-height: 100vh; padding: max(16px, env(safe-area-inset-top)) 16px 32px; display: flex; flex-direction: column; gap: 16px; }
   .top { display: flex; align-items: center; gap: 10px; font-size: 17px; font-weight: 800; }
+  .chip[aria-pressed="false"] { background: var(--color-line); color: var(--color-ink-2); }
   .chip { margin-left: auto; padding: 6px 12px; border-radius: 999px; background: var(--color-tint); color: var(--color-blue-dark); font-size: 13px; font-weight: 800; }
   .input { height: 56px; padding: 0 16px; border: 1px solid var(--color-line-2); border-radius: 14px; background: #fff; font-size: 18px; width: 100%; }
   .label { display: flex; flex-direction: column; gap: 6px; font-size: 14px; font-weight: 800; }
@@ -77,6 +79,15 @@
   .question legend { font-size: 16px; font-weight: 800; padding: 0 4px; }
   .choice { display: flex; align-items: center; gap: 12px; min-height: 48px; padding: 0 12px; border-radius: 12px; border: 1px solid var(--color-line-2); font-size: 16px; cursor: pointer; }
   .choice input { width: 22px; height: 22px; flex: none; }
+  .ring { display: flex; align-items: center; gap: 14px; background: #fff; border: 1px solid var(--color-line); border-radius: 16px; padding: 12px 16px; }
+  .ring svg { flex: none; }
+  .ring .track { fill: none; stroke: var(--color-line); stroke-width: 8; }
+  .ring .fill { fill: none; stroke: var(--color-blue); stroke-width: 8; stroke-linecap: round; transition: stroke-dasharray 0.6s ease-out; }
+  .ring.all .fill { stroke: var(--color-green); }
+  .ring .tick { fill: none; stroke: var(--color-green); stroke-width: 4; stroke-linecap: round; stroke-linejoin: round; }
+  .ring div { display: flex; flex-direction: column; gap: 2px; }
+  .ring b { font-size: 18px; font-weight: 800; }
+  .ring span { font-size: 14px; color: var(--color-ink-2); }
 }
 
 /* Ding! pops in, unless the viewer asked their phone for less movement. */
@@ -84,6 +95,7 @@
 .ding b { display: inline-block; animation: lms-pop 0.45s ease-out; }
 @media (prefers-reduced-motion: reduce) {
   .ding b { animation: none; }
+  .ring .fill { transition: none; }
 }
 
 /* read aloud, not shown */

@@ -35,6 +35,26 @@ export function plain(e: unknown): string {
   return sentence(e.message) || REFUSED;
 }
 
+const RING_R = 26;
+const RING_AROUND = 2 * Math.PI * RING_R;
+
+/** "3 of 5 done", with a ring that fills as it goes, as the scanner shows a
+ * day's goal. The words say it all; the ring is only the picture of it. */
+export function Ring({ done, of }: { done: number; of: number }) {
+  const all = done === of;
+  return (
+    <div className={`ring${all ? " all" : ""}`}>
+      <svg width="64" height="64" viewBox="0 0 64 64" aria-hidden="true" focusable="false">
+        <circle className="track" cx="32" cy="32" r={RING_R} />
+        <circle className="fill" cx="32" cy="32" r={RING_R} transform="rotate(-90 32 32)"
+                strokeDasharray={`${of ? (RING_AROUND * done) / of : 0} ${RING_AROUND}`} />
+        {all && <path className="tick" d="M22 33l7 7 13-15" />}
+      </svg>
+      <div><b>{done} of {of} done</b><span>{all ? "All done. Nice work." : `${of - done} to go`}</span></div>
+    </div>
+  );
+}
+
 /** The top of a screen reached from My training, with the way back. */
 export function Back() {
   return (
