@@ -22,14 +22,14 @@ import urllib.parse
 from datetime import UTC, datetime, timedelta
 from typing import Literal
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.exc import IntegrityError
 
 from lms.api.deps import DB
-from lms.api.errors import Unauthorised
+from lms.api.errors import Refused, Unauthorised
 from lms.api.routes.auth import SessionOut, signed_in, switched_on
 from lms.config import get_settings
 from lms.models import EntraSignIn, Person
@@ -46,6 +46,11 @@ HANDED_FOR = timedelta(minutes=2)
 KEPT_FOR = timedelta(days=1)
 # a shared tablet asks for the password every time; a desktop lets them pick
 PROMPT = {"learner": "login", "desktop": "select_account"}
+# starts from one address in a minute, counted in the table so every API
+# process sees the same count
+STARTS_A_MINUTE = 30
+# how much of what Microsoft says about a sign-in that didn't finish is logged
+SAID_AT_MOST = 300
 
 
 class StartIn(BaseModel):
@@ -79,6 +84,19 @@ def _must_be_on() -> None:
     switched_on(_on(), "Microsoft")
 
 
+def _printable(text: str) -> str:
+    """Something from the address, fit for one line of the log: no line
+    breaks or other control characters, and not too long."""
+    return "".join(ch if ch.isprintable() else " " for ch in text[:SAID_AT_MOST])
+
+
+def _too_many(db, client: str | None, now: datetime) -> bool:
+    started = db.execute(select(func.count()).select_from(EntraSignIn).where(
+        EntraSignIn.client == client,
+        EntraSignIn.created_at > now - timedelta(minutes=1))).scalar_one()
+    return started >= STARTS_A_MINUTE
+
+
 def _back(app: str, **fragment: str) -> RedirectResponse:
     """To the app's sign-in page, with what it needs after the #."""
     page = "/learn/sign-in" if app == "learner" else "/sign-in"
@@ -88,15 +106,21 @@ def _back(app: str, **fragment: str) -> RedirectResponse:
 
 
 @router.post("/start", response_model=StartOut)
-def start(body: StartIn, db: DB):
-    """Where to send the person to sign in with Microsoft."""
+def start(body: StartIn, db: DB, request: Request):
+    """Where to send the person to sign in with Microsoft. No more than 30 a
+    minute from one address: 429 after that."""
     _must_be_on()
     now = datetime.now(UTC)
+    client = request.client.host if request.client else None
+    if _too_many(db, client, now):
+        raise Refused(429, "too_many_sign_ins", "Too many Microsoft sign-ins from here at once; "
+                      "try again in a minute.", headers={"Retry-After": "60"})
     db.execute(delete(EntraSignIn).where(EntraSignIn.created_at < now - KEPT_FOR))
     state, nonce = secrets.token_urlsafe(32), secrets.token_urlsafe(32)
     verifier = secrets.token_urlsafe(64)
     db.add(EntraSignIn(state_hash=_hash(state), nonce=nonce, code_verifier=verifier,
-                       app=body.app, browser_hash=_hash(body.verifier), created_at=now))
+                       app=body.app, browser_hash=_hash(body.verifier), created_at=now,
+                       client=client))
     db.commit()
     return StartOut(url=entra.authorise_url(get_settings(), settings.current().public_url,
                                             state=state, nonce=nonce, verifier=verifier,
@@ -120,7 +144,8 @@ def callback(db: DB, state: str = "", code: str = "", error: str = "",
     row.returned_at = now
     db.commit()
     if error or not code:
-        log.info("Microsoft sign-in did not finish: %s %s", error, error_description[:200])
+        log.info("Microsoft sign-in did not finish: %s %s", _printable(error),
+                 _printable(error_description))
         return _back(row.app, entra_error="failed")
     if not _on():
         return _back(row.app, entra_error="method_off")
@@ -128,7 +153,7 @@ def callback(db: DB, state: str = "", code: str = "", error: str = "",
         claims = entra.redeem(get_settings(), settings.current().public_url, code,
                               row.code_verifier, row.nonce)
     except entra.EntraError as e:
-        log.warning("Microsoft sign-in refused: %s", e)
+        log.warning("Microsoft sign-in refused: %s", _printable(str(e)))
         return _back(row.app, entra_error="failed")
     person = entra.match(db, claims)
     if person is None:

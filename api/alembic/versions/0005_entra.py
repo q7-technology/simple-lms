@@ -37,6 +37,8 @@ def upgrade() -> None:
         sa.Column("person_id", sa.Integer(), nullable=True),
         sa.Column("handoff_hash", sa.String(length=64), nullable=True),
         sa.Column("finished_at", sa.DateTime(timezone=True), nullable=True),
+        # who asked (their address), so one address can't start too many at once
+        sa.Column("client", sa.String(length=64), nullable=True),
         sa.CheckConstraint("app in ('desktop', 'learner')", name=op.f("ck_entra_sign_in_app")),
         # a hand-off is for someone, and only once Microsoft has sent them back
         sa.CheckConstraint("(person_id is null) = (handoff_hash is null)",
@@ -50,9 +52,11 @@ def upgrade() -> None:
         sa.UniqueConstraint("handoff_hash", name=op.f("uq_entra_sign_in_handoff_hash")),
     )
     op.create_index(op.f("ix_entra_sign_in_created_at"), "entra_sign_in", ["created_at"])
+    op.create_index(op.f("ix_entra_sign_in_client"), "entra_sign_in", ["client", "created_at"])
 
 
 def downgrade() -> None:
+    op.drop_index(op.f("ix_entra_sign_in_client"), table_name="entra_sign_in")
     op.drop_index(op.f("ix_entra_sign_in_created_at"), table_name="entra_sign_in")
     op.drop_table("entra_sign_in")
     # before 0005 there is no such thing as an entra session: end them first

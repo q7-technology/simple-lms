@@ -96,7 +96,10 @@ either app. The session token never goes in an address.
    (`sessionStorage`) until step 3; only its hash is kept. The app sends the
    person to `url`, Microsoft's sign-in page for the tenant
    (`prompt=login` for the learner app, so a shared tablet always asks for
-   the password; `prompt=select_account` for the desktop).
+   the password; `prompt=select_account` for the desktop). More than 30
+   starts in a minute from one address are refused: `429 { "code":
+   "too_many_sign_ins" }` with `Retry-After: 60`. The address is the one
+   Caddy says the request came from (`X-Forwarded-For`, which Caddy sets).
 2. Microsoft sends them to `GET /v1/auth/entra/callback?code=&state=` (the
    redirect URI registered in Entra: the web address in Settings, or
    `LMS_PUBLIC_URL`, then `/v1/auth/entra/callback`).
@@ -113,7 +116,13 @@ either app. The session token never goes in an address.
    `#entra=<hand-off code>`, or `#entra_error=` with `not_matched` (ask your
    manager to add you), `method_off`, or `failed` (anything else: cancelled
    at Microsoft, more than 10 minutes there, a state used before, a token
-   that doesn't check out). The access log leaves its query string out.
+   that doesn't check out, or keys from Microsoft that make no sense). The
+   access log leaves its query string out, and what Microsoft says when a
+   sign-in didn't finish (`error`, `error_description`) is logged on one
+   line, 300 characters at most. The tenant's signing keys are fetched
+   again after a day, or sooner for a token naming a key it doesn't
+   publish, but not within 5 minutes of the last fetch: until then such a
+   token is refused.
 3. `POST /v1/auth/entra/finish` — `{ "code", "verifier" }` → `200`, the
    same shape as `login` with `"method": "entra"` and
    `"idle_seconds": 43200`. A hand-off code works once, within 2 minutes,

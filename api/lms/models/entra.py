@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import CheckConstraint, DateTime, ForeignKey, String, func
+from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Index, String, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from lms.models.base import Base
@@ -20,6 +20,7 @@ class EntraSignIn(Base):
         # a hand-off is for someone, and only once Microsoft has sent them back
         CheckConstraint("(person_id is null) = (handoff_hash is null)", name="handoff"),
         CheckConstraint("handoff_hash is null or returned_at is not null", name="returned"),
+        Index("ix_entra_sign_in_client", "client", "created_at"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -40,3 +41,5 @@ class EntraSignIn(Base):
     person_id: Mapped[int | None] = mapped_column(ForeignKey("person.id"))
     handoff_hash: Mapped[str | None] = mapped_column(String(64), unique=True)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # the address that started it: a minute's starts are counted by it
+    client: Mapped[str | None] = mapped_column(String(64))

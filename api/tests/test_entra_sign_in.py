@@ -2,6 +2,7 @@
 time by an email Microsoft has verified, and refused, never added, when
 nobody matches. The session token never goes in an address, and a hand-off
 works once, soon, and only in the tab that started it."""
+import logging
 import urllib.parse
 from datetime import UTC, datetime, timedelta
 
@@ -208,3 +209,51 @@ def test_sign_ins_a_day_old_are_cleared_away(client, db, entra):
     db.commit()
     to_microsoft(client)
     assert db.execute(select(func.count()).select_from(EntraSignIn)).scalar_one() == 1
+
+
+def test_what_microsoft_says_is_logged_on_one_line_and_not_too_long(client, entra, caplog):
+    code, state = entra.approve(to_microsoft(client))
+    caplog.set_level(logging.INFO, logger="lms.entra")
+    said = "declined\r\nINFO forged: Mel signed in\x1b[2J\x00" + "x" * 1000
+    client.get("/v1/auth/entra/callback", follow_redirects=False, params={
+        "state": state, "error": "access_denied\nforged", "error_description": said})
+    (line,) = [r.getMessage() for r in caplog.records if r.name == "lms.entra"]
+    assert line.startswith("Microsoft sign-in did not finish: access_denied forged declined")
+    assert all(ch.isprintable() for ch in line)
+    # what Microsoft said, 300 characters of it at most
+    assert "x" * 200 in line
+    assert len(line) == len("Microsoft sign-in did not finish: access_denied forged ") + 300
+
+
+@pytest.mark.parametrize("answer", [["a", "list"], {"keys": None}])
+def test_keys_that_make_no_sense_are_a_failed_sign_in(client, entra, manager, monkeypatch,
+                                                      caplog, answer):
+    from lms.services import entra as service
+
+    monkeypatch.setattr(service, "fetch_json", lambda url: answer)
+    caplog.set_level(logging.INFO, logger="lms.entra")
+    assert at_microsoft(client, entra, email=manager.email)[1] == {"entra_error": "failed"}
+    assert any("signing keys" in r.getMessage() for r in caplog.records)
+
+
+def test_thirty_starts_a_minute_from_one_address_is_enough(client, db, entra):
+    for _ in range(30):
+        to_microsoft(client)
+    r = client.post("/v1/auth/entra/start", json={"app": "desktop", "verifier": VERIFIER})
+    assert r.status_code == 429
+    assert r.json()["code"] == "too_many_sign_ins"
+    assert "retry-after" in r.headers
+    assert db.execute(select(func.count()).select_from(EntraSignIn)).scalar_one() == 30
+    # a minute on, they may start again
+    db.execute(update(EntraSignIn).values(created_at=datetime.now(UTC) - timedelta(minutes=2)))
+    db.commit()
+    assert to_microsoft(client)
+
+
+def test_starts_are_counted_by_address(client, db, entra):
+    for _ in range(30):
+        to_microsoft(client)
+    db.execute(update(EntraSignIn).values(client="203.0.113.9"))
+    db.commit()
+    assert to_microsoft(client)
+
