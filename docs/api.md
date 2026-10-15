@@ -866,7 +866,9 @@ import hashlib, hmac
 
 def verify(secret: str, body: bytes, header: str | None) -> bool:
     expected = "sha256=" + hmac.new(secret.encode(), body, hashlib.sha256).hexdigest()
-    return header is not None and hmac.compare_digest(expected, header.strip())
+    # on bytes: a header that isn't ASCII is a mismatch, not an exception
+    return header is not None and hmac.compare_digest(expected.encode(),
+                                                      header.strip().encode())
 ```
 
 ### The events
@@ -915,7 +917,11 @@ A webhook goes to a public address. The worker won't connect to an
 internal one for it: loopback (`127.0.0.1`, `::1`, `localhost`), private
 (`10/8`, `172.16/12`, `192.168/16`, `fc00::/7`), link-local (`169.254/16`,
 a cloud's metadata service among them), shared (`100.64/10`) or otherwise
-reserved, nor ever to an unspecified or multicast one. The address a name
+reserved, nor ever to an unspecified or multicast one. An IPv4 address
+inside an IPv6 one (`::ffff:a.b.c.d`, NAT64's `64:ff9b::/96`, the old
+`::a.b.c.d`) is checked as the IPv4 address it reaches, and a tunnel that
+goes somewhere the address doesn't say (6to4's `2002::/16`, Teredo's
+`2001::/32`) counts as internal. The address a name
 resolves to is checked where the connection is made, each time an event is
 sent, so a name pointed inside later is refused too (the delivery fails
 with `ConnectError: refused: … is an internal address` and is tried again

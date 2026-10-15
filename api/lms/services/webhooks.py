@@ -6,9 +6,9 @@ webhook's as they are when it is sent, so a fixed address or a new secret
 applies to what is still waiting.
 
 What the worker won't do for a webhook: connect to an internal address
-(loopback, private, link-local, shared, reserved; checked on the address the
-name resolves to, where the connection is made, so a name re-pointed inside
-is caught too) unless LMS_WEBHOOK_ALLOW_PRIVATE says so; follow a redirect;
+(loopback, private, link-local, shared, reserved, or an IPv6 address that
+carries or tunnels to one; checked on the address the name resolves to,
+where the connection is made, so a name re-pointed inside is caught too) unless LMS_WEBHOOK_ALLOW_PRIVATE says so; follow a redirect;
 read proxies from the environment; wait more than the timeout; or read more
 than the start of an answer."""
 from __future__ import annotations
@@ -48,18 +48,37 @@ def verify(secret: str, body: bytes, header: str | None) -> bool:
 
 # --- where a webhook may point --------------------------------------------------
 
+NAT64 = ipaddress.ip_network("64:ff9b::/96")
+IPV4_COMPATIBLE = ipaddress.ip_network("::/96")
+# tunnels to somewhere the address doesn't say: 6to4 and Teredo
+TUNNELS = (ipaddress.ip_network("2002::/16"), ipaddress.ip_network("2001::/32"))
+
+
+def _as_itself(ip: ipaddress.IPv4Address | ipaddress.IPv6Address):
+    """The IPv4 address an IPv6 one carries and reaches (mapped, NAT64 or
+    IPv4-compatible), else the address as it is."""
+    if ip.version == 4:
+        return ip
+    if ip.ipv4_mapped is not None:
+        return ip.ipv4_mapped
+    if ip in NAT64 or (ip in IPV4_COMPATIBLE and int(ip) > 1):
+        return ipaddress.IPv4Address(int(ip) & 0xFFFFFFFF)
+    return ip
+
+
 def address_allowed(address: str, allow_private: bool = False) -> bool:
     """Whether the worker may connect to this IP address for a webhook: a
     public one, or (with allow_private) one on this machine or the local
-    network. Never an unspecified or multicast one."""
+    network. Never an unspecified or multicast one. An IPv4 address inside
+    an IPv6 one is checked as itself; a 6to4 or Teredo one is internal."""
     try:
-        ip = ipaddress.ip_address(address.split("%", 1)[0])
+        ip = _as_itself(ipaddress.ip_address(address.split("%", 1)[0]))
     except ValueError:
         return False
-    if ip.version == 6 and ip.ipv4_mapped is not None:
-        ip = ip.ipv4_mapped
     if ip.is_unspecified or ip.is_multicast:
         return False
+    if ip.version == 6 and any(ip in net for net in TUNNELS):
+        return allow_private
     return allow_private or ip.is_global
 
 

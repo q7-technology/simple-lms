@@ -81,6 +81,14 @@ def test_when_it_was_last_used_is_noted_once_a_minute(db, made):
 
 # the competency API, the one door a key opens (and only with its scope)
 KEY_DOOR = {"/v1/people/{code}/competencies", "/v1/people/{code}/competencies/{key}"}
+# what answers without a session, and so is never asked about a key: signing
+# in and out, the health check, and a media link (signed in its query)
+OPEN_WITHOUT_A_SESSION = {
+    ("GET", "/v1/health"), ("GET", "/v1/auth/methods"), ("POST", "/v1/auth/login"),
+    ("POST", "/v1/auth/pin-login"), ("POST", "/v1/auth/logout"),
+    ("POST", "/v1/auth/entra/start"), ("POST", "/v1/auth/entra/finish"),
+    ("GET", "/v1/media/{upload_id}"),
+}
 
 
 def test_no_route_but_the_competency_api_takes_a_key(client, made):
@@ -89,16 +97,19 @@ def test_no_route_but_the_competency_api_takes_a_key(client, made):
 
     from lms.api.app import app
 
-    checked = 0
+    checked, open_ = 0, set()
     for template, operations in app.openapi()["paths"].items():
         if template in KEY_DOOR:
             continue
         path = re.sub(r"\{[^}]+\}", "1", template)
         for method in operations:
             if client.request(method, path).status_code != 401:
-                continue   # open without a session: sign-in, health, a signed media link
+                open_.add((method.upper(), template))
+                continue
             r = client.request(method, path, headers=bearer(made["key"]))
             assert (r.status_code, r.json()["code"]) == (403, "key_not_allowed"), (method, path)
             checked += 1
+    # the only routes open without a session, so a new one can't slip by
+    assert open_ == OPEN_WITHOUT_A_SESSION
     assert checked > 50
 

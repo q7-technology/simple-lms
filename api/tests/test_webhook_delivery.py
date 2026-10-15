@@ -85,6 +85,20 @@ def test_a_receiver_checks_the_signature_like_this():
     assert not webhooks.verify("whsec_test", body, None)
 
 
+def test_the_check_in_the_docs_works_and_a_header_that_is_not_ascii_fails_it():
+    import re
+    from pathlib import Path
+
+    docs = (Path(__file__).parents[2] / "docs" / "api.md").read_text()
+    code = re.search(r"### Checking the signature.*?```python\n(.*?)```", docs, re.S)[1]
+    space: dict = {}
+    exec(code, space)
+    body = b'{"event_id":"e1"}'
+    assert space["verify"]("whsec_test", body, webhooks.sign("whsec_test", body))
+    assert not space["verify"]("whsec_test", body, "sha256=caf\u00e9")
+    assert not webhooks.verify("whsec_test", body, "sha256=caf\u00e9")
+
+
 def test_a_refusal_is_tried_again_after_1_5_30_and_120_minutes(db, hook, receiver):
     r = fired(db)
     receiver.status = 503
@@ -215,6 +229,21 @@ def test_a_public_address_is_allowed(address):
     # 203.0.113.0/24 is for documentation, so Python calls it not global; the
     # others are public resolvers
     assert webhooks.address_allowed(address) == (address != "203.0.113.10")
+
+
+@pytest.mark.parametrize("address, allowed", [
+    # NAT64 (64:ff9b::/96) reaches the IPv4 address in its last 32 bits
+    ("64:ff9b::7f00:1", False), ("64:ff9b::a00:5", False), ("64:ff9b::a9fe:a9fe", False),
+    ("64:ff9b::808:808", True),
+    # an IPv4-compatible address (::a.b.c.d) is the IPv4 address too
+    ("::127.0.0.1", False), ("::10.0.0.5", False), ("::8.8.8.8", True),
+    # 6to4 (2002::/16) and Teredo (2001::/32) tunnel to somewhere else: never
+    ("2002:7f00:1::1", False), ("2002:808:808::1", False),
+    ("2001:0:4136:e378:8000:63bf:3fff:fdd2", False),
+])
+def test_an_ipv4_address_inside_an_ipv6_one_is_checked_as_itself(address, allowed):
+    assert webhooks.address_allowed(address) == allowed
+    assert (webhooks.check_url(f"http://[{address}]/in") is None) == allowed
 
 
 class Resolver:
