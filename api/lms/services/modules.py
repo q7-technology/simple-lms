@@ -64,15 +64,22 @@ def retry_at(db: Db, person_id: int, module: Competency) -> datetime | None:
     minutes, tries = s.quiz_cooldown_minutes, s.quiz_cooldown_tries
     if minutes <= 0:
         return None
+    # the last saved, by id: created_at is when its transaction began, so a
+    # go that waited on the person's lock can be dated before one saved earlier
     last = db.execute(select(QuizAttempt.passed, QuizAttempt.created_at)
                       .where(QuizAttempt.person_id == person_id,
                              QuizAttempt.competency_id == module.id)
-                      .order_by(QuizAttempt.created_at.desc(), QuizAttempt.id.desc())
+                      .order_by(QuizAttempt.id.desc())
                       .limit(tries)).all()
     if len(last) < tries or any(passed for passed, _ in last):
         return None
-    until = last[0].created_at + timedelta(minutes=minutes)
+    until = max(at for _, at in last) + timedelta(minutes=minutes)
     return until if until > clock.now() else None
+
+
+def retry_text(when: datetime | None) -> str | None:
+    """retry_at ready to show, in the business's time zone: "2:15 pm"."""
+    return said_at(when, clock.now()) if when is not None else None
 
 
 def said_at(when: datetime, now: datetime) -> str:
