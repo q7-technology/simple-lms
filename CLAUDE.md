@@ -79,6 +79,15 @@ docker-compose.yml   api, worker, db, caddy
   `/v1/uploads`, 16 MB elsewhere). A module's files open by `/v1/media/`
   links signed for one session; never put a session token in a URL, and
   keep the signature out of the logs (`lms/api/logs.py`).
+- Game Mode: the desktop opens on the classroom (`lib/classroom.ts` works
+  it out from `GET /v1/matrix`, in Simple WMS's isometric view from
+  `lib/iso.ts`; nothing in the API is for it) and every other route opens in
+  `ScreenPanel` over it. A new desktop screen is a line in
+  `apps/desktop/src/ui/screens.ts` and a route in `App.tsx`; its own dialogs
+  are `aria-modal="true"`, so Escape closes them before the panel. Game
+  touches are per viewer, kept in the browser (`lms.game`,
+  `lms.learner.game`) and never sent to the API, and everything the
+  classroom offers stays reachable with Game Mode off.
 - Sister apps: nothing in Simple WMS or Simple TMS changes for Simple LMS. It
   publishes signed events and a competency API (build step 6).
 - Printing: Simple LMS never renders a document. Certificates and skills

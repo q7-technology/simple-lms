@@ -6,15 +6,18 @@ and licences, and signed policies. It answers one question for a business and
 its auditors: is each person current for everything their job needs? It sits
 beside Simple WMS, Simple TMS and Platen and works without any of them.
 
-Status: **build step 3, modules, is done.** People with a code and PIN
+Status: **build step 7, Game Mode, is done.** People with a code and PIN
 or an email and password, roles and the competencies each requires, extras
 and waivers, completions recorded by hand on the desktop, the matrix (with a
 CSV export), and a learner app that shows each person's training. People
 take online modules (pages, then a quiz), sign policies and send in their
 tickets from the learner app; a manager checks each ticket in the desktop's
-Inbox; the worker emails reminders and a Monday digest. Practicals, Entra
-sign-in and the outward links come with the next steps in
-`docs/plans/2026-10-12-simple-lms-design.md`.
+Inbox; the worker emails reminders and a Monday digest. The desktop opens on
+a classroom, a desk for each role with its people sitting at it in green,
+amber or red, and every screen in a drawer over it; the learner app shows a
+ring for how much is done and says Ding! out loud. Practicals, Entra sign-in
+and the outward links (build steps 4 to 6) are still to come, as
+`docs/plans/2026-10-12-simple-lms-design.md` sets out.
 
 ## What is in this repo
 
@@ -53,8 +56,25 @@ nothing else is held up.
 
 The desktop is at `https://<LMS_DOMAIN>/` (default `https://localhost/`,
 self-signed): sign in with that email and password and it opens on the
-matrix. Add competencies, then roles and what each requires, then people.
-Click a cell to see that person's history for it and record a completion.
+classroom. Add competencies, then roles and what each requires, then
+people. Open **Matrix** in the bar along the top and click a cell to see that
+person's history for it and record a completion.
+
+**Game Mode.** The classroom is drawn in the same isometric view as Simple
+WMS and Simple TMS: the board and the teacher's desk at the front, then a
+desk for each role, three to a row, with the people who have that role
+sitting at it (someone with two roles sits at both), coloured by how current
+they are: red, with a "!", if anything asked of them has lapsed or is
+missing; amber if something runs out within 30 days; green if the rest is
+current; grey if nothing is asked. A desk seats six, those who need a look
+first, and its label counts the rest ("Picker +12"). Click a desk's label to
+open the matrix at that role, or a person to open them in People; someone
+with no role yet has no desk, and the line under the heading counts them.
+Every screen opens as a drawer over the classroom: ✕, Escape or a click on
+the classroom goes back, and the bar along the top stays, so the matrix is
+always one click away. **Game Mode** in the bar turns it all off for you, on
+that computer: the desktop then opens on the matrix, each screen a page of
+its own. It is kept in your browser, never in Simple LMS.
 
 **Policies.** Add a competency of kind *Signed policy*, open it under
 **Competencies** and publish version 1 of its text. Each person asked for
@@ -110,7 +130,10 @@ as if today were that date, to try it out).
 The learner app is at `https://<LMS_DOMAIN>/learn/`. A person signs in with
 their code and PIN (set when they are added, or reset by a manager under
 **People**), or their email and password, and sees **My training**: Overdue,
-Due soon and Done. A PIN session ends after 15 minutes without a tap, and the
+Due soon and Done, with a ring for how much is done ("3 of 5 done"). A pass
+on a module or a signed policy says Ding!, out loud unless **Sound** beside
+Sign out is off; that switch is the device's, so on a shared tablet it stays
+as the last person left it. A PIN session ends after 15 minutes without a tap, and the
 app forgets that person on the device then too, even if nobody touches it, so
 a shared tablet is safe; signing out in one tab signs out the others. The PIN
 form asks the browser not to remember a code or PIN (if a browser offers
