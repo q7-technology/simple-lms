@@ -111,6 +111,9 @@ jobs:
             "select count(*) from pg_trigger where tgname like '%_draft_only' or tgname = 'module_version_publish_once'" | grep -qx 3
           docker compose exec -T db psql -U lms -d lms -tAc \
             "select count(*) from pg_trigger where tgname in ('quiz_attempt_published_only', 'competency_record_quiz_pass')" | grep -qx 2
+          # the settings an admin changes on the Settings screen
+          docker compose exec -T db psql -U lms -d lms -tAc \
+            "select count(*) from information_schema.tables where table_name = 'setting'" | grep -qx 1
           for i in $(seq 1 30); do
             if docker compose logs worker | grep -q "worker started"; then up=1; break; fi
             sleep 2
