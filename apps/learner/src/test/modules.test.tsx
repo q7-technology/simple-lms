@@ -44,6 +44,7 @@ function stubModule(module: Module = INDUCTION, attempts: Response[] = [json(201
   });
 }
 
+const method204 = (method: string) => (method === "PUT" ? new Response(null, { status: 204 }) : null);
 const places = (calls: Call[]) => calls.filter((c) => c.method === "PUT").map((c) => c.body);
 
 describe("the module player", () => {
@@ -60,7 +61,7 @@ describe("the module player", () => {
     expect(screen.getByText("Walk inside the green lines.")).toBeInTheDocument();
 
     await userEvent.click(screen.getByRole("button", { name: "Next" }));
-    expect(screen.getByRole("link", { name: /Open the PDF/ })).toHaveAttribute("href", link("p-1"));
+    expect(screen.getByRole("link", { name: "Open the PDF (downloads the PDF)" })).toHaveAttribute("href", link("p-1"));
 
     await userEvent.click(screen.getByRole("button", { name: "Next" }));
     expect(screen.getByLabelText("Lifting safely")).toHaveAttribute("src", link("v-1"));
@@ -114,6 +115,63 @@ describe("the module player", () => {
     expect(screen.getByRole("alert")).toHaveTextContent("The video couldn't be played.");
   });
 
+  it("keeps focus with the reader: each new page's heading takes it", async () => {
+    stubModule();
+    renderApp(KIM, Date.now(), "/module/site-induction");
+    await userEvent.click(await screen.findByRole("button", { name: "Next" }));
+    expect(document.activeElement).toBe(screen.getByRole("heading", { name: "The yard" }));
+    await userEvent.click(screen.getByRole("button", { name: "Back" }));
+    expect(document.activeElement).toBe(screen.getByRole("heading", { name: "Welcome" }));
+  });
+
+  it("takes focus to the quiz from the last page", async () => {
+    stubModule({ ...INDUCTION, resume_at: 4 });
+    renderApp(KIM, Date.now(), "/module/site-induction");
+    await userEvent.click(await screen.findByRole("button", { name: "Start the quiz" }));
+    expect(document.activeElement).toBe(screen.getByRole("heading", { name: "The quiz" }));
+  });
+
+  it("saves only the last page tapped when taps outrun the saves", async () => {
+    const held: Array<() => void> = [];
+    const calls = stubApi(((method: string, url: string) => {
+      if (url === "/v1/modules/site-induction") return json(200, INDUCTION);
+      if (method === "PUT") return new Promise<Response>((done) => held.push(() => done(new Response(null, { status: 204 }))));
+      return null;
+    }) as unknown as Parameters<typeof stubApi>[0]);
+    renderApp(KIM, Date.now(), "/module/site-induction");
+    await userEvent.click(await screen.findByRole("button", { name: "Next" }));
+    await userEvent.click(screen.getByRole("button", { name: "Next" }));
+    await userEvent.click(screen.getByRole("button", { name: "Next" }));
+    expect(screen.getByLabelText("Page 4 of 5")).toBeInTheDocument();
+    // one save at a time: the rest wait for it
+    expect(places(calls)).toEqual([{ version: 1, page: 1 }]);
+    await act(async () => { held.shift()!(); });
+    await waitFor(() => expect(places(calls)).toEqual([{ version: 1, page: 1 }, { version: 1, page: 3 }]));
+    await act(async () => { held.shift()!(); });
+    expect(places(calls).at(-1)).toEqual({ version: 1, page: 3 });
+    expect(held).toHaveLength(0);
+  });
+
+  it("offers to load a picture again when its link has run out", async () => {
+    let n = 0;
+    const calls = stubApi((_m, url) => url === "/v1/modules/site-induction"
+      ? json(200, { ...INDUCTION, resume_at: 0, version: { ...INDUCTION.version, pages: INDUCTION.version.pages.map((p) =>
+          p.file ? { ...p, file: { ...p.file, link: `${p.file.link}&n=${n++}` } } : p) } })
+      : method204(_m));
+    renderApp(KIM, Date.now(), "/module/site-induction");
+    await userEvent.click(await screen.findByRole("button", { name: "Next" }));
+    const first = screen.getByRole("img", { name: "The yard" }).getAttribute("src");
+    fireEvent.error(screen.getByRole("img", { name: "The yard" }));
+    expect(screen.getByRole("alert")).toHaveTextContent("The picture couldn't be shown.");
+    expect(screen.queryByRole("img", { name: "The yard" })).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Load it again" }));
+    const again = await screen.findByRole("img", { name: "The yard" });
+    expect(again.getAttribute("src")).not.toBe(first);
+    // still on the same page
+    expect(screen.getByLabelText("Page 2 of 5")).toBeInTheDocument();
+    expect(calls.filter((c) => c.url === "/v1/modules/site-induction")).toHaveLength(2);
+  });
+
   it("says when there is nothing to take yet", async () => {
     stubApi((_m, url) => url === "/v1/modules/site-induction"
       ? json(404, { detail: "Site induction has nothing to take yet" }) : null);
@@ -130,7 +188,10 @@ describe("the module player", () => {
     expect(handIn).toBeDisabled();
     await userEvent.click(within(screen.getByRole("group", { name: "2. What do you wear on the floor?" })).getByLabelText("Your PPE"));
     await userEvent.click(handIn);
-    expect(await screen.findByRole("status", { name: "Passed" })).toHaveTextContent("Ding!You passed Site induction with 100%.");
+    const passed = await screen.findByRole("status", { name: "Passed" });
+    expect(passed).toHaveTextContent("Ding!You passed Site induction with 100%.");
+    // the form went: focus goes to the result, so it is read out
+    expect(document.activeElement).toBe(passed);
     expect(calls.find((c) => c.url === "/v1/modules/site-induction/attempts")?.body).toEqual({ version: 1, answers: [0, 1] });
   });
 
@@ -140,9 +201,11 @@ describe("the module player", () => {
     await userEvent.click(await screen.findByLabelText("The canteen"));
     await userEvent.click(screen.getByLabelText("Your PPE"));
     await userEvent.click(screen.getByRole("button", { name: "Hand it in" }));
-    expect(await screen.findByRole("status", { name: "Not passed" })).toHaveTextContent(
-      "50%Not this time: you need 80% to pass. Read it again, or have another go.");
+    const missed = await screen.findByRole("status", { name: "Not passed" });
+    expect(missed).toHaveTextContent("50%Not this time: you need 80% to pass. Read it again, or have another go.");
+    expect(document.activeElement).toBe(missed);
     await userEvent.click(screen.getByRole("button", { name: "Try again" }));
+    expect(document.activeElement).toBe(screen.getByRole("heading", { name: "The quiz" }));
     // a fresh start: nothing chosen
     expect(screen.getByLabelText("The canteen")).not.toBeChecked();
     expect(screen.getByRole("button", { name: "Hand it in" })).toBeDisabled();

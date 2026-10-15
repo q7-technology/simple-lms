@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type FormEvent, type RefObject } from "react";
 import { Link, useParams } from "react-router-dom";
 import { api, ApiError } from "../api/client";
 import type { Attempt, Module, ModulePage } from "../api/types";
@@ -19,20 +19,35 @@ export function ModulePlayer() {
   const [trouble, setTrouble] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const top = useRef<HTMLHeadingElement>(null);
+  // the heading of the page (or the quiz) on show: focus goes there on a move
+  const heading = useRef<HTMLHeadingElement>(null);
+  const moved = useRef(false);
+  // one place saved at a time; taps while one is on its way keep only the last
+  const saving = useRef(false);
+  const wanted = useRef<{ version: number; page: number } | null>(null);
   const path = `/v1/modules/${encodeURIComponent(key)}`;
 
-  const load = useCallback(async () => {
+  /** Fetch the module; `keepPlace` stays on the page on show (fresh links
+   * for the same pages), otherwise it opens where they left off. */
+  const load = useCallback(async (keepPlace = false) => {
     setTrouble(null);
     try {
       const m = await api.get<Module>(path);
       setModule(m);
-      setAt(m.resume_at);
+      if (!keepPlace) setAt(m.resume_at);
     } catch (e) {
       setTrouble(e instanceof ApiError && e.status === 404 ? "There's nothing to do here yet. Ask your manager." : plain(e));
     }
   }, [path]);
 
   useEffect(() => { void load(); }, [load]);
+
+  // the button they pressed went with the old page: take focus to the new one
+  useEffect(() => {
+    if (!moved.current) return;
+    moved.current = false;
+    heading.current?.focus({ preventScroll: true });
+  }, [at]);
 
   /** A newer version came out while they read: it starts from the top. */
   const changed = useCallback(async () => {
@@ -45,11 +60,35 @@ export function ModulePlayer() {
   function go(page: number) {
     if (!module) return;
     setNotice(null);
+    moved.current = true;
     setAt(page);
     // a long page was scrolled down: the next one starts at its top
     top.current?.scrollIntoView?.({ block: "start" });
-    api.put(`${path}/progress`, { version: module.version.version, page })
-      .catch((e) => { if (e instanceof ApiError && e.code === "new_version") void changed(); });
+    wanted.current = { version: module.version.version, page };
+    void save();
+  }
+
+  /** Sends the latest place, after any still on its way, so an earlier tap
+   * never lands last. */
+  async function save() {
+    if (saving.current) return;
+    saving.current = true;
+    try {
+      while (wanted.current) {
+        const place = wanted.current;
+        wanted.current = null;
+        try {
+          await api.put(`${path}/progress`, place);
+        } catch (e) {
+          if (e instanceof ApiError && e.code === "new_version") {
+            wanted.current = null;
+            void changed();
+          }
+        }
+      }
+    } finally {
+      saving.current = false;
+    }
   }
 
   const pages = module?.version.pages ?? [];
@@ -63,10 +102,10 @@ export function ModulePlayer() {
           <h1 ref={top} style={{ margin: 0, fontSize: 26, fontWeight: 800 }}>{module.name}</h1>
           {notice && <div className="msg r" role="alert">{notice}</div>}
           {at < pages.length ? (
-            <PageView key={at} page={pages[at]} n={at + 1} count={pages.length}
-                      onBack={() => go(at - 1)} onNext={() => go(at + 1)} />
+            <PageView key={at} page={pages[at]} n={at + 1} count={pages.length} heading={heading}
+                      onBack={() => go(at - 1)} onNext={() => go(at + 1)} onReload={() => void load(true)} />
           ) : (
-            <Quiz key={module.version.id} module={module} path={path} onChanged={changed}
+            <Quiz key={module.version.id} module={module} path={path} heading={heading} onChanged={changed}
                   onBack={() => go(pages.length - 1)} onReadAgain={() => go(0)} />
           )}
         </>
@@ -75,8 +114,9 @@ export function ModulePlayer() {
   );
 }
 
-function PageView({ page, n, count, onBack, onNext }: {
-  page: ModulePage; n: number; count: number; onBack: () => void; onNext: () => void;
+function PageView({ page, n, count, heading, onBack, onNext, onReload }: {
+  page: ModulePage; n: number; count: number; heading: RefObject<HTMLHeadingElement | null>;
+  onBack: () => void; onNext: () => void; onReload: () => void;
 }) {
   return (
     <>
@@ -84,13 +124,13 @@ function PageView({ page, n, count, onBack, onNext }: {
         <span>Page {n} of {count}</span>
         <span className="bar"><span style={{ width: `${(n / (count + 1)) * 100}%` }} /></span>
       </div>
-      <h2 className="pagetitle">{page.title}</h2>
+      <h2 ref={heading} tabIndex={-1} className="pagetitle">{page.title}</h2>
       {page.kind === "text" && <article className="policy" aria-label={page.title}>{page.body}</article>}
-      {page.kind === "image" && page.file && <img className="pageimg" src={page.file.link} alt={page.title} />}
+      {page.kind === "image" && page.file && <Picture key={page.file.link} link={page.file.link} title={page.title} onReload={onReload} />}
       {page.kind === "video" && page.file && <Video link={page.file.link} title={page.title} />}
       {page.kind === "pdf" && page.file && (
         <a className="big ghost as-button" href={page.file.link} target="_blank" rel="noopener noreferrer">
-          Open the PDF<span className="sr-only"> (opens on its own)</span></a>
+          Open the PDF<span className="sr-only"> (downloads the PDF)</span></a>
       )}
       {page.kind === "link" && page.url && (
         <a className="big ghost as-button" href={page.url} target="_blank" rel="noopener noreferrer">
@@ -103,6 +143,21 @@ function PageView({ page, n, count, onBack, onNext }: {
       </div>
     </>
   );
+}
+
+/** Its signed link runs out after a while: loading the module again gets a
+ * fresh one. */
+function Picture({ link, title, onReload }: { link: string; title: string; onReload: () => void }) {
+  const [failed, setFailed] = useState(false);
+  if (failed) {
+    return (
+      <div className="msg r" role="alert">
+        The picture couldn't be shown.{" "}
+        <button type="button" className="link" onClick={onReload}>Load it again</button>
+      </div>
+    );
+  }
+  return <img className="pageimg" src={link} alt={title} onError={() => setFailed(true)} />;
 }
 
 /** Played as it was uploaded; the phone seeks it with Range requests. While
@@ -123,8 +178,9 @@ function Video({ link, title }: { link: string; title: string }) {
                 onTimeUpdate={playing} onError={() => setFailed(true)} />;
 }
 
-function Quiz({ module, path, onChanged, onBack, onReadAgain }: {
-  module: Module; path: string; onChanged: () => Promise<void>; onBack: () => void; onReadAgain: () => void;
+function Quiz({ module, path, heading, onChanged, onBack, onReadAgain }: {
+  module: Module; path: string; heading: RefObject<HTMLHeadingElement | null>;
+  onChanged: () => Promise<void>; onBack: () => void; onReadAgain: () => void;
 }) {
   const { questions, pass_mark: passMark, version } = module.version;
   const none = () => questions.map(() => null as number | null);
@@ -132,6 +188,15 @@ function Quiz({ module, path, onChanged, onBack, onReadAgain }: {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<Attempt | null>(null);
+  // the form goes when the result comes (and back on another go), taking
+  // focus with it: it goes to the result, so it is read out, or the quiz's top
+  const said = useRef<HTMLElement>(null);
+  const again = useRef(false);
+
+  useEffect(() => {
+    if (result) said.current?.focus();
+    else if (again.current) { again.current = false; heading.current?.focus(); }
+  }, [result, heading]);
 
   async function handIn(e: FormEvent) {
     e.preventDefault();
@@ -150,7 +215,7 @@ function Quiz({ module, path, onChanged, onBack, onReadAgain }: {
   if (result?.passed) {
     return (
       <>
-        <section className="ding" role="status" aria-label="Passed">
+        <section ref={said} tabIndex={-1} className="ding" role="status" aria-label="Passed">
           <b>Ding!</b>
           <span>You passed {module.name} with {result.score}%.</span>
         </section>
@@ -161,18 +226,18 @@ function Quiz({ module, path, onChanged, onBack, onReadAgain }: {
   if (result) {
     return (
       <>
-        <section className="miss" role="status" aria-label="Not passed">
+        <section ref={said} tabIndex={-1} className="miss" role="status" aria-label="Not passed">
           <b>{result.score}%</b>
           <span>Not this time: you need {result.pass_mark}% to pass. Read it again, or have another go.</span>
         </section>
-        <button type="button" className="big primary" onClick={() => { setResult(null); setAnswers(none()); }}>Try again</button>
+        <button type="button" className="big primary" onClick={() => { again.current = true; setResult(null); setAnswers(none()); }}>Try again</button>
         <button type="button" className="big ghost" onClick={onReadAgain}>Read it again</button>
       </>
     );
   }
   return (
     <form onSubmit={handIn} style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-      <h2 className="pagetitle">The quiz</h2>
+      <h2 ref={heading} tabIndex={-1} className="pagetitle">The quiz</h2>
       <div className="small" style={{ color: "var(--color-muted)" }}>
         {questions.length} {questions.length === 1 ? "question" : "questions"}. You need {passMark}% to pass, and you can try again.</div>
       {questions.map((q, i) => (
