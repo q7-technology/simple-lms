@@ -218,8 +218,9 @@ a grant for an older version (or from before there were versions) is
 
 ### GET /v1/matrix
 `matrix:read`. Filters: `role` (key), `supervisor` (code), `status` (comma
-separated: people with at least one cell in it). An unknown status, or a
-supervisor code that is nobody, is `422`. Active people by name; a
+separated: people with at least one cell in it). An unknown status,
+`not_required` (the columns are only what the people shown are asked for,
+so it would match nobody), or a supervisor code that is nobody, is `422`. Active people by name; a
 supervisor sees their own team. The columns are what any of them is asked
 for, by name, and every person has a cell in every column:
 ```json

@@ -105,6 +105,16 @@ def test_a_bad_filter_is_422(client, manager_headers, team):
     assert client.get("/v1/matrix?supervisor=NOBODY", headers=manager_headers).status_code == 422
 
 
+def test_not_required_is_not_a_filter(client, manager_headers, team):
+    # a filter on it would match nobody: the columns are what the people shown are asked for
+    for query in ("status=not_required", "status=missing,not_required"):
+        r = client.get(f"/v1/matrix?{query}", headers=manager_headers)
+        assert r.status_code == 422, r.text
+        assert "not_required" in r.text
+    assert client.get("/v1/matrix.csv?status=not_required",
+                      headers=manager_headers).status_code == 422
+
+
 def test_deactivated_people_and_competencies_drop_out(client, manager_headers, team):
     client.post("/v1/people/LL099/deactivate", headers=manager_headers)
     client.post("/v1/competencies/forklift-licence/deactivate", headers=manager_headers)

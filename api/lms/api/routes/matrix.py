@@ -73,10 +73,13 @@ def _statuses(status: str | None) -> set[str] | None:
     if not status:
         return None
     wanted = {s.strip() for s in status.split(",") if s.strip()}
-    unknown = wanted - set(STATUSES)
+    # not_required is never a filter: the columns are what the people shown
+    # are asked for, so it would match nobody
+    filters = [s for s in STATUSES if s != "not_required"]
+    unknown = wanted - set(filters)
     if unknown:
-        raise FieldError("status", f"unknown status {sorted(unknown)[0]}; one of "
-                                   f"{', '.join(STATUSES)}")
+        raise FieldError("status", f"can't filter on {sorted(unknown)[0]}; one of "
+                                   f"{', '.join(filters)}")
     return wanted
 
 
@@ -127,7 +130,7 @@ def matrix(db: DB, role: str | None = None, supervisor: str | None = None,
            status: str | None = None, who: Principal = require("matrix:read")):
     """Active people by name; columns are what any of them is asked for, by
     name. Filters: `role` (key), `supervisor` (code), `status` (comma
-    separated: people with at least one cell in it)."""
+    separated: people with at least one cell in it; not `not_required`)."""
     return build(db, who, role, supervisor, status)
 
 
