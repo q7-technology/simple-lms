@@ -114,6 +114,8 @@ jobs:
           # the settings an admin changes on the Settings screen
           docker compose exec -T db psql -U lms -d lms -tAc \
             "select count(*) from information_schema.tables where table_name = 'setting'" | grep -qx 1
+          # Microsoft isn't offered until LMS_ENTRA_* are set
+          curl -fsS http://127.0.0.1:8033/v1/auth/methods | grep -qx '{"pin":true,"password":true,"entra":false}'
           for i in $(seq 1 30); do
             if docker compose logs worker | grep -q "worker started"; then up=1; break; fi
             sleep 2
