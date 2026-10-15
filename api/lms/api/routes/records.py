@@ -17,7 +17,7 @@ from lms.api.errors import Conflict, FieldError, Forbidden, NotFound
 from lms.api.routes.competencies import get_competency
 from lms.api.routes.people import get_person
 from lms.api.schemas import CompetencyRef, PersonRef, competency_ref, normal_key, person_ref
-from lms.models import Competency, CompetencyRecord
+from lms.models import Competency, CompetencyRecord, Signoff
 from lms.services import clock, policies
 
 router = APIRouter(tags=["records"])
@@ -45,6 +45,18 @@ class QuizOut(BaseModel):
     pass_mark: int
 
 
+class SignoffOut(BaseModel):
+    """A practical signed off on the phone: the checklist version, what was
+    ticked, the note and photo, and both signatures (GET /v1/uploads/{id}).
+    The supervisor is the record's recorded_by."""
+    version: int
+    ticked: list[str]
+    note: str | None
+    photo: uuid.UUID | None
+    supervisor_signature: uuid.UUID
+    learner_signature: uuid.UUID
+
+
 class RecordOut(BaseModel):
     id: int
     competency: CompetencyRef
@@ -62,7 +74,17 @@ class RecordOut(BaseModel):
     ticket: int | None
     # a module passed in the learner app: the quiz that passed it
     quiz: QuizOut | None
+    # a practical signed off on the phone
+    signoff: SignoffOut | None
     created_at: datetime
+
+
+def signoff_out(s: Signoff) -> SignoffOut:
+    return SignoffOut(version=s.practical_version.version,
+                      ticked=[t.item.text for t in sorted(s.ticked, key=lambda t: t.item.position)],
+                      note=s.note, photo=s.photo_upload_id,
+                      supervisor_signature=s.supervisor_signature_upload_id,
+                      learner_signature=s.learner_signature_upload_id)
 
 
 def record_out(r: CompetencyRecord) -> RecordOut:
@@ -75,6 +97,7 @@ def record_out(r: CompetencyRecord) -> RecordOut:
                      ticket=r.ticket_submission_id,
                      quiz=QuizOut(version=a.module_version.version, score=a.score,
                                   pass_mark=a.module_version.pass_mark) if a else None,
+                     signoff=signoff_out(r.signoff) if r.signoff else None,
                      created_at=r.created_at)
 
 
